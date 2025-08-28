@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %} Login {% endblock %}
+
+{% block style_css %}
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Poppins', sans-serif;
+  position: relative;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  background: url("{% static 'images/loginbackground.jpg' %}") no-repeat center center;
+  background-size: cover;
+  filter: blur(5px);
+  z-index: -1;
+}
+
+
+  .header {
+    background-color: rgba(255, 255, 255, 0.95);
+    padding: 10px 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    z-index: 1000;
+    position: fixed;
+    top: 0px;
+    width: 100%;
+  }
+
+  .login-wrapper {
+    min-height: 100vh;
+    padding-top: 150px;
+  }
+
+  .login-card {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 20px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+    width: 100%;
+    max-width: 400px;
+    margin: auto;
+    overflow: hidden;
+    animation: fadeInUp 1s ease-out;
+  }
+
+  .login-header {
+    background: linear-gradient(135deg, #1e90ff, #3399ff);
+    color: white;
+    padding: 20px;
+    text-align: center;
+    font-size: 24px;
+    font-weight: 600;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+
+  .login-body {
+    padding: 30px 20px;
+  }
+
+  .form-control {
+    border-radius: 10px;
+    font-size: 15px;
+    padding: 10px;
+  }
+
+  .form-control:focus {
+    box-shadow: 0 0 8px rgba(30, 144, 255, 0.5);
+    border-color: #1e90ff;
+  }
+
+  .btn-custom-green {
+    background-color: #4CAF50;
+    border: none;
+    color: white;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 10px 24px;
+    transition: all 0.3s ease-in-out;
+  }
+
+  .btn-custom-green:hover {
+    background-color: #3e8e41;
+    transform: scale(1.05);
+  }
+
+  .btn-custom-dark {
+    background-color: #5a6671;
+    border: none;
+    color: white;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 10px 24px;
+    transition: all 0.3s ease-in-out;
+  }
+
+  .btn-custom-dark:hover {
+    background-color: #49525a;
+    transform: scale(1.05);
+  }
+
+  .footer {
+    bottom: 0;
+    width: 100%;
+    padding: 10px 0;
+      
+  }
+
+  .footer p {
+    margin: 0;
+    font-weight: 600;
+    color: #000;
+    font-size: 14px;
+  }
+
+  .footer a {
+    background: linear-gradient(to right, #2575fc, #6a11cb);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-size: 1rem;
+    text-decoration: none;
+    font-weight: bold;
+  }
+
+  .footer img {
+    height: 20px;
+    vertical-align: middle;
+    margin: 0 5px;
+  }
+
+  @keyframes fadeInUp {
+    0% { opacity: 0; transform: translateY(30px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+</style>
+{% endblock %}
+
+{% block sidebar %}{% endblock %}
+
+{% block content %}
+<div class="header">
+  <div class="container-fluid py-2">
+    <div class="row align-items-center justify-content-between">
+      <div class="col-auto">
+        <img src="{% static 'images/TeimLogo.png' %}" alt="TEIM Logo" height="50" class="d-block">
+      </div>
+      <div class="col-auto ml-auto">
+        <img src="{% static 'images/crono.png' %}" alt="Chronoanalytics Logo" height="50" class="d-block">
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div class="container login-wrapper">
+  <div class="row justify-content-center">
+    <div class="col-md-6">
+      <div class="login-card" data-aos="zoom-in">
+        <div class="login-header">Login Page</div>
+        <div class="login-body">
+          <form method="post">
+            {% csrf_token %}
+            {% if error %}
+              <p class="text-danger text-center">{{ error }}</p>
+            {% endif %}
+            <div class="form-group mb-3">
+              <input type="text" class="form-control" name="username" placeholder="Username *" required />
+            </div>
+            <div class="form-group mb-4">
+              <input type="password" class="form-control" name="password" placeholder="Password *" required />
+            </div>
+            <div class="row">
+              <div class="col-6 text-left">
+                <button type="submit" class="btn btn-custom-green btn-block">SIGN IN</button>
+              </div>
+              <div class="col-6 text-right">
+              <a href="{% url 'index' %}" class="btn btn-custom-dark btn-block">GO BACK</a>
+
+            </div>
+            </div>
+
+            {% if messages %}
+              {% for message in messages %}
+                <div class="alert alert-{{ message.tags }} alert-dismissible fade show text-center mt-3" role="alert">
+                  {% if message.tags == "error" %}
+                    <i class="fas fa-exclamation-circle mr-2 text-danger"></i>
+                    <strong>Oops!</strong> Invalid credentials. Please try again.
+                  {% elif message.tags == "success" %}
+                    <i class="fas fa-check-circle mr-2 text-success"></i>
+                    <strong>Welcome Back!</strong> {{ message }}
+                  {% else %}
+                    {{ message }}
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% endif %}
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container-fluid py-3 mt-5   footer">
+  <div class="row text-center justify-content-center">
+    <div class="col-md-auto">
+      <span style="font-weight: 600; color: #000;">
+        © 2025. Powered by
+        <img src="{% static 'images/crono.png' %}" alt="Chronoanalytics Logo">
+        <a href="http://www.chronoanalytics.in/" target="_blank">Chronoanalytics Solution</a>
+        |
+        Marketed by
+        <img src="{% static 'images/TeimLogo.png' %}" alt="Teim Logo">
+        <a href="http://teim.in/" target="_blank">TEIM</a>
+      </span>
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<!-- AOS CSS -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css" rel="stylesheet">
+<!-- AOS JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script>
+<script>
+  AOS.init();
+</script>
+<script>
+  function goBack() {
+    window.history.back();
+  }
+</script>
+{% endblock scripts %}

@@ -1,0 +1,115 @@
+{% extends "basesolar.html" %}
+{% load static %}
+
+{% block style_css %}
+<style>
+  .form-heading {
+    background: linear-gradient(to right, #7b2cbf, #9d4edd);
+    color: #fff;
+    padding: 15px 25px;
+    border-top-left-radius: 15px;
+    border-top-right-radius: 15px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .card {
+    border-radius: 15px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    overflow: hidden;
+  }
+
+  .card-body {
+    padding: 20px;
+  }
+
+  canvas {
+    max-height: 350px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="margin-top: 80px;">
+  <div class="row g-4">
+
+    <!-- Power Sale Pie Chart -->
+    <div class="col-12 col-md-6">
+      <div class="card">
+        <div class="form-heading text-center">Power Sale Summary</div>
+        <div class="card-body">
+          <canvas id="powerSaleChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Land Bar Chart -->
+    <div class="col-12 col-md-6">
+      <div class="card">
+        <div class="form-heading text-center">Land Type Summary</div>
+        <div class="card-body">
+          <canvas id="landChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Power Sale Chart (Pie)
+  const powerSaleCtx = document.getElementById('powerSaleChart').getContext('2d');
+  new Chart(powerSaleCtx, {
+    type: 'pie',
+    data: {
+      labels: {{ power_sale_labels|safe }},
+      datasets: [{
+        data: {{ power_sale_values|safe }},
+        backgroundColor: [
+          '#7b2cbf','#9d4edd','#c77dff','#e0aaff','#ff6b6b',
+          '#4dabf7','#20c997','#ffc107','#ff922b','#495057'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+      }
+    }
+  });
+
+  // Land Chart (Bar)
+  const landCtx = document.getElementById('landChart').getContext('2d');
+  new Chart(landCtx, {
+    type: 'bar',
+    data: {
+      labels: {{ land_labels|safe }},
+      datasets: [{
+        label: 'Count',
+        data: {{ land_values|safe }},
+        backgroundColor: '#9d4edd'
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 1 }
+        }
+      }
+    }
+  });
+</script>
+
+<div class="sp" style="position: absolute; bottom: 0px; width: 100%;">
+  {% include 'fotter.html' %}
+</div>
+{% endblock %}
