@@ -510,6 +510,12 @@ import os
 import re  # ✅ for cleaning column names
 from .models import UploadMetadata  # ✅ import your model
 from django.utils.timezone import now  # for timezone-aware timestamp
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib import messages
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+
 
 @login_required
 def upload_files(request):
@@ -538,10 +544,11 @@ def upload_files(request):
 
     if request.method == 'POST':
         table_name = request.POST.get('provider', '').strip()
+        provider_name = request.POST.get('provider_name', '').strip()  # ✅ new
         data_file = request.FILES.get('data_file')
 
-        if not table_name or not data_file:
-            messages.error(request, "Both table and file are required.")
+        if not table_name or not data_file or not provider_name:
+            messages.error(request, "Table, file, and provider are required.")
             return redirect('upload_files')
 
         try:
@@ -583,6 +590,8 @@ def upload_files(request):
                 df['energy_type'] = energy_type
             if 'uploaded_by' in table_columns:
                 df['uploaded_by'] = uploaded_by
+            if 'provider' in table_columns:   # ✅ new
+                df['provider'] = provider_name
 
             # ✅ Insert data row by row
             rows_inserted = 0

@@ -459,29 +459,7 @@ margin: 0 10px;
 <div class="dashboard-option-header">
   <div class="d-flex gap-3 flex-wrap">
 
-    <!-- Solar -->
-    <div class="energy-toggle">
-      <input type="radio" name="energy_type" id="energy_btn1" class="energy-input d-none"
-        {% if request.path == '/solar/' %}checked{% endif %}>
-      <label for="energy_btn1"
-             class="energy-label {% if request.path == '/solar/' %}active{% endif %}"
-             onclick="window.location.href='{% url 'solar_dashboard' %}'">
-        <i class="fas fa-bolt"></i> Solar
-        <span class="check-icon"><i class="fas fa-check"></i></span>
-      </label>
-    </div>
-
-    <!-- Wind -->
-    <div class="energy-toggle">
-      <input type="radio" name="energy_type" id="energy_btn2" class="energy-input d-none"
-        {% if request.path == '/' %}checked{% endif %}>
-      <label for="energy_btn2"
-             class="energy-label {% if request.path == '/' %}active{% endif %}"
-             onclick="window.location.href='{% url 'customer_dashboard' %}'">
-        <i class="fas fa-bolt"></i> Wind
-        <span class="check-icon"><i class="fas fa-check"></i></span>
-      </label>
-    </div>
+  
 
   </div>
 </div>
@@ -548,7 +526,7 @@ margin: 0 10px;
           {% if request.path == '/' %}checked{% endif %}>
         <label for="energy_btn2"
                class="energy-label {% if request.path == '/' %}active{% endif %}"
-               onclick="window.location.href='{% url 'customer_dashboard' %}'">
+               onclick="window.location.href='{% url 'wind_dashboard' %}'">
           <i class="fas fa-wind"></i> Wind
           <span class="check-icon"><i class="fas fa-check"></i></span>
         </label>

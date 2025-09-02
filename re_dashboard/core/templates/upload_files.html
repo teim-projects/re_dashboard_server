@@ -93,16 +93,17 @@
                 </select>
               </div>
 
-              <!-- ✅ Select Provider -->
-              <div class="col-md-4 mb-3">
-                <label class="form-label">Select Provider</label>
-                <select class="form-control" id="providerSelect">
-                  <option value="">-- Select --</option>
-                  {% for provider in providers %}
-                    <option value="{{ provider.name }}">{{ provider.name }}</option>
-                  {% endfor %}
-                </select>
-              </div>
+<!-- ✅ Select Provider -->
+<div class="col-md-4 mb-3">
+  <label class="form-label">Select Provider</label>
+  <select class="form-control" id="providerSelect" name="provider_name" required>
+    <option value="">-- Select --</option>
+    {% for provider in providers %}
+      <option value="{{ provider.name }}">{{ provider.name }}</option>
+    {% endfor %}
+  </select>
+</div>
+
 
               <!-- ✅ Select Energy Type -->
               <div class="col-md-4 mb-3">

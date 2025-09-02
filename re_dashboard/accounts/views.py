@@ -354,7 +354,10 @@ def add_provider_with_structure(request):
 
             # ✅ Build SQL create statement
             column_defs = [f"`{col}` TEXT" for col in df.columns]
-            column_defs += ["`energy_type` TEXT", "`uploaded_by` TEXT"]
+            column_defs += ["`provider` TEXT", "`energy_type` TEXT", "`uploaded_by` TEXT"]
+
+
+    
 
             create_sql = f"""
                 CREATE TABLE IF NOT EXISTS `{table_name}` (
