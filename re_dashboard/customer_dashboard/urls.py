@@ -9,5 +9,6 @@ urlpatterns = [
     path('wind_installation_summary2/', views.wind_installation_summary2, name="wind_installation_summary2"),  # Wind Installation Summary
     # 👉 New dynamic chart pages
     path('wind_generation_kwh/', views.wind_generation_kwh, name="wind_generation_kwh"),
+    path('wind_generation_hours', views.wind_generation_hours, name="wind_generation_hours"),
 
 ]
