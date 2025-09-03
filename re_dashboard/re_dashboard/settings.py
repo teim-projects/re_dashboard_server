@@ -24,9 +24,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-=g-)w+jcwgms&&*m-_so+*7f2z+g*o2n#m890lf%-!%t((k(bl'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
-ALLOWED_HOSTS = ["re-dashboard.teimsafety.com"]
+ALLOWED_HOSTS = ["re-dashboard.teimsafety.com","127.0.0.1"]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://re-dashboard.teimsafety.com",
@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'accounts',
     'customer_dashboard',
     'solardashboard',
+    'django.contrib.humanize',
     
 ]
 

@@ -85,8 +85,7 @@
   </div>
 </div>
 
-<!-- ========== Modals ========== -->
-
+         
  
 <!-- Date Range Modal -->
 <div class="modal fade" id="dateRangeModal" tabindex="-1">
@@ -290,8 +289,7 @@
         tree: rawData,
         key: 'generation',
         groups: ['wtg'],
-        spacing: 3,
-        borderColor: '#fff',
+         borderColor: '#fff',
         layoutAlgorithm: 'binary',
         minVisibleSize: 20,
         labels: {
@@ -299,7 +297,7 @@
           formatter: ctx => ctx.raw._data.wtg,
           align: 'center',
           color: 'white',
-          font: { size: 14, weight: 'bold' }
+          font: { size: 12  }
         },
         backgroundColor: (ctx) => colors[ctx.index % colors.length]
       }]

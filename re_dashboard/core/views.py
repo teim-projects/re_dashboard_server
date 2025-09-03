@@ -765,3 +765,45 @@ def client_info(request):
         'page_obj': page_obj,
         'unique_oems': sorted(oem_names_set)
     })
+
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from core.models import UploadMetadata
+from accounts.models import Provider
+from django.db import connection
+
+@login_required
+def user_generation_info(request):
+    user = request.user.username  # logged-in user
+    client_data = []
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        all_tables = [row[0] for row in cursor.fetchall()]
+
+    for table in all_tables:
+        if table.startswith(user + "_"):  # ✅ only take current user's tables
+            parts = table.split("_")
+            if len(parts) >= 3:
+                provider_slug = "_".join(parts[1:-1])
+                energy_type_slug = parts[-1]
+
+                provider_name = provider_slug.replace("_", " ").title()
+                firm_name = user.replace("_", " ").title()
+
+                try:
+                    metadata = UploadMetadata.objects.get(table_name=table)
+                    last_modified = metadata.last_modified.strftime('%a, %d %b %Y %H:%M:%S GMT')
+                except UploadMetadata.DoesNotExist:
+                    last_modified = "N/A"
+
+                client_data.append({
+                    "provider": provider_name,
+                    "firm": firm_name,
+                    "last_modified": last_modified
+                })
+
+    return render(request, "profile_info_user.html", {
+        "client_data": client_data
+    })

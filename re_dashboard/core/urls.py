@@ -18,6 +18,7 @@ urlpatterns = [
 
     # Client Information
     path('client-info/', client_info, name="client_info"),
+    path('user_generation_info/', user_generation_info, name="user_generation_info"),
 
     # Installation Summary & Data Uploads
     path('upload-installation-summary/', upload_installation_summary, name='upload_installation_summary'),
