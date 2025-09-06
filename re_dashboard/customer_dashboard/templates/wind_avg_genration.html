@@ -4,10 +4,9 @@
 
 {% block content %}
 <div class="container my-4">
-  <h3 class="text-center mb-4 fw-bold text-primary">🕒 WTG Wise Hours</h3>
+  <h3 class="text-center mb-4 fw-bold text-primary">WTG Statistics</h3>
   <hr class="mb-4">
-
-  <!-- Active filters chips -->
+ <!-- Active filters chips -->
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
       <span class="badge bg-secondary">Active filters:</span>
@@ -43,46 +42,65 @@
       <i class="fas fa-filter"></i> WTG NUMBER
     </button>
   </div>
-
-  <!-- Chart + Table -->
-  <div class="row">
-    <!-- Treemap Chart -->
+  <!-- ========== Section 1: Generation Hours ========== -->
+  <div class="row mb-5">
     <div class="col-md-8 mb-4">
       <div class="card shadow-lg border-0 h-100 chart-card">
         <div class="card-header form-heading">
-          <strong>WTG Wise Hours</strong>
+          <strong>Average Day Generation Hours by WTG</strong>
         </div>
         <div class="card-body">
-          <canvas id="treemapChart" style="height:400px; width:100%"></canvas>
-<h5 class="mt-3 text-center text-success">
-  Total Hours: {{ total_hours|floatformat:0|intcomma }}
-</h5>
-
+          <canvas id="genChart"></canvas>
         </div>
       </div>
     </div>
-
-    <!-- Table -->
     <div class="col-md-4 mb-4">
       <div class="card shadow-lg border-0 h-100">
         <div class="card-header form-heading">
-          <strong>WTG No. & Hours</strong>
+          <strong>Generation Hours (Table)</strong>
         </div>
         <div class="card-body">
-          <table id="wtgTable" class="table table-bordered table-striped table-hover text-center">
+          <table class="table table-bordered table-striped text-center">
             <thead class="table-light">
-              <tr>
-                <th>WTG No</th>
-                <th>Hours</th>
-              </tr>
+              <tr><th>WTG No</th><th>Generation Hours</th></tr>
             </thead>
-            <tbody id="wtgTableBody"></tbody>
+            <tbody id="genTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Section 2: Operating Hours ========== -->
+  <div class="row">
+    <div class="col-md-8 mb-4">
+      <div class="card shadow-lg border-0 h-100 chart-card">
+        <div class="card-header form-heading">
+          <strong>Average Operating Hours by WTG</strong>
+        </div>
+        <div class="card-body">
+          <canvas id="opChart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4 mb-4">
+      <div class="card shadow-lg border-0 h-100">
+        <div class="card-header form-heading">
+          <strong>Operating Hours (Table)</strong>
+        </div>
+        <div class="card-body">
+          <table class="table table-bordered table-striped text-center">
+            <thead class="table-light">
+              <tr><th>WTG No</th><th>Operating Hours</th></tr>
+            </thead>
+            <tbody id="opTableBody"></tbody>
           </table>
         </div>
       </div>
     </div>
   </div>
 </div>
+
 
 <!-- ========== Modals ========== --> 
 <!-- Date Range Modal -->
@@ -262,64 +280,36 @@
 <!-- Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-  const rawData = {{ chart_data|safe }};
+  // Data from Django
+  const genData = {{ gen_chart_data|safe }};
+  const opData = {{ op_chart_data|safe }};
 
-// ✅ Filter out rows where wtg is null/empty OR hours is null/0
-const filteredData = rawData.filter(row => row.wtg && row.hours);
+  function buildChart(ctxId, data, label, tableBodyId) {
+    const labels = data.map(r => r.wtg);
+    const values = data.map(r => r.hours);
+    const colors = data.map((_, i) => ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1"][i % 6]);
 
-// Table fill
-const tableBody = document.getElementById("wtgTableBody");
-tableBody.innerHTML = "";
-filteredData.forEach(row => {
-  const tr = `<tr><td>${row.wtg}</td><td>${row.hours.toLocaleString()}</td></tr>`;
-  tableBody.insertAdjacentHTML("beforeend", tr);
-});
+    // Fill table
+    const tableBody = document.getElementById(tableBodyId);
+    tableBody.innerHTML = "";
+    data.forEach(r => {
+      tableBody.insertAdjacentHTML("beforeend", `<tr><td>${r.wtg}</td><td>${r.hours.toFixed(2)}</td></tr>`);
+    });
 
-// Colors
-const colors = filteredData.map((_, i) => {
-  const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
-  return palette[i % palette.length];
-});
-// Treemap chart
-new Chart(document.getElementById("treemapChart"), {
-  type: 'treemap',
-  data: {
-    datasets: [{
-      tree: filteredData,
-      key: 'hours',
-      groups: ['wtg'],
-      borderColor: '#fff',
-      layoutAlgorithm: 'binary',
-      minVisibleSize: 20,
-      labels: {
-        display: true,
-        // ✅ Show WTG + rounded hours
-        formatter: ctx => `${ctx.raw._data.wtg}\n${Math.round(ctx.raw._data.hours)}`,
-        align: 'center',
-        color: 'white',
-        font: { size: 12 }
-      },
-      backgroundColor: (ctx) => colors[ctx.index % colors.length]
-    }]
-  },
-  options: {
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: ctx => {
-            const wtg = ctx.raw._data.wtg;
-            const hrs = Math.round(ctx.raw._data.hours);   // ✅ rounded here
-            const total = filteredData.reduce((s, d) => s + d.hours, 0);
-            const percent = total ? ((hrs / total) * 100).toFixed(1) : 0;
-            return `${wtg}: ${hrs.toLocaleString()} hrs (${percent}%)`;
-          }
-        }
-      }
-    }
+    // Chart
+    new Chart(document.getElementById(ctxId), {
+      type: 'bar',
+      data: { labels, datasets: [{ label, data: values, backgroundColor: colors }] },
+      options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } } }
+    });
   }
-});
 
+  buildChart("genChart", genData, "Day Generation Hours", "genTableBody");
+  buildChart("opChart", opData, "Operating Hours", "opTableBody");
 </script>
+
+
+
 {% endblock %}

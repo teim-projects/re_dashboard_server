@@ -462,61 +462,19 @@ import pandas as pd
 
 from accounts.models import EnergyType
 
-from django.contrib.auth.models import User
-
-import traceback
-import pandas as pd
-from django.shortcuts import render, redirect
-from django.core.files.storage import FileSystemStorage
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-from django.contrib.auth.models import User
-# from .models import Provider, EnergyType
-
-
 import os
-import pandas as pd
+import re
 import traceback
+import pandas as pd
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import FileSystemStorage
 from django.db import connection
 from django.contrib.auth.models import User
-
-
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-# from .models import Provider, EnergyType
-from django.contrib.auth.models import User
-import pandas as pd
-import traceback
-import os
-
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-# from .models import Provider, EnergyType
-from django.contrib.auth.models import User
-import pandas as pd
-import traceback
-import os
-import re  # ✅ for cleaning column names
-from .models import UploadMetadata  # ✅ import your model
-from django.utils.timezone import now  # for timezone-aware timestamp
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-from django.contrib import messages
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
-
-
+from django.utils.timezone import now
+ 
+import numpy as np
 @login_required
 def upload_files(request):
     energy_types = EnergyType.objects.all()
@@ -544,11 +502,11 @@ def upload_files(request):
 
     if request.method == 'POST':
         table_name = request.POST.get('provider', '').strip()
-        provider_name = request.POST.get('provider_name', '').strip()  # ✅ new
+        provider_name = request.POST.get('provider_name', '').strip()
         data_file = request.FILES.get('data_file')
 
         if not table_name or not data_file or not provider_name:
-            messages.error(request, "Table, file, and provider are required.")
+            messages.error(request, "❌ Table, file, and provider are required.")
             return redirect('upload_files')
 
         try:
@@ -556,7 +514,7 @@ def upload_files(request):
             uploaded_by = parts[0]
             energy_type = parts[-1].replace('_', ' ').title()
         except Exception:
-            messages.error(request, "Invalid table format.")
+            messages.error(request, "❌ Invalid table format.")
             return redirect('upload_files')
 
         fs = FileSystemStorage()
@@ -564,51 +522,53 @@ def upload_files(request):
         file_path = fs.path(filename)
 
         try:
+            # ✅ Load file with pandas
             ext = os.path.splitext(filename)[1].lower()
             if ext == '.csv':
                 df = pd.read_csv(file_path)
             elif ext in ['.xls', '.xlsx', '.xlsm', '.ods', '.odt']:
                 df = pd.read_excel(file_path, engine='odf' if ext in ['.ods', '.odt'] else None)
             else:
-                raise Exception("Unsupported file format.")
+                raise Exception("Unsupported file format. Allowed: CSV, XLS, XLSX, XLSM, ODS, ODT")
 
-            # ✅ Clean column names (replace spaces, dots, %, etc.)
+            # ✅ Clean column names
             df.columns = [re.sub(r'\W+', '_', col.strip()).lower().strip('_') for col in df.columns]
 
-            # ✅ Fetch table columns from DB
+            # ✅ Convert all NaN / NaT / inf to None
+            df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
+            df = df.astype(object).where(pd.notnull(df), None)
+            df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+
+            # ✅ Fetch table columns
             with connection.cursor() as cursor:
                 cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
                 table_columns = [col[0].lower() for col in cursor.fetchall()]
 
-            # ✅ Check for missing columns
+            # ✅ Check missing columns
             missing_cols = [col for col in df.columns if col not in table_columns]
             if missing_cols:
                 raise Exception(f"Columns not found in table `{table_name}`: {missing_cols}")
 
-            # ✅ Add extra fields if present
-            if 'energy_type' in table_columns:
+            # ✅ Add extra fields if table supports them
+            if 'energy_type' in table_columns and 'energy_type' not in df.columns:
                 df['energy_type'] = energy_type
-            if 'uploaded_by' in table_columns:
+            if 'uploaded_by' in table_columns and 'uploaded_by' not in df.columns:
                 df['uploaded_by'] = uploaded_by
-            if 'provider' in table_columns:   # ✅ new
+            if 'provider' in table_columns and 'provider' not in df.columns:
                 df['provider'] = provider_name
 
-            # ✅ Insert data row by row
-            rows_inserted = 0
+            # ✅ Prepare SQL
+            columns = ', '.join(f"`{col}`" for col in df.columns)
+            placeholders = ', '.join(['%s'] * len(df.columns))
+            insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
+
+            # ✅ Insert in bulk
+            values = [tuple(row) for row in df.values]
             with connection.cursor() as cursor:
-                for index, row in df.iterrows():
-                    try:
-                        columns = ', '.join(f"`{col}`" for col in df.columns)
-                        placeholders = ', '.join(['%s'] * len(row))
-                        values = list(row.values)
-                        insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
-                        cursor.execute(insert_sql, values)
-                        rows_inserted += 1
-                    except Exception as row_error:
-                        print(f"❌ Skipped row {index + 1}: {row_error}")
+                cursor.executemany(insert_sql, values)
+                rows_inserted = cursor.rowcount
 
             if rows_inserted > 0:
-                # ✅ Update last modified timestamp
                 UploadMetadata.objects.update_or_create(
                     table_name=table_name,
                     defaults={'last_modified': now()}
@@ -632,9 +592,6 @@ def upload_files(request):
         'staff_users': User.objects.filter(is_superuser=False),
     })
 
-
-
-from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.db import connection
 from django.contrib.auth.models import User

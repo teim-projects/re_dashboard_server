@@ -10,5 +10,7 @@ urlpatterns = [
     # 👉 New dynamic chart pages
     path('wind_generation_kwh/', views.wind_generation_kwh, name="wind_generation_kwh"),
     path('wind_generation_hours', views.wind_generation_hours, name="wind_generation_hours"),
+    path('wind_avg_genration', views.wind_avg_genration, name="wind_avg_genration"),
+    path('wind_Grid_Availability_and_Machine', views.wind_Grid_Availability_and_Machine, name="wind_Grid_Availability_and_Machine"),
 
 ]

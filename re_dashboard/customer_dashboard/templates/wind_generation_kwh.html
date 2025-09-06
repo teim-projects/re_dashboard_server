@@ -271,10 +271,12 @@
   // Table fill
   const tableBody = document.getElementById("wtgTableBody");
   tableBody.innerHTML = "";
-  rawData.forEach(row => {
+rawData.forEach(row => {
+  if (row.generation) {   // skips null, undefined, 0
     const tr = `<tr><td>${row.wtg}</td><td>${row.generation.toLocaleString()}</td></tr>`;
     tableBody.insertAdjacentHTML("beforeend", tr);
-  });
+  }
+});
 
   // Colors
   const colors = rawData.map((_, i) => {

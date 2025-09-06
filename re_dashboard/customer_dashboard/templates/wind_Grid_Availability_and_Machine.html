@@ -54,8 +54,8 @@
         </div>
         <div class="card-body">
           <canvas id="treemapChart" style="height:400px; width:100%"></canvas>
-<h5 class="mt-3 text-center text-success">
-  Total Hours: {{ total_hours|floatformat:0|intcomma }}
+         <h5 class="mt-3 text-center text-success">
+    {{ total_hours|floatformat:0|intcomma }}
 </h5>
 
         </div>
@@ -262,64 +262,81 @@
 <!-- Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
   const rawData = {{ chart_data|safe }};
 
-// ✅ Filter out rows where wtg is null/empty OR hours is null/0
-const filteredData = rawData.filter(row => row.wtg && row.hours);
-
-// Table fill
-const tableBody = document.getElementById("wtgTableBody");
-tableBody.innerHTML = "";
-filteredData.forEach(row => {
-  const tr = `<tr><td>${row.wtg}</td><td>${row.hours.toLocaleString()}</td></tr>`;
-  tableBody.insertAdjacentHTML("beforeend", tr);
+  // Table fill
+  const tableBody = document.getElementById("wtgTableBody");
+  tableBody.innerHTML = "";
+rawData.forEach(row => {
+  if (row.wtg && row.hours) {   // skips null, undefined, 0
+    const tr = `<tr><td>${row.wtg}</td><td>${Math.round(row.hours).toLocaleString()}</td></tr>`;
+    tableBody.insertAdjacentHTML("beforeend", tr);
+  }
 });
 
-// Colors
-const colors = filteredData.map((_, i) => {
-  const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
-  return palette[i % palette.length];
-});
-// Treemap chart
+  // Labels and Data
+  const labels = rawData.map(r => r.wtg);
+  const values = rawData.map(r => r.hours);
+
+  // Colors
+  const colors = rawData.map((_, i) => {
+    const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
+    return palette[i % palette.length];
+  });
+
+  // Total
+  const total = values.reduce((s, d) => s + d, 0);
+// Chart
 new Chart(document.getElementById("treemapChart"), {
-  type: 'treemap',
+  type: 'bar',
   data: {
+    labels: labels,
     datasets: [{
-      tree: filteredData,
-      key: 'hours',
-      groups: ['wtg'],
-      borderColor: '#fff',
-      layoutAlgorithm: 'binary',
-      minVisibleSize: 20,
-      labels: {
-        display: true,
-        // ✅ Show WTG + rounded hours
-        formatter: ctx => `${ctx.raw._data.wtg}\n${Math.round(ctx.raw._data.hours)}`,
-        align: 'center',
-        color: 'white',
-        font: { size: 12 }
-      },
-      backgroundColor: (ctx) => colors[ctx.index % colors.length]
+      label: "Day Generation Hours",
+      data: values.map(v => Math.round(v)),  // ✅ round values
+      backgroundColor: colors,
+      borderRadius: 6
     }]
   },
   options: {
+    indexAxis: 'y',
+    responsive: true,
+    animation: {
+      duration: 1500,
+      easing: 'easeOutQuart'
+    },
     plugins: {
       legend: { display: false },
       tooltip: {
         callbacks: {
           label: ctx => {
-            const wtg = ctx.raw._data.wtg;
-            const hrs = Math.round(ctx.raw._data.hours);   // ✅ rounded here
-            const total = filteredData.reduce((s, d) => s + d.hours, 0);
+            const hrs = Math.round(ctx.raw);   // ✅ round tooltip value
             const percent = total ? ((hrs / total) * 100).toFixed(1) : 0;
-            return `${wtg}: ${hrs.toLocaleString()} hrs (${percent}%)`;
+            return `${hrs.toLocaleString()} hrs (${percent}%)`;
           }
         }
+      }
+    },
+    scales: {
+      x: {
+        title: { display: true, text: 'Generation Hours' }
+      },
+      y: {
+        title: { display: true, text: 'WTG No' }
       }
     }
   }
 });
 
+  // ✅ Add Total label below chart
+  const chartContainer = document.getElementById("treemapChart").parentElement;
+  const totalLabel = document.createElement("h5");
+  totalLabel.className = "mt-3 text-center text-success";
+  totalLabel.innerText = `Total Hours: ${total.toLocaleString()}`;
+  chartContainer.appendChild(totalLabel);
 </script>
+
+
 {% endblock %}

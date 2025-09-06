@@ -155,6 +155,12 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from django.db import connection
 from django.contrib.auth.decorators import login_required
+import re
+import json
+from collections import defaultdict
+from django.http import HttpResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
 
 
 def _pick(col_map, *candidates):
@@ -164,6 +170,16 @@ def _pick(col_map, *candidates):
         if lc in col_map:
             return col_map[lc]
     return None
+
+
+def normalize(col):
+    """
+    Normalize column name for comparison:
+    - lowercase
+    - replace non-alphanumeric with _
+    - strip _
+    """
+    return re.sub(r'[^a-z0-9]+', '_', col.lower()).strip('_')
 
 
 @login_required
@@ -188,39 +204,34 @@ def wind_generation_kwh(request):
     wtgs       = request.GET.getlist("wtg")
 
     # Global aggregations
-    wtg_sum = defaultdict(int)  # {wtg: total_gen}
+    wtg_sum = defaultdict(int)
     total_generation = 0
 
-    # Distinct values for filters (merged across tables)
-    distincts = {
-        "providers": set(),
-        "customers": set(),
-        "states": set(),
-        "sites": set(),
-        "wtgs": set(),
-    }
+    # Distinct values for filters
+    distincts = {k: set() for k in ["providers","customers","states","sites","wtgs"]}
 
     for table_name in table_names:
         # --- Read schema
         with connection.cursor() as cursor:
             cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
             cols = [r[0] for r in cursor.fetchall()]
-        col_map = {c.lower(): c for c in cols}
 
-        # --- Column discovery
-        wtg_col      = _pick(col_map, "wec", "loc_no", "wtg", "wtg_no", "turbine", "turbine_no")
-        gen_col      = _pick(col_map, "generation", "gen", "gen_kwh", "kwh", "energy", "units")
-        date_col     = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
-        customer_col = _pick(col_map, "customer_name", "customer", "consumer", "client")
-        state_col    = _pick(col_map, "state", "state_name", "st")
-        site_col     = _pick(col_map, "site", "site_name", "location", "plant", "wind_farm_name", "park", "sitecode", "city", "town", "village")
-        provider_col = _pick(col_map, "provider", "oem", "oem_provider", "oem_name", "oemprovider")
+        # Map normalized → original
+        col_map = {normalize(c): c for c in cols}
+
+        # --- Explicit mapping
+        wtg_col      = col_map.get("loc_no") or col_map.get("wec") or col_map.get("wtg_no")
+        gen_col      = col_map.get("gen_kwh_day") or col_map.get("gen_kwh") or col_map.get("generation")  # 👈 main fix
+        date_col     = col_map.get("gen_date") or col_map.get("date")
+        customer_col = col_map.get("customer_name") or col_map.get("customer")
+        state_col    = col_map.get("state")
+        site_col     = col_map.get("site") or col_map.get("wind_farm_name")
+        provider_col = col_map.get("provider") or col_map.get("oem")
 
         if not wtg_col or not gen_col:
-            # Skip tables missing core columns
             continue
 
-        # --- Build conditions for this table
+        # --- Build conditions
         conditions, params = [], []
 
         if date_col:
@@ -229,13 +240,12 @@ def wind_generation_kwh(request):
                 params += [date_from, date_to]
             elif date_from:
                 conditions.append(f"`{date_col}` >= %s")
-                params += [date_from]
+                params.append(date_from)
             elif date_to:
                 conditions.append(f"`{date_col}` <= %s")
-                params += [date_to]
+                params.append(date_to)
 
         def add_in(col, values):
-            nonlocal conditions, params
             values = [v for v in values if v not in (None, "", "null")]
             if col and values:
                 placeholders = ",".join(["%s"] * len(values))
@@ -250,7 +260,7 @@ def wind_generation_kwh(request):
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        # --- Aggregate WTG wise for this table
+        # --- Aggregate daily gen
         query = f"""
             SELECT `{wtg_col}`, SUM(`{gen_col}`) AS total_gen
             FROM `{table_name}`
@@ -267,10 +277,9 @@ def wind_generation_kwh(request):
             wtg_sum[wtg_key] += gen
             total_generation += gen
 
-        # --- Collect distincts (from whole table, not filtered)
+        # --- Distincts
         def distinct_list(col):
-            if not col:
-                return []
+            if not col: return []
             with connection.cursor() as cursor:
                 cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
                 return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
@@ -280,35 +289,29 @@ def wind_generation_kwh(request):
         distincts["sites"].update(distinct_list(site_col))
         distincts["wtgs"].update(distinct_list(wtg_col))
 
-    # --- Build chart/table data from merged sums
+    # --- Chart data
     chart_data = [{"wtg": k, "generation": v} for k, v in wtg_sum.items()]
-    # Order by generation desc for treemap consistency
     chart_data.sort(key=lambda x: x["generation"], reverse=True)
-
     table_data = [{"wtg_no": d["wtg"], "generation": d["generation"]} for d in chart_data]
 
-
     context = {
-    "chart_data": json.dumps(chart_data),
-    "table_data": table_data,
-    "total_generation": total_generation,
-    "providers": sorted(distincts["providers"]),
-    "customers": sorted(distincts["customers"]),
-    "states": sorted(distincts["states"]),
-    "sites": sorted(distincts["sites"]),
-    "wtgs": sorted(distincts["wtgs"]),
-    "selected_providers": providers,
-    "selected_customers": customers,
-    "selected_states": states,
-    "selected_sites": sites,
-    "selected_wtgs": wtgs,
-    "date_from": date_from,
-    "date_to": date_to,
+        "chart_data": json.dumps(chart_data),
+        "table_data": table_data,
+        "total_generation": total_generation,
+        "providers": sorted(distincts["providers"]),
+        "customers": sorted(distincts["customers"]),
+        "states": sorted(distincts["states"]),
+        "sites": sorted(distincts["sites"]),
+        "wtgs": sorted(distincts["wtgs"]),
+        "selected_providers": providers,
+        "selected_customers": customers,
+        "selected_states": states,
+        "selected_sites": sites,
+        "selected_wtgs": wtgs,
+        "date_from": date_from,
+        "date_to": date_to,
     }
-
-
     return render(request, "wind_generation_kwh.html", context)
-
 from collections import defaultdict
 from django.contrib.auth.decorators import login_required
 from django.db import connection
@@ -355,8 +358,8 @@ def wind_generation_hours(request):
     wtgs = request.GET.getlist("wtg")
 
     # Global aggregations
-    wtg_sum = defaultdict(int)  # {wtg: total_hours}
-    total_hours = 0
+    wtg_sum = defaultdict(float)  # {wtg: total_hours}
+    total_hours = 0.0
 
     # Distinct values for filters (merged across tables)
     distincts = {
@@ -373,17 +376,20 @@ def wind_generation_hours(request):
             cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
             cols = [r[0] for r in cursor.fetchall()]
         col_map = {c.lower(): c for c in cols}
-        wtg_col = _pick(col_map, "wec", "loc_no", "wtg", "wtg_no", "turbine", "turbineno", "locno")
-        hours_col = _pick(col_map, "genhrs", "ohrs", "generationhours", "gen_hours", "gen_hrs")
-        date_col = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
-        customer_col = _pick(col_map, "customername", "customer", "consumer", "client")
-        state_col = _pick(col_map, "state", "statename", "st")
-        site_col = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname", "park", "sitecode", "city", "town", "village")
-        provider_col = _pick(col_map, "provider", "oem", "oemprovider", "oem_name")
 
- 
-        if not wtg_col or not hours_col:
-            continue  # skip tables missing core columns
+        # Detect columns
+        wtg_col     = _pick(col_map, "wec", "loc_no", "wtg", "wtg_no", "turbine", "turbineno", "locno")
+        genhrs_col  = _pick(col_map, "genhrs", "generationhours", "gen_hours", "gen_hrs")
+        ohrs_col    = _pick(col_map, "ohrs", "operatinghours", "o_hours", "o_hrs")
+        loss_col    = _pick(col_map, "lhrs", "l.hrs", "losshrs", "loss_hours", "l_hrs")
+        date_col    = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
+        customer_col= _pick(col_map, "customername", "customer", "consumer", "client")
+        state_col   = _pick(col_map, "state", "statename", "st")
+        site_col    = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname", "park", "sitecode", "city", "town", "village")
+        provider_col= _pick(col_map, "provider", "oem", "oemprovider", "oem_name")
+
+        if not wtg_col:
+            continue  # skip if no turbine column
 
         # --- Build conditions for this table
         conditions, params = [], []
@@ -415,9 +421,19 @@ def wind_generation_hours(request):
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
+        # --- Decide how to compute Generation Hours
+        if ohrs_col and loss_col:
+            gen_expr = f"(`{ohrs_col}` - `{loss_col}`)"   # Net Gen Hours = O.Hrs - L.Hrs
+        elif genhrs_col:
+            gen_expr = f"`{genhrs_col}`"
+        elif ohrs_col:
+            gen_expr = f"`{ohrs_col}`"
+        else:
+            continue  # skip if no usable column
+
         # --- Aggregate WTG wise for this table
         query = f"""
-            SELECT `{wtg_col}`, SUM(`{hours_col}`) AS total_hours
+            SELECT `{wtg_col}`, SUM({gen_expr}) AS total_hours
             FROM `{table_name}`
             {where_clause}
             GROUP BY `{wtg_col}`
@@ -471,3 +487,327 @@ def wind_generation_hours(request):
     }
 
     return render(request, "wind_genration_hovers.html", context)
+
+
+
+import json
+from collections import defaultdict
+from django.http import HttpResponse
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+import json
+from collections import defaultdict
+from django.http import HttpResponse
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+
+def _pick(col_map, *candidates):
+    """Return actual-cased column name if it matches any of the candidates"""
+    for c in candidates:
+        lc = c.lower()
+        if lc in col_map:
+            return col_map[lc]
+    return None
+
+
+@login_required
+def wind_avg_genration(request):
+    user = request.user.username.lower()
+
+    # --- Find ALL user's wind tables: <username>_*_wind
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [row[0] for row in cursor.fetchall()]
+    table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
+    if not table_names:
+        return HttpResponse(f"No wind generation table found for user: {user}", status=404)
+
+    # --- Collect filters from GET
+    date_from = request.GET.get("date_from") or None
+    date_to = request.GET.get("date_to") or None
+    providers = request.GET.getlist("provider")
+    customers = request.GET.getlist("customer")
+    states = request.GET.getlist("state")
+    sites = request.GET.getlist("site")
+    wtgs = request.GET.getlist("wtg")
+
+    # Global aggregations
+    gen_avg = defaultdict(list)   # WTG → list of generation hours averages
+    op_avg = defaultdict(list)    # WTG → list of operating hours averages
+    distincts = {
+        "providers": set(),
+        "customers": set(),
+        "states": set(),
+        "sites": set(),
+        "wtgs": set(),
+    }
+
+    for table_name in table_names:
+        # --- Read schema
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
+            cols = [r[0] for r in cursor.fetchall()]
+        col_map = {c.lower(): c for c in cols}
+
+        # ✅ Fixed candidate lists
+        wtg_col = _pick(col_map, "wec", "loc_no", "wtg", "wtg_no", "turbine", "turbineno", "locno")
+        gen_col = _pick(col_map, "genhrs", "generationhours", "gen_hours", "gen_hrs","O_hrs")
+        op_col = _pick(col_map, "O_hrs","Opr_Hrs" ,"ohrs", "operatinghours", "op_hours", "op_hrs")
+        date_col = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
+        customer_col = _pick(col_map, "customername", "customer", "consumer", "client")
+        state_col = _pick(col_map, "state", "statename", "st")
+        site_col = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname", "park", "sitecode", "city", "town", "village")
+        provider_col = _pick(col_map, "provider", "oem", "oemprovider", "oem_name")
+
+        if not wtg_col:
+            continue  # skip tables without WTG
+
+        # --- Build conditions
+        conditions, params = [], []
+
+        if date_col:
+            if date_from and date_to:
+                conditions.append(f"`{date_col}` BETWEEN %s AND %s")
+                params += [date_from, date_to]
+            elif date_from:
+                conditions.append(f"`{date_col}` >= %s")
+                params += [date_from]
+            elif date_to:
+                conditions.append(f"`{date_col}` <= %s")
+                params += [date_to]
+
+        def add_in(col, values):
+            nonlocal conditions, params
+            values = [v for v in values if v not in (None, "", "null")]
+            if col and values:
+                placeholders = ",".join(["%s"] * len(values))
+                conditions.append(f"`{col}` IN ({placeholders})")
+                params.extend(values)
+
+        add_in(provider_col, providers)
+        add_in(customer_col, customers)
+        add_in(state_col, states)
+        add_in(site_col, sites)
+        add_in(wtg_col, wtgs)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # --- Generation Hours
+        if gen_col:
+            query = f"""
+                SELECT `{wtg_col}`, AVG(`{gen_col}`) AS avg_gen
+                FROM `{table_name}`
+                {where_clause}
+                GROUP BY `{wtg_col}`
+            """
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+            for wtg, avg in rows:
+                gen_avg[str(wtg)].append(float(avg or 0))
+
+        # --- Operating Hours
+        if op_col:
+            query = f"""
+                SELECT `{wtg_col}`, AVG(`{op_col}`) AS avg_op
+                FROM `{table_name}`
+                {where_clause}
+                GROUP BY `{wtg_col}`
+            """
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+            for wtg, avg in rows:
+                op_avg[str(wtg)].append(float(avg or 0))
+
+        # --- Collect distincts (from whole table, not filtered)
+        def distinct_list(col):
+            if not col:
+                return []
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
+                return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
+
+        distincts["providers"].update(distinct_list(provider_col))
+        distincts["customers"].update(distinct_list(customer_col))
+        distincts["states"].update(distinct_list(state_col))
+        distincts["sites"].update(distinct_list(site_col))
+        distincts["wtgs"].update(distinct_list(wtg_col))
+
+    # --- Merge averages
+    # --- Merge averages (skip None / empty WTG)
+    gen_final = {wtg: sum(vals) / len(vals) for wtg, vals in gen_avg.items() if wtg and wtg.lower() != "none"}
+    op_final = {wtg: sum(vals) / len(vals) for wtg, vals in op_avg.items() if wtg and wtg.lower() != "none"}
+
+
+    gen_chart_data = [{"wtg": k, "hours": v} for k, v in gen_final.items()]
+    op_chart_data = [{"wtg": k, "hours": v} for k, v in op_final.items()]
+
+    gen_chart_data.sort(key=lambda x: x["hours"], reverse=True)
+    op_chart_data.sort(key=lambda x: x["hours"], reverse=True)
+
+    context = {
+        "gen_chart_data": json.dumps(gen_chart_data),
+        "op_chart_data": json.dumps(op_chart_data),
+        "overall_gen_avg": round(sum(d["hours"] for d in gen_chart_data) / len(gen_chart_data), 2) if gen_chart_data else 0,
+        "overall_op_avg": round(sum(d["hours"] for d in op_chart_data) / len(op_chart_data), 2) if op_chart_data else 0,
+        "providers": sorted(distincts["providers"]),
+        "customers": sorted(distincts["customers"]),
+        "states": sorted(distincts["states"]),
+        "sites": sorted(distincts["sites"]),
+        "wtgs": sorted(distincts["wtgs"]),
+        "selected_providers": providers,
+        "selected_customers": customers,
+        "selected_states": states,
+        "selected_sites": sites,
+        "selected_wtgs": wtgs,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
+    return render(request, "wind_avg_genration.html", context)
+
+
+
+
+
+
+
+
+@login_required
+def wind_Grid_Availability_and_Machine(request):
+    user = request.user.username.lower()
+
+    # --- Find ALL user's wind tables: <username>_*_wind
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [row[0] for row in cursor.fetchall()]
+    table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
+    if not table_names:
+        return HttpResponse(f"No wind generation table found for user: {user}", status=404)
+
+    # --- Collect filters from GET (multi-select)
+    date_from = request.GET.get("date_from") or None
+    date_to = request.GET.get("date_to") or None
+    providers = request.GET.getlist("provider")
+    customers = request.GET.getlist("customer")
+    states = request.GET.getlist("state")
+    sites = request.GET.getlist("site")
+    wtgs = request.GET.getlist("wtg")
+
+    # Global aggregations
+    wtg_avg = defaultdict(list)  # {wtg: [values]}
+    distincts = {
+        "providers": set(),
+        "customers": set(),
+        "states": set(),
+        "sites": set(),
+        "wtgs": set(),
+    }
+
+    for table_name in table_names:
+        # --- Read schema
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
+            cols = [r[0] for r in cursor.fetchall()]
+        col_map = {c.lower(): c for c in cols}
+        wtg_col = _pick(col_map, "wec", "loc_no", "wtg", "wtg_no", "turbine", "turbineno", "locno")
+        hours_col = _pick(col_map, "genhrs", "ohrs", "generationhours", "gen_hours", "gen_hrs")
+        date_col = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
+        customer_col = _pick(col_map, "customername", "customer", "consumer", "client")
+        state_col = _pick(col_map, "state", "statename", "st")
+        site_col = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname", "park", "sitecode", "city", "town", "village")
+        provider_col = _pick(col_map, "provider", "oem", "oemprovider", "oem_name")
+
+        if not wtg_col or not hours_col:
+            continue  # skip tables missing core columns
+
+        # --- Build conditions for this table
+        conditions, params = [], []
+
+        if date_col:
+            if date_from and date_to:
+                conditions.append(f"`{date_col}` BETWEEN %s AND %s")
+                params += [date_from, date_to]
+            elif date_from:
+                conditions.append(f"`{date_col}` >= %s")
+                params += [date_from]
+            elif date_to:
+                conditions.append(f"`{date_col}` <= %s")
+                params += [date_to]
+
+        def add_in(col, values):
+            nonlocal conditions, params
+            values = [v for v in values if v not in (None, "", "null")]
+            if col and values:
+                placeholders = ",".join(["%s"] * len(values))
+                conditions.append(f"`{col}` IN ({placeholders})")
+                params.extend(values)
+
+        add_in(provider_col, providers)
+        add_in(customer_col, customers)
+        add_in(state_col, states)
+        add_in(site_col, sites)
+        add_in(wtg_col, wtgs)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # --- Aggregate WTG wise average for this table
+        query = f"""
+            SELECT `{wtg_col}`, AVG(`{hours_col}`) AS avg_hours
+            FROM `{table_name}`
+            {where_clause}
+            GROUP BY `{wtg_col}`
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        for wtg, avg in rows:
+            avg = float(avg or 0)
+            wtg_avg[str(wtg)].append(avg)
+
+        # --- Collect distincts (from whole table, not filtered)
+        def distinct_list(col):
+            if not col:
+                return []
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
+                return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
+
+        distincts["providers"].update(distinct_list(provider_col))
+        distincts["customers"].update(distinct_list(customer_col))
+        distincts["states"].update(distinct_list(state_col))
+        distincts["sites"].update(distinct_list(site_col))
+        distincts["wtgs"].update(distinct_list(wtg_col))
+
+    # --- Merge averages (mean of means)
+    final_data = {wtg: sum(vals) / len(vals) for wtg, vals in wtg_avg.items()}
+    chart_data = [{"wtg": k, "hours": v} for k, v in final_data.items()]
+    chart_data.sort(key=lambda x: x["hours"], reverse=True)
+
+    table_data = [{"wtg_no": d["wtg"], "hours": d["hours"]} for d in chart_data]
+    overall_avg = round(sum(d["hours"] for d in chart_data) / len(chart_data), 2) if chart_data else 0
+
+    context = {
+        "chart_data": json.dumps(chart_data),
+        "table_data": table_data,
+        "overall_avg": overall_avg,
+        "providers": sorted(distincts["providers"]),
+        "customers": sorted(distincts["customers"]),
+        "states": sorted(distincts["states"]),
+        "sites": sorted(distincts["sites"]),
+        "wtgs": sorted(distincts["wtgs"]),
+        "selected_providers": providers,
+        "selected_customers": customers,
+        "selected_states": states,
+        "selected_sites": sites,
+        "selected_wtgs": wtgs,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+
+    return render(request, "wind_Grid_Availability_and_Machine.html", context)

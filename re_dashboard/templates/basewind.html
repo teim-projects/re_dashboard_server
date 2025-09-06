@@ -158,9 +158,9 @@
               href="{% url 'wind_generation_kwh' %}">GENERATION KWH</a>
             <a class="nav-link navcontent {% if request.path == '/generation-hours/' %}active{% endif %}"
               href="{% url 'wind_generation_hours' %}">GENERATION HOURS</a>
-            <a class="nav-link navcontent {% if request.path == '/avg-generation/' %}active{% endif %}" href="#">AVERAGE
+            <a class="nav-link navcontent {% if request.path == '/avg-generation/' %}active{% endif %}" href="{% url 'wind_avg_genration' %}">AVERAGE
               GENERATION AND OPERATING HOURS</a>
-            <a class="nav-link navcontent {% if request.path == '/grid-failure/' %}active{% endif %}" href="#">GRID
+            <a class="nav-link navcontent {% if request.path == '/grid-failure/' %}active{% endif %}" href="{% url 'wind_Grid_Availability_and_Machine' %}">GRID
               FAILURE AND MACHINE AVAILABILITY</a>
             <a class="nav-link navcontent {% if request.path == '/drill-down/' %}active{% endif %}" href="#">DRILL
               DOWN</a>
