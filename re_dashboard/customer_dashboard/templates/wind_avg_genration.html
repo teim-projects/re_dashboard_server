@@ -278,9 +278,10 @@
 </style>
 
 <!-- Scripts -->
+  
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+
 <script>
   // Data from Django
   const genData = {{ gen_chart_data|safe }};
@@ -298,17 +299,67 @@
       tableBody.insertAdjacentHTML("beforeend", `<tr><td>${r.wtg}</td><td>${r.hours.toFixed(2)}</td></tr>`);
     });
 
-    // Chart
+    // Create the chart
     new Chart(document.getElementById(ctxId), {
       type: 'bar',
-      data: { labels, datasets: [{ label, data: values, backgroundColor: colors }] },
-      options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } } }
+      data: {
+        labels: labels,
+        datasets: [{
+          label: label,
+          data: values,
+          backgroundColor: colors
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            enabled: true
+          },
+          datalabels: {
+            anchor: 'end',
+            align: 'right',
+            formatter: function(value) {
+              return value.toFixed(2);
+            },
+            color: '#000',
+            font: {
+              weight: 'bold',
+              size: 12
+            }
+          }
+        },
+        scales: {
+  x: {
+    beginAtZero: true,
+    max: 30,  // <-- Here you set the axis max to 30
+    title: {
+      display: true,
+      text: 'Hours'
+    }
+  },
+  y: {
+    title: {
+      display: true,
+      text: 'WTG'
+    }
+  }
+}
+
+      },
+      plugins: [ChartDataLabels]
     });
   }
 
+  // Build charts with the data passed from Django
   buildChart("genChart", genData, "Day Generation Hours", "genTableBody");
   buildChart("opChart", opData, "Operating Hours", "opTableBody");
 </script>
+
 
 
 
