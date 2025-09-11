@@ -197,6 +197,12 @@
     font-weight: 500;
     text-align: center !important;
   }
+
+  @media (max-width: 991px) {
+  .nav-link {
+    width: 110px !important;
+  }
+}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
@@ -346,5 +352,15 @@
     plugins: [ChartDataLabels]
   });
 </script>
+{% if no_data %}
+<script>
+Swal.fire({
+  icon: 'info',
+  title: 'No Data',
+  text: '{{ no_data_msg }}',
+  confirmButtonColor: '#3085d6'
+});
+</script>
+{% endif %}
 
 {% endblock %}

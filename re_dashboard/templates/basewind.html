@@ -39,7 +39,7 @@
       .sidebar-toggle {
         display: block !important;
       }
-
+ 
       .fixed-panel {
         transform: translateX(-100%);
         transition: transform 0.3s ease-in-out;
@@ -91,8 +91,7 @@
       text-align: center;
       border-radius: 10px;
       font-weight: bold;
-      padding: 10px;
-      margin-top: 10px;
+       margin-top: 10px;
       box-shadow: 0 5px 6px rgb(0 0 0 / 30%);
       transition: box-shadow 0.2s ease;
       font-size: 12px;
@@ -116,7 +115,11 @@
       overflow-x: auto;
     }
 
- 
+     .nav-link {
+       margin-bottom: 10px;
+      border-radius: 10px;
+      width: 184px !important;
+    }
  
 
   </style>
@@ -140,9 +143,8 @@
   <!-- Main layout -->
   <div class="container-fluid ">
     <div class="row">
-
       <!-- Sidebar -->
-      <div class="col-md-3 col-12 col-md-3 col-lg-3 col-xl-3 col-xxl-3 p-0 box1">
+      <div class="col-md-2 col-12 col-md-2 col-lg-2 col-xl-2 col-xxl-2 p-0 box1">
         <div class="fixed-panel" id="dashboardPanel">
           {% block fixedcontent %}
           <h4 class="text-white mb-4 text-center mt-5 shadow mb-3" style="padding-top: 40px !important;"><i
@@ -183,7 +185,7 @@
       </div>
 
       <!-- Main content -->
-      <div class="col-12 col-md-9 col-lg-3 col-xl-9 col-xxl-9 content-wrapper box1" style="padding: 0px;">
+      <div class="col-12 col-md-10 col-lg-10 col-xl-10 col-xxl-10 content-wrapper box1" style="padding: 0px;">
         {% block content %}{% endblock %}
       </div>
 
@@ -214,5 +216,6 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   {% endblock %}
 </body>
-
 </html>
+
+

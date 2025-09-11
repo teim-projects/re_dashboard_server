@@ -95,6 +95,16 @@
 
   </div>
 </div>
+{% if no_data %}
+<script>
+    Swal.fire({
+        icon: 'info',
+        title: 'No Data Available',
+        text: '{{ no_data_msg }}',
+        confirmButtonColor: '#3085d6'
+    });
+</script>
+{% endif %}
 
 <!-- ✅ Styles -->
 <style>

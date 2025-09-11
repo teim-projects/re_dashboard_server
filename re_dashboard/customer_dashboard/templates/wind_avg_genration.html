@@ -276,7 +276,16 @@
     text-align: center !important;
   }
 </style>
-
+{% if no_data %}
+<script>
+    Swal.fire({
+        icon: 'info',
+        title: 'No Data Available',
+        text: '{{ no_data_msg }}',
+        confirmButtonColor: '#3085d6'
+    });
+</script>
+{% endif %}
 <!-- Scripts -->
   
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -359,6 +368,7 @@
   buildChart("genChart", genData, "Day Generation Hours", "genTableBody");
   buildChart("opChart", opData, "Operating Hours", "opTableBody");
 </script>
+
 
 
 

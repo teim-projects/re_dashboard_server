@@ -69,11 +69,35 @@ from django.shortcuts import render
 from django.db import connection
 from django.db.utils import ProgrammingError
 from django.contrib.auth.decorators import login_required
+import json
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
 
 @login_required
 def wind_installation_summary2(request):
     table_name = "installation_summary_wind"
 
+    # --- Check if table exists
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [row[0] for row in cursor.fetchall()]
+    if table_name not in db_tables:
+        return render(request, "wind_installation_summary2.html", {
+            "data": json.dumps({
+                "power_sale_labels": [],
+                "power_sale_counts": [],
+                "land_labels": [],
+                "land_counts": [],
+            }),
+            "wtg_locations": [],
+            "oem_breakup": [],
+            "no_data": True,
+            "no_data_msg": "No installation summary data available."
+        })
+
+    # --- Normal flow if table exists
     data = {
         "power_sale_labels": [],
         "power_sale_counts": [],
@@ -123,15 +147,21 @@ def wind_installation_summary2(request):
         """)
         oem_breakup = cursor.fetchall()
 
+    # ✅ Handle case: table exists but no rows
+    no_data = (
+        len(data["power_sale_labels"]) == 0 and
+        len(data["land_labels"]) == 0 and
+        len(wtg_locations) == 0 and
+        len(oem_breakup) == 0
+    )
+
     return render(request, "wind_installation_summary2.html", {
         "data": json.dumps(data),
         "wtg_locations": wtg_locations,
-        "oem_breakup": oem_breakup
+        "oem_breakup": oem_breakup,
+        "no_data": no_data,
+        "no_data_msg": "No installation summary records found." if no_data else ""
     })
-import json
-from django.shortcuts import render
-from django.db import connection
-from django.contrib.auth.decorators import login_required
 
 import json
 from django.shortcuts import render
@@ -192,7 +222,26 @@ def wind_generation_kwh(request):
         db_tables = [row[0] for row in cursor.fetchall()]
     table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
     if not table_names:
-        return HttpResponse(f"No wind generation table found for user: {user}", status=404)
+      context = {
+        "chart_data": json.dumps([]),
+        "table_data": [],
+        "total_generation": 0,
+        "providers": [],
+        "customers": [],
+        "states": [],
+        "sites": [],
+        "wtgs": [],
+        "selected_providers": [],
+        "selected_customers": [],
+        "selected_states": [],
+        "selected_sites": [],
+        "selected_wtgs": [],
+        "date_from": None,
+        "date_to": None,
+        "no_data": True,   # 👈 flag for SweetAlert
+        "no_data_msg": "No wind generation data found for your account."
+       }
+      return render(request, "wind_generation_kwh.html", context)
 
     # --- Collect filters from GET (multi-select)
     date_from  = request.GET.get("date_from") or None
@@ -345,8 +394,29 @@ def wind_generation_hours(request):
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
     table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
+
+    # ✅ If no table found → show blank chart + SweetAlert
     if not table_names:
-        return HttpResponse(f"No wind generation table found for user: {user}", status=404)
+        context = {
+            "chart_data": json.dumps([]),
+            "table_data": [],
+            "total_hours": 0,
+            "providers": [],
+            "customers": [],
+            "states": [],
+            "sites": [],
+            "wtgs": [],
+            "selected_providers": [],
+            "selected_customers": [],
+            "selected_states": [],
+            "selected_sites": [],
+            "selected_wtgs": [],
+            "date_from": None,
+            "date_to": None,
+            "no_data": True,   # 👈 for SweetAlert
+            "no_data_msg": "No wind generation tables found for your account."
+        }
+        return render(request, "wind_genration_hovers.html", context)
 
     # --- Collect filters from GET (multi-select)
     date_from = request.GET.get("date_from") or None
@@ -406,7 +476,6 @@ def wind_generation_hours(request):
                 params += [date_to]
 
         def add_in(col, values):
-            nonlocal conditions, params
             values = [v for v in values if v not in (None, "", "null")]
             if col and values:
                 placeholders = ",".join(["%s"] * len(values))
@@ -468,6 +537,9 @@ def wind_generation_hours(request):
 
     table_data = [{"wtg_no": d["wtg"], "hours": d["hours"]} for d in chart_data]
 
+    # ✅ If table exists but no rows → also send SweetAlert
+    no_data = (len(chart_data) == 0)
+
     context = {
         "chart_data": json.dumps(chart_data),
         "table_data": table_data,
@@ -484,6 +556,8 @@ def wind_generation_hours(request):
         "selected_wtgs": wtgs,
         "date_from": date_from,
         "date_to": date_to,
+        "no_data": no_data,
+        "no_data_msg": "No wind generation hours available for the selected filters." if no_data else ""
     }
 
     return render(request, "wind_genration_hovers.html", context)
@@ -523,7 +597,26 @@ def wind_avg_genration(request):
         db_tables = [row[0] for row in cursor.fetchall()]
     table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
     if not table_names:
-        return HttpResponse(f"No wind generation table found for user: {user}", status=404)
+     context = {
+        "chart_data": json.dumps([]),
+        "table_data": [],
+        "total_generation": 0,
+        "providers": [],
+        "customers": [],
+        "states": [],
+        "sites": [],
+        "wtgs": [],
+        "selected_providers": [],
+        "selected_customers": [],
+        "selected_states": [],
+        "selected_sites": [],
+        "selected_wtgs": [],
+        "date_from": None,
+        "date_to": None,
+        "no_data": True,   # 👈 flag for SweetAlert
+        "no_data_msg": "No wind generation data found for your account."
+       }
+     return render(request, "wind_avg_genration.html", context)
 
     # --- Collect filters from GET
     date_from = request.GET.get("date_from") or None
@@ -700,8 +793,26 @@ def wind_Grid_Availability_and_Machine(request):
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
     table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
-    if not  :
-        return HttpResponse(f"No wind tables found for user: {user}", status=404)
+
+    if not table_names:
+      context = {
+        "grid_chart_data": json.dumps([]),  # empty dataset = blank chart
+        "providers": [],
+        "customers": [],
+        "states": [],
+        "sites": [],
+        "wtgs": [],
+        "selected_providers": [],
+        "selected_customers": [],
+        "selected_states": [],
+        "selected_sites": [],
+        "selected_wtgs": [],
+        "date_from": None,
+        "date_to": None,
+        "no_data": True,
+        "no_data_msg": "No wind tables found for your account."
+          }
+      return render(request, "wind_Grid_Availability_and_Machine.html", context)
 
     # Filters from GET
     date_from = request.GET.get("date_from") or None
@@ -834,7 +945,6 @@ def wind_Grid_Availability_and_Machine(request):
                     hours = to_hours_from_gf_value(row[idx[gf_col]])
                 else:
                     # No GF column → derive from availability percentage(s)
-                    # Prefer GA; fall back to GIA.
                     if ga_col and row[idx[ga_col]] not in (None, ""):
                         ga = float(row[idx[ga_col]])
                         ga = max(0.0, min(100.0, ga))
