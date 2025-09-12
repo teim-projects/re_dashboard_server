@@ -4,47 +4,46 @@
 
 {% block content %}
 <div class="container my-4">
-  <h3 class="text-center mb-4 fw-bold text-primary">⚡ WTG Wise Generation (kWh)</h3>
-  <hr class="mb-4">
-
-  <!-- Active filters chips -->
-<!-- Active filters chips -->
-<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-  {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
-    <span class="badge bg-secondary">Active filters:</span>
-    {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
-    {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
-    {% for x in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ x }}</span>{% endfor %}
-    {% for x in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ x }}</span>{% endfor %}
-    {% for x in selected_states %}<span class="badge bg-info text-dark">State: {{ x }}</span>{% endfor %}
-    {% for x in selected_sites %}<span class="badge bg-info text-dark">Site: {{ x }}</span>{% endfor %}
-    {% for x in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ x }}</span>{% endfor %}
-    <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
-  {% endif %}
-</div>
+  
 
 
-<!-- Filter Buttons -->
-<div class="d-flex flex-wrap gap-2 mb-4">
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
-    <i class="fas fa-filter"></i> DATE RANGE
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
-    <i class="fas fa-filter"></i> OEM PROVIDER
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
-    <i class="fas fa-filter"></i> CUSTOMER
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
-    <i class="fas fa-filter"></i> STATE NAME
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
-    <i class="fas fa-filter"></i> SITE NAME
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
-    <i class="fas fa-filter"></i> WTG NUMBER
-  </button>
-</div>
+
+  <!-- Filter Buttons -->
+  <div class="d-flex flex-wrap gap-2 mb-4" style="margin-top: 80px;">
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+      <i class="fas fa-filter"></i> DATE RANGE
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
+      <i class="fas fa-filter"></i> OEM PROVIDER
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
+      <i class="fas fa-filter"></i> CUSTOMER
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
+      <i class="fas fa-filter"></i> STATE NAME
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
+      <i class="fas fa-filter"></i> SITE NAME
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
+      <i class="fas fa-filter"></i> WTG NUMBER
+    </button>
+
+      <!-- Active filters chips -->
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3" >
+    {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
+      <span class="badge bg-secondary">Active filters:</span>
+      {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
+      {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
+      {% for x in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ x }}</span>{% endfor %}
+      {% for x in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ x }}</span>{% endfor %}
+      {% for x in selected_states %}<span class="badge bg-info text-dark">State: {{ x }}</span>{% endfor %}
+      {% for x in selected_sites %}<span class="badge bg-info text-dark">Site: {{ x }}</span>{% endfor %}
+      {% for x in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ x }}</span>{% endfor %}
+      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
+    {% endif %}
+  </div>
+  </div>
 
   <!-- Chart + Table -->
   <div class="row">
@@ -55,7 +54,7 @@
           <strong>WTG Wise Generation</strong>
         </div>
         <div class="card-body">
-          <canvas id="treemapChart" style="height:400px; width:100%"></canvas>
+          <canvas id="treemapChart" style=" width:100%"></canvas>
           <h5 class="mt-3 text-center text-success">
             Day Generation kWh Total: {{ total_generation|intcomma }}
           </h5>
@@ -70,7 +69,7 @@
           <strong>WTG No. & Generation</strong>
         </div>
         <div class="card-body">
-          <table id="wtgTable" class="table table-bordered table-striped table-hover text-center">
+          <table id="wtgTable" class="table table-sm table-bordered table-striped table-hover text-center">
             <thead class="table-light">
               <tr>
                 <th>WTG No</th>
@@ -85,8 +84,7 @@
   </div>
 </div>
 
-         
- 
+<!-- (modals unchanged) -->
 <!-- Date Range Modal -->
 <div class="modal fade" id="dateRangeModal" tabindex="-1">
   <div class="modal-dialog">
@@ -137,6 +135,9 @@
     </form>
   </div>
 </div>
+<!-- Customer, State, Site, WTG modals same as you provided -->
+<!-- ... (kept unchanged for brevity) ... -->
+ 
 <!-- Customer Modal -->
 <div class="modal fade" id="customerModal" tabindex="-1">
   <div class="modal-dialog">
@@ -270,66 +271,209 @@
     font-weight: 500;
     text-align: center !important;
   }
+
+/* Compact DataTables */
+.table-sm th,
+.table-sm td {
+  padding: 4px 6px !important;
+  font-size: 12px !important;
+  vertical-align: middle !important;
+}
+
+/* Adjust DataTables controls */
+.dataTables_wrapper .dataTables_length select,
+.dataTables_wrapper .dataTables_filter input {
+  padding: 2px 6px;
+  font-size: 12px;
+  height: auto;
+}
+.dataTables_wrapper .dataTables_filter input {
+  width: 160px !important;
+}
+.dataTables_wrapper .dataTables_length select {
+  width: auto !important;
+}
+
+/* Reduce spacing in table header */
+.table thead th {
+  padding: 6px !important;
+  font-size: 12px;
+}
 </style>
 
-<!-- Scripts -->
+<!-- Libraries (added DataTables + jQuery) -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+<!-- Chart libraries -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0"></script>
+
+<!-- Page Script -->
 <script>
-  const rawData = {{ chart_data|safe }};
 
-  // Table fill
-  const tableBody = document.getElementById("wtgTableBody");
-  tableBody.innerHTML = "";
-rawData.forEach(row => {
-  if (row.generation) {   // skips null, undefined, 0
-    const tr = `<tr><td>${row.wtg}</td><td>${row.generation.toLocaleString()}</td></tr>`;
-    tableBody.insertAdjacentHTML("beforeend", tr);
-  }
-});
 
-  // Colors
-  const colors = rawData.map((_, i) => {
-    const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
-    return palette[i % palette.length];
+function adjustTreemapHeight(rowCount) {
+  const baseHeight = 200;   // minimum
+  const perRow = 6;        // pixels per WTG row
+  const maxHeight = 500;    // optional limit
+  const newHeight = Math.min(baseHeight + (rowCount * perRow), maxHeight);
+
+  const canvas = document.getElementById("treemapChart");
+  canvas.style.height = newHeight + "px";
+}
+function updateTreemapFromTable(table, chart) {
+  const visibleWTGs = [];
+  table.rows({ page: 'current' }).every(function () {
+    const data = this.data();
+    const wtg = data[0];
+    const gen = parseFloat(String(data[1]).replace(/,/g, '')) || 0;
+    visibleWTGs.push({ wtg: wtg, generation: gen });
   });
 
-  new Chart(document.getElementById("treemapChart"), {
-    type: 'treemap',
-    data: {
-      datasets: [{
-        tree: rawData,
-        key: 'generation',
-        groups: ['wtg'],
-         borderColor: '#fff',
-        layoutAlgorithm: 'binary',
-        minVisibleSize: 20,
-        labels: {
-          display: true,
-          formatter: ctx => ctx.raw._data.wtg,
-          align: 'center',
-          color: 'white',
-          font: { size: 12  }
-        },
-        backgroundColor: (ctx) => colors[ctx.index % colors.length]
-      }]
-    },
-    options: {
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const wtg = ctx.raw._data.wtg;
-              const gen = ctx.raw._data.generation;
-              const total = rawData.reduce((s, d) => s + d.generation, 0);
-              const percent = total ? ((gen / total) * 100).toFixed(1) : 0;
-              return `${wtg}: ${gen.toLocaleString()} kWh (${percent}%)`;
+  // Adjust chart height before rebuild
+  adjustTreemapHeight(visibleWTGs.length);
+
+  // Rebuild with visible dataset
+  buildTreemap(visibleWTGs.length ? visibleWTGs : []);
+}
+
+  const rawData = {{ chart_data|safe }};
+
+  // Fill table body (same logic but now building a data array for DataTables)
+  const tableBody = document.getElementById("wtgTableBody");
+  tableBody.innerHTML = "";
+  const tableRows = []; // will hold arrays for DataTables
+  rawData.forEach(row => {
+    // treat falsy generation as 0 but still include if you want to show zeroes.
+    const genVal = row.generation || 0;
+    // Only include rows you want visible in table (keeps behavior similar to original)
+    tableRows.push([row.wtg, genVal.toLocaleString()]);
+    const tr = `<tr><td>${row.wtg}</td><td>${genVal.toLocaleString()}</td></tr>`;
+    tableBody.insertAdjacentHTML("beforeend", tr);
+  });
+
+  // Create treemap chart instance variable for later updates
+  const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
+  let treemapChart;
+
+  function buildTreemap(dataset) {
+    const ctx = document.getElementById("treemapChart").getContext("2d");
+    if (treemapChart) {
+      treemapChart.destroy();
+    }
+    treemapChart = new Chart(ctx, {
+      type: 'treemap',
+      data: {
+        datasets: [{
+          tree: dataset,
+          key: 'generation',
+          groups: ['wtg'],
+          borderColor: '#fff',
+          layoutAlgorithm: 'binary',
+          minVisibleSize: 20,
+          labels: {
+            display: true,
+            formatter: ctx => ctx.raw._data.wtg,
+            align: 'center',
+            color: 'white',
+            font: { size: 12 }
+          },
+          backgroundColor: (ctx) => palette[ctx.index % palette.length]
+        }]
+      },
+      options: {
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const wtg = ctx.raw._data.wtg;
+                const gen = ctx.raw._data.generation;
+                const total = rawData.reduce((s, d) => s + (d.generation || 0), 0);
+                const percent = total ? ((gen / total) * 100).toFixed(1) : 0;
+                return `${wtg}: ${gen.toLocaleString()} kWh (${percent}%)`;
+              }
             }
           }
         }
       }
+    });
+  }
+
+  // initial build with full rawData
+  buildTreemap(rawData);
+
+  // ===============================
+  // DataTables setup and sync
+  // ===============================
+  // helper: create dynamic lengthMenu
+  function getLengthMenu(totalRows) {
+    let menu = [5, 10];
+    if (totalRows > 10) menu.push(20);
+    if (totalRows > 20) menu.push(50);
+    if (totalRows > 50) menu.push(100);
+    return menu;
+  }
+
+  $(document).ready(function () {
+    // Initialize DataTable
+    const wtgTable = $('#wtgTable').DataTable({
+      data: tableRows,
+      columns: [
+        { title: "WTG No" },
+        { title: "Generation" }
+      ],
+      pageLength: 10,
+      lengthMenu: getLengthMenu(tableRows.length),
+      ordering: true,
+      order: [[1, 'desc']], // sort by generation desc by default
+      language: {
+        search: "",
+        searchPlaceholder: "🔍 Search WTG...",
+        lengthMenu: "_MENU_"
+      },
+      // render numeric values properly for sorting by converting cell content back to number
+      columnDefs: [{
+        targets: 1,
+        render: function (data, type, row) {
+          // Data was inserted as formatted string (with commas), so for sorting use numeric raw value
+          if (type === 'sort' || type === 'type') {
+            // remove commas then parse
+            return parseFloat(String(data).replace(/,/g, '')) || 0;
+          }
+          return data; // display as formatted string
+        }
+      }]
+    });
+
+    // Function to update treemap based on current table page (or filtered rows)
+    function updateTreemapFromTable(table, chart) {
+      const visibleWTGs = [];
+      // iterate over rows currently visible on the page (DataTables API)
+      table.rows({ page: 'current' }).every(function () {
+        const data = this.data();
+        // data[0] is wtg, data[1] is generation formatted string
+        const wtg = data[0];
+        const gen = parseFloat(String(data[1]).replace(/,/g, '')) || 0;
+        visibleWTGs.push({ wtg: wtg, generation: gen });
+      });
+
+      // If no visible rows (e.g. empty search), fallback to first page length or empty chart
+      const newDataset = visibleWTGs.length ? visibleWTGs : [];
+
+      // Rebuild treemap with only visible dataset (this keeps the chart reflecting the table view)
+      buildTreemap(newDataset);
     }
+
+    // First sync after init
+    updateTreemapFromTable(wtgTable, treemapChart);
+
+    // Update treemap whenever table redraws (pagination/search/filter change)
+    wtgTable.on('draw', function () {
+      updateTreemapFromTable(wtgTable, treemapChart);
+    });
   });
 </script>
 {% endblock %}

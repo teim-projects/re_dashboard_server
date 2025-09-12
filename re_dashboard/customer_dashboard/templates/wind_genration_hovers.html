@@ -1,88 +1,105 @@
 {% extends "basewind.html" %}
 {% load static %}
-{% load humanize %}
-
 {% block content %}
-<div class="container my-4">
-  <h3 class="text-center mb-4 fw-bold text-primary">🕒 WTG Wise Hours</h3>
-  <hr class="mb-4">
+<div class="container my-4" style="margin-top: 100px !important;">
 
-  <!-- Active filters chips -->
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
-      <span class="badge bg-secondary">Active filters:</span>
-      {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
-      {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
-      {% for x in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ x }}</span>{% endfor %}
-      {% for x in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ x }}</span>{% endfor %}
-      {% for x in selected_states %}<span class="badge bg-info text-dark">State: {{ x }}</span>{% endfor %}
-      {% for x in selected_sites %}<span class="badge bg-info text-dark">Site: {{ x }}</span>{% endfor %}
-      {% for x in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ x }}</span>{% endfor %}
-      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
+    <!-- ===== Active Filters ===== -->
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
+            <span class="badge bg-secondary fw-bold">Active Filters:</span>
+            {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
+            {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
+            {% for x in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ x }}</span>{% endfor %}
+            {% for x in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ x }}</span>{% endfor %}
+            {% for x in selected_states %}<span class="badge bg-info text-dark">State: {{ x }}</span>{% endfor %}
+            {% for x in selected_sites %}<span class="badge bg-info text-dark">Site: {{ x }}</span>{% endfor %}
+            {% for x in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ x }}</span>{% endfor %}
+            <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear All</a>
+        {% endif %}
+    </div>
+
+    <!-- ===== Filter Buttons ===== -->
+    <div class="row g-2 mb-4">
+        <div class="col-auto">
+            <button class="btn btn-outline-dark w-100" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+                <i class="fas fa-calendar-alt"></i> Date Range
+            </button>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-outline-dark w-100" data-bs-toggle="modal" data-bs-target="#providerModal">
+                <i class="fas fa-industry"></i> Provider
+            </button>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-outline-dark w-100" data-bs-toggle="modal" data-bs-target="#customerModal">
+                <i class="fas fa-user"></i> Customer
+            </button>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-outline-dark w-100" data-bs-toggle="modal" data-bs-target="#stateModal">
+                <i class="fas fa-map-marker-alt"></i> State
+            </button>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-outline-dark w-100" data-bs-toggle="modal" data-bs-target="#siteModal">
+                <i class="fas fa-building"></i> Site
+            </button>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-outline-dark w-100" data-bs-toggle="modal" data-bs-target="#wtgModal">
+                <i class="fas fa-turbine"></i> WTG
+            </button>
+        </div>
+    </div>
+
+    {% if no_data %}
+        <div class="alert alert-warning text-center fw-bold">{{ no_data_msg }}</div>
+    {% else %}
+        <!-- ===== Treemap Chart Card ===== -->
+        <div class="card shadow-lg mb-4 border-0">
+            <div class="card-header bg-gradient-primary text-white text-center fw-bold">
+                Generation Hours Treemap
+            </div>
+            <div class="card-body p-3" style="height: 450px;">
+                <canvas id="treemapChart"></canvas>
+            </div>
+            <div class="text-center mb-3">
+                <h5 class="fw-bold">Total Hours: {{ total_hours|floatformat:2 }}</h5>
+            </div>
+        </div>
+
+        <!-- ===== Table Card ===== -->
+        <div class="card shadow-lg mb-4 border-0">
+            <div class="card-header bg-gradient-secondary text-white text-center fw-bold">
+                Generation Hours Table
+            </div>
+            <div class="card-body p-2">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover table-bordered text-center mb-0">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>WTG No</th>
+                                <th>Year</th>
+                                <th>Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in table_data %}
+                                <tr>
+                                    <td>{{ row.wtg_no }}</td>
+                                    <td>{{ row.year }}</td>
+                                    <td>{{ row.hours|floatformat:2 }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     {% endif %}
-  </div>
-
-  <!-- Filter Buttons -->
-  <div class="d-flex flex-wrap gap-2 mb-4">
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
-      <i class="fas fa-filter"></i> DATE RANGE
-    </button>
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
-      <i class="fas fa-filter"></i> OEM PROVIDER
-    </button>
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
-      <i class="fas fa-filter"></i> CUSTOMER
-    </button>
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
-      <i class="fas fa-filter"></i> STATE NAME
-    </button>
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
-      <i class="fas fa-filter"></i> SITE NAME
-    </button>
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
-      <i class="fas fa-filter"></i> WTG NUMBER
-    </button>
-  </div>
-
-  <!-- Chart + Table -->
-  <div class="row">
-    <!-- Treemap Chart -->
-    <div class="col-md-8 mb-4">
-      <div class="card shadow-lg border-0 h-100 chart-card">
-        <div class="card-header form-heading">
-          <strong>WTG Wise Hours</strong>
-        </div>
-        <div class="card-body">
-          <canvas id="treemapChart" style="height:400px; width:100%"></canvas>
-<h5 class="mt-3 text-center text-success">
-  Total Hours: {{ total_hours|floatformat:0|intcomma }}
-</h5>
-
-        </div>
-      </div>
-    </div>
-
-    <!-- Table -->
-    <div class="col-md-4 mb-4">
-      <div class="card shadow-lg border-0 h-100">
-        <div class="card-header form-heading">
-          <strong>WTG No. & Hours</strong>
-        </div>
-        <div class="card-body">
-          <table id="wtgTable" class="table table-bordered table-striped table-hover text-center">
-            <thead class="table-light">
-              <tr>
-                <th>WTG No</th>
-                <th>Hours</th>
-              </tr>
-            </thead>
-            <tbody id="wtgTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
+
+<!-- ===== Modals ===== -->
 
 <!-- ========== Modals ========== --> 
 <!-- Date Range Modal -->
@@ -243,83 +260,98 @@
     </form>
   </div>
 </div>
-
-<!-- Styles (same as generation page) -->
-<style>
-  .chart-card { border-radius: 15px; }
-  .form-heading {
-    background: linear-gradient(to right, #7b2cbf, #9d4edd);
-    color: #fff;
-    padding: 15px 25px;
-    border-top-left-radius: 15px !important;
-    border-top-right-radius: 15px !important;
-    font-size: 18px;
-    font-weight: 500;
-    text-align: center !important;
-  }
-</style>
-
-<!-- Scripts -->
+ 
+ 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0"></script>
+
 <script>
-  const rawData = {{ chart_data|safe }};
+const rawData = {{ chart_data|safe }};
+const years = [...new Set(rawData.map(item => item.year))];
 
-// ✅ Filter out rows where wtg is null/empty OR hours is null/0
-const filteredData = rawData.filter(row => row.wtg && row.hours);
+// 🎨 Colors per year
+const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
+const yearColors = {};
+years.forEach((year, idx) => { yearColors[year] = palette[idx % palette.length]; });
 
-// Table fill
-const tableBody = document.getElementById("wtgTableBody");
-tableBody.innerHTML = "";
-filteredData.forEach(row => {
-  const tr = `<tr><td>${row.wtg}</td><td>${row.hours.toLocaleString()}</td></tr>`;
-  tableBody.insertAdjacentHTML("beforeend", tr);
-});
+// 📊 Map input data
+const treeData = rawData.map(item => ({
+    wtg: item.wtg,
+    hours: item.hours,
+    year: item.year
+}));
 
-// Colors
-const colors = filteredData.map((_, i) => {
-  const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
-  return palette[i % palette.length];
-});
-// Treemap chart
-new Chart(document.getElementById("treemapChart"), {
-  type: 'treemap',
-  data: {
-    datasets: [{
-      tree: filteredData,
-      key: 'hours',
-      groups: ['wtg'],
-      borderColor: '#fff',
-      layoutAlgorithm: 'binary',
-      minVisibleSize: 20,
-      labels: {
-        display: true,
-        // ✅ Show WTG + rounded hours
-        formatter: ctx => `${ctx.raw._data.wtg}\n${Math.round(ctx.raw._data.hours)}`,
-        align: 'center',
-        color: 'white',
-        font: { size: 12 }
-      },
-      backgroundColor: (ctx) => colors[ctx.index % colors.length]
-    }]
-  },
-  options: {
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: ctx => {
-            const wtg = ctx.raw._data.wtg;
-            const hrs = Math.round(ctx.raw._data.hours);   // ✅ rounded here
-            const total = filteredData.reduce((s, d) => s + d.hours, 0);
-            const percent = total ? ((hrs / total) * 100).toFixed(1) : 0;
-            return `${wtg}: ${hrs.toLocaleString()} hrs (${percent}%)`;
-          }
+const ctx = document.getElementById("treemapChart").getContext("2d");
+const treemapChart = new Chart(ctx, {
+    type: 'treemap',
+    data: {
+        datasets: [{
+            tree: treeData,
+            key: 'hours',
+            groups: ['year','wtg'],   // ✅ still grouped by year → WTG
+            spacing: 2,
+            borderColor: '#ffffff',
+            borderWidth: ctx => {
+                // ✅ only draw borders for WTG level
+                return ctx.raw._data && ctx.raw._data.wtg ? 1 : 0;
+            },
+            labels: {
+                display: true,
+                formatter: ctx => {
+                    // ✅ Show only WTG labels (hide year completely)
+                    if (ctx.raw._data && ctx.raw._data.wtg) {
+                        return ctx.raw._data.wtg;
+                    }
+                    return ""; // 🔥 no year label
+                },
+                align: 'center',
+                color: '#ffffff',
+                font: { size: 12 }
+            },
+            backgroundColor: ctx =>
+                yearColors[ctx.raw._data?.year] || "#6c757d"
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    generateLabels: chart => years.map(year => ({
+                        text: year,
+                        fillStyle: yearColors[year]
+                    }))
+                },
+                // 🔍 highlight by year on hover
+                onHover: (e, legendItem, legend) => {
+                    const year = legendItem.text;
+                    treemapChart.data.datasets[0].backgroundColor = ctx =>
+                        ctx.raw._data?.year === year
+                            ? yearColors[ctx.raw._data.year]
+                            : "rgba(200,200,200,0.3)";
+                    treemapChart.update();
+                },
+                onLeave: () => {
+                    treemapChart.data.datasets[0].backgroundColor = ctx =>
+                        yearColors[ctx.raw._data?.year] || "#6c757d";
+                    treemapChart.update();
+                }
+            },
+            tooltip: {
+                callbacks: {
+                    label: ctx => {
+                        if (!ctx.raw._data || !ctx.raw._data.wtg) return null;
+                        return `${ctx.raw._data.wtg} (${ctx.raw._data.year}): ${ctx.raw._data.hours.toLocaleString()} hrs`;
+                    }
+                }
+            }
         }
-      }
     }
-  }
 });
 
 </script>
+
 {% endblock %}

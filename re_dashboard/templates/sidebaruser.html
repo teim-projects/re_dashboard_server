@@ -430,15 +430,17 @@ body.dark-mode .nav-link.active {
 {% endif %}
 
   </div>
+<center>
+  <h5 class="mb-0 me-3 NNAMEUSERS text-dark">Hello, {{ request.user }}</h5>
+ </center>
 
-  <h5 class="mb-0 me-3 text-dark">Hello, {{ request.user }}</h5>
- 
-  <div class="dark-mode-toggle" data-aos="zoom-in">
-    <button id="themeToggleBtn" class="btn btn-light theme-btn" title="Toggle Dark Mode">
-      <i id="themeIcon" class="fas fa-moon"></i>
-    </button>
-  </div>
+  <!-- Toggle button for small devices -->
+  <button class="sidebar-toggle " id="toggleSidebar">
+    <span>
+       Hello, {{ request.user }} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<i class="fa fa-bars"></i>
 
+    </span>
+  </button>
  
   {% endif %}
 

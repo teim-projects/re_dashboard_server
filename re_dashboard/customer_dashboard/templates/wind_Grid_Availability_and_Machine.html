@@ -46,9 +46,22 @@
   </div>
 
   <div class="card shadow-lg border-0 h-100 chart-card">
-    <div class="card-header form-heading">
-      <strong>Average Grid Failure by Year</strong>
-    </div>
+<div class="card-header form-heading d-flex justify-content-between align-items-center">
+  <strong>Average Grid Failure by Year</strong>
+
+  <!-- Dropdown Toggle -->
+  <div class="dropdown">
+    <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="gridMenu" data-bs-toggle="dropdown" aria-expanded="false">
+      ☰
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="gridMenu">
+      <li><a class="dropdown-item" href="#" onclick="downloadChart('gridFailureChart','png')">Download PNG</a></li>
+      <li><a class="dropdown-item" href="#" onclick="downloadChart('gridFailureChart','svg')">Download SVG</a></li>
+      <li><a class="dropdown-item" href="#" onclick="downloadCSV(gridData,'Grid_Failure.csv')">Download CSV</a></li>
+    </ul>
+  </div>
+</div>
+
     <div class="card-body">
       <canvas id="gridFailureChart" height="400px"></canvas>
     </div>
@@ -197,6 +210,12 @@
     font-weight: 500;
     text-align: center !important;
   }
+.dropdown-toggle {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+}
 
   @media (max-width: 991px) {
   .nav-link {
@@ -204,6 +223,44 @@
   }
 }
 </style>
+<script>
+function downloadChart(chartId, type) {
+  const chartCanvas = document.getElementById(chartId);
+
+  if (type === "png") {
+    const link = document.createElement("a");
+    link.href = chartCanvas.toDataURL("image/png");
+    link.download = chartId + ".png";
+    link.click();
+  } else if (type === "svg") {
+    const svgData = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${chartCanvas.width}" height="${chartCanvas.height}">
+        <foreignObject width="100%" height="100%">
+          ${new XMLSerializer().serializeToString(chartCanvas)}
+        </foreignObject>
+      </svg>`;
+    const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = chartId + ".svg";
+    link.click();
+  }
+}
+
+function downloadCSV(data, filename) {
+  let csv = "Year,Avg Grid Failure (%)\n";
+  data.forEach(row => {
+    csv += `${row.year},${row.avg_failure}\n`;
+  });
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+}
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 <script>
