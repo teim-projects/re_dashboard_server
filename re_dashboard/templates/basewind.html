@@ -70,12 +70,19 @@
 
 
   .fixed-panel {
-  background-color: rgba(0, 0, 0);
+/* background: linear-gradient(90deg, 
+    #dbe6f8 0%,    
+    #cfebdf 25%,   
+    #ece9e0 50%,  
+    #f8d9d9 75%    
+); */
+
+background-color: #353536;
   color: white;
-  padding: 20px 10px;
-  overflow-y: auto;
+   overflow-y: auto;
   height: 100vh;
 
+padding: 5px;
   /* Firefox */
   scrollbar-width: none;   /* hides scrollbar */
   -ms-overflow-style: none; /* IE/Edge */
@@ -121,7 +128,9 @@
      .nav-link {
        margin-bottom: 10px;
       border-radius: 10px;
-      width: 184px !important;
+      width: 214px !important;
+      padding: 15px !important;
+      
     }
  
 
@@ -140,10 +149,10 @@
   <div class="container-fluid ">
     <div class="row">
       <!-- Sidebar -->
-      <div class="col-md-2 col-12 col-md-2 col-lg-2 col-xl-2 col-xxl-2 p-0 box1">
+      <div class="col-md-3 col-12 col-md-2 col-lg-2 col-xl-2 col-xxl-2 p-0 box1 ">
         <div class="fixed-panel" id="dashboardPanel">
           {% block fixedcontent %}
-          <h4 class="text-white mb-4 text-center mt-5 shadow mb-3" style="padding-top: 40px !important;"><i
+          <h4 class="text-white mb-4 text-center mt-5   mb-3" style="padding-top: 40px !important;"><i
               class="fa-solid fa-desktop"></i> Dashboard</h4>
           <nav class="nav flex-column" style="align-items: center;">
             <a class="nav-link navcontent {% if request.path == '/dashboard/' or request.path == '/' %}active{% endif %}"

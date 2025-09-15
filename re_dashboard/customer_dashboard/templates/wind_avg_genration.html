@@ -386,11 +386,24 @@
       colors.push(["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1"][labels.length % 6]);
     });
 
-    // ✅ Dynamic chart height logic
-    const rowCount = labels.length;
-    const perBarHeight = rowCount < 10 ? 100 : 40;   // <10 rows → 100px per bar, else 40px
-    const newHeight = Math.max(250, rowCount * perBarHeight);
-    chart.canvas.parentNode.style.height = newHeight + "px";
+   // ✅ Dynamic chart height logic
+const rowCount = labels.length;
+
+// Set per-bar height based on row count
+let perBarHeight;
+if (rowCount < 10) {
+    perBarHeight = 70;       // Less than 10 rows
+} else if (rowCount <15) {
+    perBarHeight = 40;        // 10–19 rows
+} else if (rowCount < 25) {
+    perBarHeight = 30;        // 20–29 rows
+} else {
+    perBarHeight = 20;        // 30 or more rows
+}
+
+// Calculate chart height
+const newHeight = Math.max(250, rowCount * perBarHeight);
+chart.canvas.parentNode.style.height = newHeight + "px";
 
     chart.data.labels = labels;
     chart.data.datasets[0].data = values;

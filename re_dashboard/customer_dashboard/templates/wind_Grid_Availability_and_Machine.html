@@ -4,7 +4,6 @@
 
 {% block content %}
 <div class="container my-4" style="margin-top: 70px !important;">
-    
 
   <!-- Active filters chips -->
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -20,8 +19,6 @@
       <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
     {% endif %}
   </div>
-
-  <!-- Filter buttons same as other pages -->
 
   <!-- Filter Buttons -->
   <div class="d-flex flex-wrap gap-2 mb-4">
@@ -45,31 +42,56 @@
     </button>
   </div>
 
-  <div class="card shadow-lg border-0 h-100 chart-card">
-<div class="card-header form-heading d-flex justify-content-between align-items-center">
-  <strong>Average Grid Failure by Year</strong>
-
-  <!-- Dropdown Toggle -->
-  <div class="dropdown">
-    <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="gridMenu" data-bs-toggle="dropdown" aria-expanded="false">
-      ☰
-    </button>
-    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="gridMenu">
-      <li><a class="dropdown-item" href="#" onclick="downloadChart('gridFailureChart','png')">Download PNG</a></li>
-      <li><a class="dropdown-item" href="#" onclick="downloadChart('gridFailureChart','svg')">Download SVG</a></li>
-      <li><a class="dropdown-item" href="#" onclick="downloadCSV(gridData,'Grid_Failure.csv')">Download CSV</a></li>
-    </ul>
-  </div>
-</div>
-
+  <!-- Grid Failure Chart Card -->
+  <div class="card shadow-lg border-0 h-100 chart-card mb-5">
+    <div class="card-header form-heading d-flex justify-content-between align-items-center">
+      <strong>Average Grid Failure by Year</strong>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="gridMenu" data-bs-toggle="dropdown" aria-expanded="false">
+          ☰
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="gridMenu">
+          <li><a class="dropdown-item" href="#" onclick="downloadChart('gridFailureChart','png')">Download PNG</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadChart('gridFailureChart','svg')">Download SVG</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadCSV(gridData,'Grid_Failure.csv')">Download CSV</a></li>
+        </ul>
+      </div>
+    </div>
     <div class="card-body">
       <canvas id="gridFailureChart" height="400px"></canvas>
     </div>
   </div>
+
+  <!-- Availability Chart Card -->
+  <div class="card shadow-lg border-0 h-100 chart-card mb-5">
+    <div class="card-header form-heading d-flex justify-content-between align-items-center">
+      <strong>Grid Availability and Machine Availability Percent</strong>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="availMenu" data-bs-toggle="dropdown" aria-expanded="false">
+          ☰
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="availMenu">
+          <li><a class="dropdown-item" href="#" onclick="downloadChart('availabilityChart','png')">Download PNG</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadChart('availabilityChart','svg')">Download SVG</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadCSVAvailability(availabilityData,'Availability.csv')">Download CSV</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="card-body">
+      <!-- <canvas id="availabilityChart" height="400px"></canvas> -->
+      <div class="mb-3">
+  <label for="yearFilter" class="fw-bold">Select Year:</label>
+  <select id="yearFilter" class="form-select w-auto d-inline-block">
+    <option value="all">All Years</option>
+  </select>
+</div>
+<canvas id="availabilityChart" height="400px"></canvas>
+
+    </div>
+  </div>
+
 </div>
 
-
-<!-- ========== Modals ========== --> 
 <!-- Date Range Modal -->
 <div class="modal fade" id="dateRangeModal" tabindex="-1">
   <div class="modal-dialog">
@@ -120,7 +142,6 @@
     </form>
   </div>
 </div>
-<!-- Customer Modal -->
 <div class="modal fade" id="customerModal" tabindex="-1">
   <div class="modal-dialog">
     <form method="get" class="modal-content">
@@ -195,8 +216,41 @@
   </div>
 </div>
 
-<!-- Date Range Modal reused from other pages -->
-<!-- Add other modals as needed, or reuse from base template -->
+
+<!-- WTG Modal -->
+<div class="modal fade" id="wtgModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Select WTG(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% for w in wtgs %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="wtg" value="{{ w }}"
+              {% if not selected_wtgs or w in selected_wtgs %}checked{% endif %}>
+            <label class="form-check-label">{{ w }}</label>
+          </div>
+        {% empty %}
+          <p class="text-muted">No WTG numbers found.</p>
+        {% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "wtg" %}
+          {% for v in vals %}
+            <input type="hidden" name="{{ key }}" value="{{ v }}">
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-primary">Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
+<!-- Include your modals here like Date Range Modal, Provider Modal, etc. -->
+<!-- You can copy them from your provided template and they're already correct -->
 
 <style>
   .chart-card { border-radius: 15px; }
@@ -210,22 +264,35 @@
     font-weight: 500;
     text-align: center !important;
   }
-.dropdown-toggle {
-  border: none;
-  background: transparent;
-  font-size: 18px;
-  cursor: pointer;
+  .dropdown-toggle {
+    border: none;
+    background: transparent;
+    font-size: 18px;
+    cursor: pointer;
+  }
+  @media (max-width: 991px) {
+    .nav-link {
+      width: 110px !important;
+    }
+  }
+  #gridFailureChart, #availabilityChart {
+  max-height: 400px;   /* keeps chart bounded */
+  width: 100% !important;
 }
 
-  @media (max-width: 991px) {
-  .nav-link {
-    width: 110px !important;
-  }
-}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 <script>
+const gridData = {{ grid_chart_data|safe }};
+const availabilityData = {{ availability_chart_data|safe }};
+
+// ------------------- Chart Download Helpers -------------------
 function downloadChart(chartId, type) {
   const chartCanvas = document.getElementById(chartId);
+  if (!chartCanvas) return;
 
   if (type === "png") {
     const link = document.createElement("a");
@@ -249,175 +316,224 @@ function downloadChart(chartId, type) {
 
 function downloadCSV(data, filename) {
   let csv = "Year,Avg Grid Failure (%)\n";
-  data.forEach(row => {
-    csv += `${row.year},${row.avg_failure}\n`;
-  });
-
+  data.forEach(row => { csv += `${row.year},${row.avg_failure}\n`; });
   const blob = new Blob([csv], { type: "text/csv" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
   link.download = filename;
   link.click();
 }
-</script>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
-<script>
-  const gridData = {{ grid_chart_data|safe }};
-  const labels = gridData.map(r => r.year);
-  const values = gridData.map(r => r.avg_failure);
+function downloadCSVAvailability(data, filename, mode="month") {
+  let csv = "";
+  if (mode === "year") {
+    csv = "Year,Grid Availability (%),Machine Availability (%)\n";
+    data.forEach(row => { csv += `${row.year},${row.grid},${row.machine}\n`; });
+  } else {
+    csv = "Month,Grid Availability (%),Machine Availability (%)\n";
+    data.forEach(row => { csv += `${row.month},${row.grid_availability},${row.machine_availability}\n`; });
+  }
+  const blob = new Blob([csv], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+}
 
-  // Google color palette
-  const baseColors = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
-  const colors = values.map((_, i) => baseColors[i % baseColors.length]);
+// ------------------- Grid Failure Chart -------------------
+const gridLabels = gridData.map(r => r.year);
+const gridValues = gridData.map(r => r.avg_failure);
+const baseColors = ['#4285F4', '#EA4335', '#FBBC05', '#34A853'];
+const colors = gridValues.map((_, i) => baseColors[i % baseColors.length]);
+const ctxGrid = document.getElementById("gridFailureChart").getContext('2d');
 
-  const ctx = document.getElementById("gridFailureChart").getContext('2d');
+const createGradient = (ctx, color) => {
+  const gradient = ctx.createLinearGradient(0,0,0,400);
+  gradient.addColorStop(0,color);
+  gradient.addColorStop(1,'rgba(255,255,255,0)');
+  return gradient;
+};
+const gradientColors = colors.map(c => createGradient(ctxGrid,c));
 
-  // Create gradient fills dynamically
-  const createGradient = (ctx, color) => {
-    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, color);
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    return gradient;
-  };
+new Chart(ctxGrid, {
+  type: 'bar',
+  data: {
+    labels: gridLabels,
+    datasets: [
+      {
+        label: "Avg Grid Failure (%)",
+        data: gridValues,
+        backgroundColor: gradientColors,
+        borderColor: colors,
+        borderWidth: 2,
+        borderRadius: 12,
+        borderSkipped: false,
+        hoverBackgroundColor: colors.map(c=>c+'99'),
+        hoverBorderColor: colors.map(c=>c+'FF')
+      },
+      {
+        type: 'line',
+        label: 'Trend Line',
+        data: gridValues,
+        borderColor: '#FF9900',
+        backgroundColor: 'rgba(255,153,0,0.1)',
+        borderWidth: 4,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+        pointBackgroundColor: '#FF9900',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        yAxisID: 'y'
+      }
+    ]
+  },
+  options: {
+    responsive:true,
+    maintainAspectRatio:false,
+    animation: { duration:2000, easing:'easeInOutCubic' },
+    plugins: {
+      legend: { display:true, position:'top', labels:{usePointStyle:true, boxWidth:12, padding:20} },
+      tooltip: {
+        callbacks: {
+          title: ctx => 'Year: '+ctx[0].label,
+          label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%`
+        }
+      },
+      datalabels: {
+        anchor: 'end',
+        align: 'top',
+        formatter: val => val.toFixed(2)+'%',
+        color:'#333',
+        font:{weight:'bold',size:12},
+        backgroundColor:'rgba(255,255,255,0.8)',
+        borderRadius:4,
+        padding:1,
+        display: ctx => ctx.dataset.label!=='Trend Line'
+      }
+    },
+    scales: {
+      y: { beginAtZero:true, title:{display:true,text:'Avg Grid Failure (%)'}, ticks:{callback:v=>v.toFixed(1)+'%'} },
+      x: { title:{display:true,text:'Year'} }
+    }
+  },
+  plugins: [ChartDataLabels]
+});
 
-  const gradientColors = colors.map(color => createGradient(ctx, color));
+// ------------------- Availability Chart -------------------
+const ctxA = document.getElementById("availabilityChart").getContext('2d');
+let availabilityChart;
+const yearFilter = document.getElementById("yearFilter");
 
-  new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
+const monthOrder = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+
+function renderAvailabilityChart(selectedYear="all") {
+  let labelsA=[], gridValues=[], machineValues=[], csvData=[], mode;
+
+  if (selectedYear==="all") {
+    const yearMap = {};
+    availabilityData.forEach(r=>{
+      const y=r.month.split("-")[0];
+      if(!yearMap[y]) yearMap[y]={grid:[],machine:[]};
+      yearMap[y].grid.push(r.grid_availability);
+      yearMap[y].machine.push(r.machine_availability);
+    });
+    labelsA = Object.keys(yearMap).sort();
+    gridValues = labelsA.map(y=>yearMap[y].grid.reduce((a,b)=>a+b,0)/yearMap[y].grid.length);
+    machineValues = labelsA.map(y=>yearMap[y].machine.reduce((a,b)=>a+b,0)/yearMap[y].machine.length);
+    csvData = labelsA.map((y,i)=>({year:y,grid:gridValues[i].toFixed(2),machine:machineValues[i].toFixed(2)}));
+    mode="year";
+  } else {
+    const filtered = availabilityData.filter(r=>r.month.startsWith(selectedYear));
+    filtered.sort((a,b)=>monthOrder.indexOf(a.month.split("-")[1]) - monthOrder.indexOf(b.month.split("-")[1]));
+    labelsA = filtered.map(r=>r.month);
+    gridValues = filtered.map(r=>r.grid_availability);
+    machineValues = filtered.map(r=>r.machine_availability);
+    csvData = filtered;
+    mode="month";
+  }
+
+  if (availabilityChart) availabilityChart.destroy();
+
+  availabilityChart = new Chart(ctxA, {
+    type:'bar',
+    data:{
+      labels:labelsA,
+      datasets:[
         {
-          label: "Avg Grid Failure (%)",
-          data: values,
-          backgroundColor: gradientColors,
-          borderColor: colors,
-          borderWidth: 2,
-          borderRadius: 12,
-          borderSkipped: false,
-          hoverBackgroundColor: colors.map(color => color + '99'),
-          hoverBorderColor: colors.map(color => color + 'FF')
+          label:"Grid Availability (%)",
+          data:gridValues,
+          backgroundColor:'#4285F4',
+          borderColor:'#4285F4',
+          borderWidth:2,
+          borderRadius:6
         },
         {
-          type: 'line',
-          label: 'Trend Line',
-          data: values,
-          borderColor: '#FF9900',
-          backgroundColor: 'rgba(255, 153, 0, 0.1)',
-          borderWidth: 4,
-          fill: true,
-          tension: 0.4,
-          pointRadius: 6,
-          pointHoverRadius: 8,
-          pointBackgroundColor: '#FF9900',
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
-          yAxisID: 'y'
+          label:"Machine Availability (%)",
+          data:machineValues,
+          backgroundColor:'#34A853',
+          borderColor:'#34A853',
+          borderWidth:2,
+          borderRadius:6
         }
       ]
     },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: {
-        duration: 2000,
-        easing: 'easeInOutCubic'
-      },
-      interaction: {
-        intersect: false,
-        mode: 'nearest'
-      },
-      plugins: {
-        legend: {
-          display: true,
-          position: 'top',
-          labels: {
-            usePointStyle: true,
-            pointStyle: 'circle',
-            boxWidth: 12,
-            padding: 20
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true,position:'top'},
+        tooltip:{
+          callbacks:{
+            title: ctx => selectedYear==="all" ? "Year: "+ctx[0].label : "Month: "+ctx[0].label,
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%`
           }
         },
-        tooltip: {
-          enabled: true,
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          titleColor: '#fff',
-          bodyColor: '#fff',
-          borderColor: '#ddd',
-          borderWidth: 1,
-          padding: 10,
-          callbacks: {
-            title: function(context) {
-              return 'Year: ' + context[0].label;
-            },
-            label: function(context) {
-              return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}%`;
-            }
-          }
-        },
-        datalabels: {
-          anchor: 'end',
-          align: 'top',
-          formatter: (value) => value.toFixed(2) + '%',
-          color: '#333',
-          font: { weight: 'bold', size: 12 },
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
-          borderRadius: 4,
-          padding: 1,
-          display: function(context) {
-            // Only show labels for bars, not the trend line
-            return context.dataset.label !== 'Trend Line';
-          }
+        datalabels:{
+          anchor:'end',
+          align:'top',
+          formatter: val => val.toFixed(2)+'%',
+          color:'#333',
+          font:{weight:'bold',size:10},
+          display:true
         }
       },
-      scales: {
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Avg Grid Failure (%)',
-            font: { size: 14, weight: 'bold' },
-            color: '#333'
-          },
-          ticks: {
-            callback: function(value) {
-              return value.toFixed(1) + '%';
-            },
-            color: '#666',
-            font: { size: 10 }
-          },
-          grid: {
-            color: 'rgba(0, 0, 0, 0.1)',
-            borderDash: [5, 5]
-          }
-        },
-        x: {
-          title: {
-            display: true,
-            text: 'Year',
-            font: { size: 14, weight: 'bold' },
-            color: '#333'
-          },
-          grid: {
-            display: false
-          }
-        }
+      scales:{
+        y:{beginAtZero:true,max:120,title:{display:true,text:'Availability (%)'}},
+        x:{title:{display:true,text:selectedYear==="all"?"Year":"Month"}}
       }
     },
-    plugins: [ChartDataLabels]
+    plugins:[ChartDataLabels]
   });
-</script>
+}
+
+if(yearFilter){
+  const years = [...new Set(availabilityData.map(r=>r.month.split("-")[0]))];
+  yearFilter.innerHTML='<option value="all">All Years</option>';
+  years.forEach(y=>{
+    const opt=document.createElement("option");
+    opt.value=y; opt.textContent=y;
+    yearFilter.appendChild(opt);
+  });
+  yearFilter.addEventListener("change", e => renderAvailabilityChart(e.target.value));
+}
+
+// Initial render
+renderAvailabilityChart("all");
+
+// ------------------- No Data Alert -------------------
 {% if no_data %}
-<script>
 Swal.fire({
-  icon: 'info',
-  title: 'No Data',
-  text: '{{ no_data_msg }}',
-  confirmButtonColor: '#3085d6'
+  icon:'info',
+  title:'No Data',
+  text:'{{ no_data_msg }}',
+  confirmButtonColor:'#3085d6'
 });
-</script>
 {% endif %}
+</script>
+
+
+
 
 {% endblock %}
