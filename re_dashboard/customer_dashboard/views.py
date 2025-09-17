@@ -871,6 +871,21 @@ def _pick(col_map, *candidates):
         if lc in col_map:
             return col_map[lc]
     return None
+from collections import defaultdict
+from datetime import datetime, date
+from django.http import HttpResponse
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+import json
+
+def _pick(col_map, *candidates):
+    """Find actual column name from possible variants."""
+    for c in candidates:
+        lc = c.lower()
+        if lc in col_map:
+            return col_map[lc]
+    return None
 
 @login_required
 def wind_Grid_Availability_and_Machine(request):
@@ -886,18 +901,13 @@ def wind_Grid_Availability_and_Machine(request):
         context = {
             "grid_chart_data": json.dumps([]),
             "availability_chart_data": json.dumps([]),
-            "providers": [],
-            "customers": [],
-            "states": [],
-            "sites": [],
-            "wtgs": [],
-            "selected_providers": [],
-            "selected_customers": [],
-            "selected_states": [],
-            "selected_sites": [],
+            "plf_chart_data": json.dumps([]),
+            "providers": [], "customers": [], "states": [],
+            "sites": [], "wtgs": [],
+            "selected_providers": [], "selected_customers": [],
+            "selected_states": [], "selected_sites": [],
             "selected_wtgs": [],
-            "date_from": None,
-            "date_to": None,
+            "date_from": None, "date_to": None,
             "no_data": True,
             "no_data_msg": "No wind tables found for your account."
         }
@@ -914,7 +924,9 @@ def wind_Grid_Availability_and_Machine(request):
 
     # Data accumulators
     year_failure_hours = defaultdict(list)
-    month_failure_hours = defaultdict(list)  # ✅ Added month-wise dictionary
+    month_failure_hours = defaultdict(list)
+    year_plf = defaultdict(list)       # for PLF by year
+    month_plf = defaultdict(list)      # for PLF by month
     distincts = {
         "providers": set(),
         "customers": set(),
@@ -961,14 +973,16 @@ def wind_Grid_Availability_and_Machine(request):
 
         wtg_col = _pick(col_map, "wec", "wtg")
         customer_col = _pick(col_map, "customername", "customer", "consumer", "client")
-        state_col = _pick(col_map, "state","statename", "st")
-        site_col = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname", "park", "sitecode", "city", "town", "village")
-        provider_col = _pick(col_map, "provider", "oem","oemprovider", "oem_name")
+        state_col = _pick(col_map, "state", "statename", "st")
+        site_col = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname",
+                         "park", "sitecode", "city", "town", "village")
+        provider_col = _pick(col_map, "provider", "oem", "oemprovider", "oem_name")
 
+        # ✅ PLF columns
+        plf_day_col = _pick(col_map, "%plf day", "plf_day", "plf")
+        plf_mtd_col = _pick(col_map, "%plf mtd", "plf_mtd")
+        plf_ytd_col = _pick(col_map, "%plf ytd", "plf_ytd")
 
-
-
- 
         if not date_col:
             continue
 
@@ -1004,13 +1018,14 @@ def wind_Grid_Availability_and_Machine(request):
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
+        # Select only needed columns
         select_cols = [date_col]
-        if gf_col:
-            select_cols.append(gf_col)
-        if ga_col:
-            select_cols.append(ga_col)
-        if gia_col:
-            select_cols.append(gia_col)
+        if gf_col: select_cols.append(gf_col)
+        if ga_col: select_cols.append(ga_col)
+        if gia_col: select_cols.append(gia_col)
+        if plf_day_col: select_cols.append(plf_day_col)
+        if plf_mtd_col: select_cols.append(plf_mtd_col)
+        if plf_ytd_col: select_cols.append(plf_ytd_col)
 
         select_clause = ", ".join(f"`{col}`" for col in select_cols)
         query = f"SELECT {select_clause} FROM `{table}` {where_clause}"
@@ -1026,22 +1041,45 @@ def wind_Grid_Availability_and_Machine(request):
             if not d:
                 continue
             year = d.year
-            month = d.strftime("%Y-%m")  # ✅ Group by month
+            month = d.strftime("%Y-%m")
 
+            # --- Grid failure calc ---
             hours = 0.0
-            if gf_col and row[idx[gf_col]] not in (None, ""):
+            if gf_col and row[idx.get(gf_col)] not in (None, ""):
                 hours = to_hours(row[idx[gf_col]])
-            elif ga_col and row[idx[ga_col]] not in (None, ""):
+            elif ga_col and row[idx.get(ga_col)] not in (None, ""):
                 ga = float(row[idx[ga_col]])
                 ga = max(0.0, min(100.0, ga))
                 hours = (100.0 - ga) * 24.0 / 100.0
-            elif gia_col and row[idx[gia_col]] not in (None, ""):
+            elif gia_col and row[idx.get(gia_col)] not in (None, ""):
                 gia = float(row[idx[gia_col]])
                 gia = max(0.0, min(100.0, gia))
                 hours = (100.0 - gia) * 24.0 / 100.0
 
             year_failure_hours[year].append(hours)
-            month_failure_hours[month].append(hours)  # ✅ Add to month data
+            month_failure_hours[month].append(hours)
+
+            # --- Plant Load Factor calc ---
+            plf_val = None
+            if plf_day_col and row[idx.get(plf_day_col)] not in (None, ""):
+                try:
+                    plf_val = float(row[idx[plf_day_col]])
+                except:
+                    plf_val = None
+            elif plf_mtd_col and row[idx.get(plf_mtd_col)] not in (None, ""):
+                try:
+                    plf_val = float(row[idx[plf_mtd_col]])
+                except:
+                    plf_val = None
+            elif plf_ytd_col and row[idx.get(plf_ytd_col)] not in (None, ""):
+                try:
+                    plf_val = float(row[idx[plf_ytd_col]])
+                except:
+                    plf_val = None
+
+            if plf_val is not None:
+                year_plf[year].append(plf_val)
+                month_plf[month].append(plf_val)
 
         # Collect distinct values for filters
         def get_distinct(col):
@@ -1078,9 +1116,20 @@ def wind_Grid_Availability_and_Machine(request):
             "machine_availability": avg_machine
         })
 
+    # ✅ Prepare PLF chart data
+    plf_chart_data = []
+    for year in sorted(year_plf.keys()):
+        vals = year_plf[year]
+        avg_plf = round(sum(vals) / len(vals), 2) if vals else 0.0
+        plf_chart_data.append({
+            "year": year,
+            "avg_plf": avg_plf
+        })
+
     context = {
         "grid_chart_data": json.dumps(grid_chart_data),
         "availability_chart_data": json.dumps(availability_chart_data),
+        "plf_chart_data": json.dumps(plf_chart_data),
         "providers": sorted(distincts["providers"]),
         "customers": sorted(distincts["customers"]),
         "states": sorted(distincts["states"]),

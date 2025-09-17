@@ -90,6 +90,25 @@
     </div>
   </div>
 
+  <!-- PLF Chart Card -->
+<div class="card shadow-lg border-0 h-100 chart-card mb-5">
+  <div class="card-header form-heading d-flex justify-content-between align-items-center">
+    <strong>Average Plant Load Factor by Year</strong>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="plfMenu" data-bs-toggle="dropdown" aria-expanded="false">
+        ☰
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="plfMenu">
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('plfChart','png')">Download PNG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('plfChart','svg')">Download SVG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadCSV(plfData,'PLF.csv')">Download CSV</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card-body">
+    <canvas id="plfChart" height="400px"></canvas>
+  </div>
+</div>
 </div>
 
 <!-- Date Range Modal -->
@@ -508,6 +527,7 @@ function renderAvailabilityChart(selectedYear="all") {
   });
 }
 
+
 if(yearFilter){
   const years = [...new Set(availabilityData.map(r=>r.month.split("-")[0]))];
   yearFilter.innerHTML='<option value="all">All Years</option>';
@@ -521,6 +541,54 @@ if(yearFilter){
 
 // Initial render
 renderAvailabilityChart("all");
+
+
+const plfData = {{ plf_chart_data|safe }};
+const plfLabels = plfData.map(r => r.year);
+const plfValues = plfData.map(r => r.avg_plf);
+
+const ctxPlf = document.getElementById("plfChart").getContext('2d');
+new Chart(ctxPlf, {
+  type: 'line',
+  data: {
+    labels: plfLabels,
+    datasets: [{
+      label: "Plant Load Factor (%)",
+      data: plfValues,
+      fill: true,
+      backgroundColor: "rgba(54, 162, 235, 0.2)",
+      borderColor: "#36A2EB",
+      tension: 0.4,
+      pointBackgroundColor: "#36A2EB",
+      pointRadius: 5
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: true, position: "top" },
+      tooltip: {
+        callbacks: {
+          title: ctx => "Year: " + ctx[0].label,
+          label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%`
+        }
+      },
+      datalabels: {
+        anchor: "end",
+        align: "top",
+        formatter: val => val.toFixed(2) + "%",
+        color: "#333",
+        font: { weight: "bold", size: 12 }
+      }
+    },
+    scales: {
+      y: { beginAtZero: true, title: { display: true, text: "PLF (%)" } },
+      x: { title: { display: true, text: "Year" } }
+    }
+  },
+  plugins: [ChartDataLabels]
+});
 
 // ------------------- No Data Alert -------------------
 {% if no_data %}
