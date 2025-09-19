@@ -78,39 +78,51 @@
       </div>
     </div>
     <div class="card-body">
-      <!-- <canvas id="availabilityChart" height="400px"></canvas> -->
       <div class="mb-3">
-  <label for="yearFilter" class="fw-bold">Select Year:</label>
-  <select id="yearFilter" class="form-select w-auto d-inline-block">
-    <option value="all">All Years</option>
-  </select>
+        <label for="yearFilter" class="fw-bold">Select Year:</label>
+        <select id="yearFilter" class="form-select w-auto d-inline-block">
+          <option value="all">All Years</option>
+        </select>
+      </div>
+<div style="height: 400px;">
+  <canvas id="availabilityChart"></canvas>
 </div>
-<canvas id="availabilityChart" height="400px"></canvas>
-
     </div>
   </div>
 
   <!-- PLF Chart Card -->
-<div class="card shadow-lg border-0 h-100 chart-card mb-5">
-  <div class="card-header form-heading d-flex justify-content-between align-items-center">
-    <strong>Average Plant Load Factor by Year</strong>
-    <div class="dropdown">
-      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="plfMenu" data-bs-toggle="dropdown" aria-expanded="false">
-        ☰
-      </button>
-      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="plfMenu">
-        <li><a class="dropdown-item" href="#" onclick="downloadChart('plfChart','png')">Download PNG</a></li>
-        <li><a class="dropdown-item" href="#" onclick="downloadChart('plfChart','svg')">Download SVG</a></li>
-        <li><a class="dropdown-item" href="#" onclick="downloadCSV(plfData,'PLF.csv')">Download CSV</a></li>
-      </ul>
+  <div class="card shadow-lg border-0 h-100 chart-card mb-5">
+    <div class="card-header form-heading d-flex justify-content-between align-items-center">
+      <strong>Plant Load Factor (PLF)</strong>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="plfMenu" data-bs-toggle="dropdown" aria-expanded="false">
+          ☰
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="plfMenu">
+          <li><a class="dropdown-item" href="#" onclick="downloadChart('plfChart','png')">Download PNG</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadChart('plfChart','svg')">Download SVG</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadPLFCSV(currentPLFYear)">Download CSV</a></li>
+        </ul>
+      </div>
     </div>
-  </div>
-  <div class="card-body">
-    <canvas id="plfChart" height="400px"></canvas>
-  </div>
-</div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label for="plfYearSelect" class="fw-bold">Select Year:</label>
+        <select id="plfYearFilter" class="form-select w-auto d-inline-block">
+  <option value="all">All Years</option>
+</select>
+
+      </div>
+      <div style="height: 400px;">
+  <canvas id="plfChart"></canvas>
 </div>
 
+     </div>
+  </div>
+
+</div>
+
+<!-- ========== Modals ========== --> 
 <!-- Date Range Modal -->
 <div class="modal fade" id="dateRangeModal" tabindex="-1">
   <div class="modal-dialog">
@@ -161,6 +173,7 @@
     </form>
   </div>
 </div>
+<!-- Customer Modal -->
 <div class="modal fade" id="customerModal" tabindex="-1">
   <div class="modal-dialog">
     <form method="get" class="modal-content">
@@ -268,8 +281,6 @@
     </form>
   </div>
 </div>
-<!-- Include your modals here like Date Range Modal, Provider Modal, etc. -->
-<!-- You can copy them from your provided template and they're already correct -->
 
 <style>
   .chart-card { border-radius: 15px; }
@@ -290,16 +301,10 @@
     cursor: pointer;
   }
   @media (max-width: 991px) {
-    .nav-link {
-      width: 110px !important;
-    }
+    .nav-link { width: 110px !important; }
   }
-  #gridFailureChart, #availabilityChart {
-  max-height: 400px;   /* keeps chart bounded */
-  width: 100% !important;
-}
-
 </style>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -307,6 +312,8 @@
 <script>
 const gridData = {{ grid_chart_data|safe }};
 const availabilityData = {{ availability_chart_data|safe }};
+const plfYearly = {{ plf_yearly_data|safe }};
+const plfMonthly = {{ plf_monthly_data|safe }};
 
 // ------------------- Chart Download Helpers -------------------
 function downloadChart(chartId, type) {
@@ -480,22 +487,8 @@ function renderAvailabilityChart(selectedYear="all") {
     data:{
       labels:labelsA,
       datasets:[
-        {
-          label:"Grid Availability (%)",
-          data:gridValues,
-          backgroundColor:'#4285F4',
-          borderColor:'#4285F4',
-          borderWidth:2,
-          borderRadius:6
-        },
-        {
-          label:"Machine Availability (%)",
-          data:machineValues,
-          backgroundColor:'#34A853',
-          borderColor:'#34A853',
-          borderWidth:2,
-          borderRadius:6
-        }
+        { label:"Grid Availability (%)", data:gridValues, backgroundColor:'#4285F4', borderColor:'#4285F4', borderWidth:2, borderRadius:6 },
+        { label:"Machine Availability (%)", data:machineValues, backgroundColor:'#34A853', borderColor:'#34A853', borderWidth:2, borderRadius:6 }
       ]
     },
     options:{
@@ -527,7 +520,6 @@ function renderAvailabilityChart(selectedYear="all") {
   });
 }
 
-
 if(yearFilter){
   const years = [...new Set(availabilityData.map(r=>r.month.split("-")[0]))];
   yearFilter.innerHTML='<option value="all">All Years</option>';
@@ -538,70 +530,154 @@ if(yearFilter){
   });
   yearFilter.addEventListener("change", e => renderAvailabilityChart(e.target.value));
 }
-
-// Initial render
 renderAvailabilityChart("all");
 
-
-const plfData = {{ plf_chart_data|safe }};
-const plfLabels = plfData.map(r => r.year);
-const plfValues = plfData.map(r => r.avg_plf);
-
+// ------------------- PLF Chart (Attractive) -------------------
 const ctxPlf = document.getElementById("plfChart").getContext('2d');
-new Chart(ctxPlf, {
-  type: 'line',
-  data: {
-    labels: plfLabels,
-    datasets: [{
-      label: "Plant Load Factor (%)",
-      data: plfValues,
-      fill: true,
-      backgroundColor: "rgba(54, 162, 235, 0.2)",
-      borderColor: "#36A2EB",
-      tension: 0.4,
-      pointBackgroundColor: "#36A2EB",
-      pointRadius: 5
-    }]
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: true, position: "top" },
-      tooltip: {
-        callbacks: {
-          title: ctx => "Year: " + ctx[0].label,
-          label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%`
+let plfChart;
+const plfFilter = document.getElementById("plfYearFilter");
+
+// Gradient helper
+function createBarGradient(ctx) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+  gradient.addColorStop(0, "rgba(54,162,235,0.9)");
+  gradient.addColorStop(1, "rgba(54,162,235,0.7)");
+  return gradient;
+}
+
+function renderPlfChart(selectedYear = "all") {
+  let labels = [], values = [], title;
+
+  if (selectedYear === "all") {
+    labels = plfYearly.map(r => r.year);
+    values = plfYearly.map(r => r.avg_plf);
+    title = "PLF by Year";
+  } else {
+    const filtered = plfMonthly[selectedYear] || [];
+    labels = filtered.map(r => r.month);
+    values = filtered.map(r => r.avg_plf);
+    title = `Monthly PLF - ${selectedYear}`;
+  }
+// Soft green gradient for bars
+function createGreenGradient(ctx) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+  gradient.addColorStop(0, "rgba(144,238,144,0.3)"); // light green top
+  gradient.addColorStop(1, "rgba(0,128,0,0.3)");     // darker green bottom
+  return gradient;
+}
+
+// Then in your dataset
+  if (plfChart) plfChart.destroy();
+
+  plfChart = new Chart(ctxPlf, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Plant Load Factor (%)",
+          data: values,
+          backgroundColor: createBarGradient(ctxPlf),
+          borderColor: "#36A2EB",
+          borderWidth: 2,
+          borderRadius: 8
+        },
+        {
+          type: "line",
+          label: "Trend Line",
+          data: values,
+          borderColor: "#FF5733",
+backgroundColor: createGreenGradient(ctxPlf),
+          borderWidth: 3,
+          fill: true,
+          tension: 0.4,
+          pointRadius: 6,
+          pointHoverRadius: 9,
+          pointBackgroundColor: "#FF5733",
+          pointBorderColor: "#fff",
+          pointBorderWidth: 2,
+          yAxisID: "y"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        duration: 1800,
+        easing: "easeOutQuart"
+      },
+      plugins: {
+        legend: {
+          display: true,
+          position: "top",
+          labels: {
+            usePointStyle: true,
+            font: { size: 13, weight: "bold" },
+            padding: 15
+          }
+        },
+        tooltip: {
+          backgroundColor: "rgba(0,0,0,0.8)",
+          titleFont: { size: 14, weight: "bold" },
+          bodyFont: { size: 13 },
+          padding: 12,
+          cornerRadius: 8,
+          callbacks: {
+            title: ctx =>
+              selectedYear === "all"
+                ? "Year: " + ctx[0].label
+                : "Month: " + ctx[0].label,
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%`
+          }
+        },
+        datalabels: {
+          anchor: "end",
+          align: "top",
+          formatter: v => v.toFixed(1) + "%",
+          color: "#222",
+          font: { weight: "bold", size: 12 },
+          textShadowColor: "rgba(255,255,255,0.8)",
+          textShadowBlur: 4,
+          display: ctx => ctx.dataset.label !== "Trend Line"
         }
       },
-      datalabels: {
-        anchor: "end",
-        align: "top",
-        formatter: val => val.toFixed(2) + "%",
-        color: "#333",
-        font: { weight: "bold", size: 12 }
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: "PLF (%)", font: { weight: "bold" } },
+          ticks: { callback: v => v + "%" }
+        },
+        x: {
+          title: {
+            display: true,
+            text: selectedYear === "all" ? "Year" : "Month",
+            font: { weight: "bold" }
+          }
+        }
       }
     },
-    scales: {
-      y: { beginAtZero: true, title: { display: true, text: "PLF (%)" } },
-      x: { title: { display: true, text: "Year" } }
-    }
-  },
-  plugins: [ChartDataLabels]
-});
+    plugins: [ChartDataLabels]
+  });
+}
 
-// ------------------- No Data Alert -------------------
-{% if no_data %}
-Swal.fire({
-  icon:'info',
-  title:'No Data',
-  text:'{{ no_data_msg }}',
-  confirmButtonColor:'#3085d6'
-});
-{% endif %}
+// Dropdown setup
+if (plfFilter) {
+  const years = [...new Set(plfYearly.map(r => r.year))];
+  plfFilter.innerHTML = '<option value="all">All Years</option>';
+  years.forEach(y => {
+    const opt = document.createElement("option");
+    opt.value = y;
+    opt.textContent = y;
+    plfFilter.appendChild(opt);
+  });
+  plfFilter.addEventListener("change", e => renderPlfChart(e.target.value));
+}
+renderPlfChart("all");
+
+ 
+
 </script>
-
-
-
+  {% include 'fotter.html' %}
 
 {% endblock %}

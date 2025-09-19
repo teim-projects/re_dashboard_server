@@ -12,5 +12,6 @@ urlpatterns = [
     path('wind_generation_hours', views.wind_generation_hours, name="wind_generation_hours"),
     path('wind_avg_genration', views.wind_avg_genration, name="wind_avg_genration"),
     path('wind_Grid_Availability_and_Machine', views.wind_Grid_Availability_and_Machine, name="wind_Grid_Availability_and_Machine"),
+    path('wind_drill_down', views.wind_drill_down, name="wind_drill_down"),
 
 ]

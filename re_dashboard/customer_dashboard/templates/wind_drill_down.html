@@ -1,0 +1,541 @@
+{% extends "basewind.html" %}
+{% load static %}
+{% load humanize %}
+
+{% block content %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<div class="container my-4" style="margin-top: 70px !important;">
+
+  <!-- Active filters chips -->
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
+      <span class="badge bg-secondary">Active filters:</span>
+      {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
+      {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
+      {% for x in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ x }}</span>{% endfor %}
+      {% for x in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ x }}</span>{% endfor %}
+      {% for x in selected_states %}<span class="badge bg-info text-dark">State: {{ x }}</span>{% endfor %}
+      {% for x in selected_sites %}<span class="badge bg-info text-dark">Site: {{ x }}</span>{% endfor %}
+      {% for x in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ x }}</span>{% endfor %}
+      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
+    {% endif %}
+  </div>
+
+  <!-- Filter Buttons -->
+  <div class="d-flex flex-wrap gap-2 mb-4">
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+      <i class="fas fa-filter"></i> DATE RANGE
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
+      <i class="fas fa-filter"></i> OEM PROVIDER
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
+      <i class="fas fa-filter"></i> CUSTOMER
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
+      <i class="fas fa-filter"></i> STATE NAME
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
+      <i class="fas fa-filter"></i> SITE NAME
+    </button>
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
+      <i class="fas fa-filter"></i> WTG NUMBER
+    </button>
+  </div>
+
+  <!-- Row for Charts -->
+  <div class="row row-cols-1 row-cols-md-2 g-4">
+
+   <!-- 🌍 Location-wise Generation -->
+<div class="    border-0 h-100 chart-card mb-5">
+  <div class="card-header form-heading d-flex justify-content-between align-items-center">
+    <strong>Location-wise Generation</strong>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="genMenu" data-bs-toggle="dropdown" aria-expanded="false">
+        ☰
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="genMenu">
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('generationChart','png')">Download PNG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('generationChart','svg')">Download SVG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadCSV('generationChart')">Download CSV</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card-body d-flex justify-content-center">
+    <div style="height: 300px ; ">
+      <canvas id="generationChart" ></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ⚙️ Machine Availability -->
+<div class="    border-0 h-100 chart-card mb-5">
+  <div class="card-header form-heading d-flex justify-content-between align-items-center">
+    <strong>Machine Availability (WTG)</strong>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="maMenu" data-bs-toggle="dropdown" aria-expanded="false">
+        ☰
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="maMenu">
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('maChart','png')">Download PNG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('maChart','svg')">Download SVG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadCSV('maChart')">Download CSV</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card-body">
+    <div style="height: auto;" >
+      <canvas id="maChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ⚡ Grid Availability -->
+<div class="  border-0 h-100 chart-card mb-5">
+  <div class="card-header form-heading d-flex justify-content-between align-items-center">
+    <strong>Grid Availability (WTG)</strong>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="gaMenu" data-bs-toggle="dropdown" aria-expanded="false">
+        ☰
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="gaMenu">
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('gaChart','png')">Download PNG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('gaChart','svg')">Download SVG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadCSV('gaChart')">Download CSV</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card-body">
+    <div style="height: auto;">
+      <canvas id="gaChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ⏱ Operating Hours -->
+<div class="  border-0 h-100 chart-card mb-5">
+  <div class="card-header form-heading d-flex justify-content-between align-items-center">
+    <strong>Total Operating Hours (WTG)</strong>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="ohMenu" data-bs-toggle="dropdown" aria-expanded="false">
+        ☰
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="ohMenu">
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('ohChart','png')">Download PNG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('ohChart','svg')">Download SVG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadCSV('ohChart')">Download CSV</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card-body"  >
+    <div style="height: auto;">
+      <canvas id="ohChart"></canvas>
+    </div>
+  </div>
+</div>
+
+
+  </div>
+</div>
+
+<!-- ==================== Modals ==================== -->
+ 
+<!-- ========== Modals ========== --> 
+<!-- Date Range Modal -->
+<div class="modal fade" id="dateRangeModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Select Date Range</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body d-flex gap-2">
+        <input type="date" name="date_from" value="{{ date_from }}" class="form-control">
+        <input type="date" name="date_to" value="{{ date_to }}" class="form-control">
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key not in "date_from,date_to" %}
+          {% for v in vals %}
+            <input type="hidden" name="{{ key }}" value="{{ v }}">
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-primary">Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Provider Modal -->
+<div class="modal fade" id="providerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select Provider(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for p in providers %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="provider" value="{{ p }}"
+             {% if not selected_providers or p in selected_providers %}checked{% endif %}>
+          <label class="form-check-label">{{ p }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No providers found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "provider" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+<!-- Customer Modal -->
+<div class="modal fade" id="customerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select Customer(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for c in customers %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="customer" value="{{ c }}"
+              {% if not selected_customers or c in selected_customers %}checked{% endif %}>
+            <label class="form-check-label">{{ c }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No customers found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "customer" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- State Modal -->
+<div class="modal fade" id="stateModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select State(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for s in states %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="state" value="{{ s }}"
+              {% if not selected_states or s in selected_states %}checked{% endif %}>
+            <label class="form-check-label">{{ s }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No states found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "state" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Site Modal -->
+<div class="modal fade" id="siteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select Site(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for s in sites %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="site" value="{{ s }}"
+              {% if not selected_sites or s in selected_sites %}checked{% endif %}>
+            <label class="form-check-label">{{ s }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No sites found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "site" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+
+<!-- WTG Modal -->
+<div class="modal fade" id="wtgModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Select WTG(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% for w in wtgs %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="wtg" value="{{ w }}"
+              {% if not selected_wtgs or w in selected_wtgs %}checked{% endif %}>
+            <label class="form-check-label">{{ w }}</label>
+          </div>
+        {% empty %}
+          <p class="text-muted">No WTG numbers found.</p>
+        {% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "wtg" %}
+          {% for v in vals %}
+            <input type="hidden" name="{{ key }}" value="{{ v }}">
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer">
+        <button type="submit" class="btn btn-primary">Apply</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ==================== Styles ==================== -->
+<style>
+.hover-card { transition: transform 0.2s, box-shadow 0.2s; }
+.hover-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
+.select2-container--default .select2-selection--multiple { min-height: 38px; }
+
+
+ 
+  .chart-card { border-radius: 15px; }
+  .form-heading {
+    background: linear-gradient(to right, #7b2cbf, #9d4edd);
+    color: #fff;
+    padding: 15px 25px;
+    border-top-left-radius: 15px !important;
+    border-top-right-radius: 15px !important;
+    font-size: 18px;
+    font-weight: 500;
+    text-align: center !important;
+  }
+  .dropdown-toggle {
+    border: none;
+    background: transparent;
+    font-size: 18px;
+    cursor: pointer;
+  }
+  @media (max-width: 991px) {
+    .nav-link { width: 110px !important; }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  // 🔹 Parse Django context safely
+  const siteGenData = JSON.parse(`{{ site_gen_data|escapejs }}`);
+  const maData     = JSON.parse(`{{ ma_data|escapejs }}`);
+  const gaData     = JSON.parse(`{{ ga_data|escapejs }}`);
+  const ohData     = JSON.parse(`{{ oh_data|escapejs }}`);
+
+  // 🔹 Helper → Gradient generator
+  function createGradient(ctx, color1, color2) {
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, color1);
+    gradient.addColorStop(1, color2);
+    return gradient;
+  }
+
+  // 🔹 Download Helpers
+  function downloadChart(chartId, type) {
+    const chart = Chart.getChart(chartId);
+    if (!chart) return;
+
+    if (type === 'png') {
+      const a = document.createElement('a');
+      a.href = chart.toBase64Image();
+      a.download = `${chartId}.png`;
+      a.click();
+    } else if (type === 'svg') {
+      const serializer = new XMLSerializer();
+      const svgString = serializer.serializeToString(chart.canvas);
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${chartId}.svg`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function downloadCSV(chartId) {
+    const chart = Chart.getChart(chartId);
+    if (!chart) return;
+
+    let csv = "Label,Value\n";
+    chart.data.labels.forEach((label, i) => {
+      csv += `${label},${chart.data.datasets[0].data[i]}\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${chartId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // 🔹 Common Options with fancy animations
+  const commonOptions = {
+    responsive: true,
+    interaction: { mode: 'nearest', intersect: true },
+    plugins: {
+      legend: {
+        display: true,
+        position: 'top',
+        labels: {
+          usePointStyle: true,
+          boxWidth: 14,
+          padding: 15,
+          font: { size: 13, weight: 'bold' }
+        }
+      },
+      tooltip: {
+        enabled: true,
+        backgroundColor: "#333",
+        titleColor: "#fff",
+        bodyColor: "#eee",
+        padding: 10,
+        borderColor: "#555",
+        borderWidth: 1
+      }
+    },
+    animation: {
+      duration: 2000,
+      easing: 'easeInOutElastic',
+      delay: (context) => context.dataIndex * 150 // stagger bars/pie slices
+    }
+  };
+
+  // 🎨 Color Palette
+  const palette = [
+    "#4e79a7", "#f28e2b", "#e15759", "#76b7b2",
+    "#59a14f", "#edc948", "#b07aa1", "#ff9da7",
+    "#9c755f", "#bab0ab"
+  ];
+
+  // ------------------- Charts -------------------
+
+  // 1️⃣ Location-wise Generation (Pie with rotation + shadow effect)
+  new Chart(document.getElementById('generationChart'), {
+    type: 'pie',
+    data: {
+      labels: siteGenData.map(d => d.site),
+      datasets: [{
+        label: "Generation (kWh)",
+        data: siteGenData.map(d => d.generation),
+        backgroundColor: siteGenData.map((_, i) => palette[i % palette.length]),
+        borderColor: "#fff",
+        borderWidth: 3,
+        hoverOffset: 15
+      }]
+    },
+    options: {
+      ...commonOptions,
+      animation: {
+        animateRotate: true,
+        animateScale: true,
+        easing: 'easeOutBounce',
+        duration: 1800
+      }
+    }
+  });
+
+  // 2️⃣ Machine Availability (Horizontal Gradient Bars)
+  const maCtx = document.getElementById('maChart').getContext("2d");
+  new Chart(maCtx, {
+    type: 'bar',
+    data: {
+      labels: maData.map(d => d.wec),
+      datasets: [{
+        label: "Machine Availability (%)",
+        data: maData.map(d => d.ma),
+        backgroundColor: maData.map((_, i) =>
+          createGradient(maCtx, palette[i % palette.length], "#ffffff")
+        ),
+        borderRadius: 10
+      }]
+    },
+    options: {
+      ...commonOptions,
+      indexAxis: 'y',
+      scales: { x: { beginAtZero: true, max: 100 } }
+    }
+  });
+
+  // 3️⃣ Grid Availability (Vertical Bars with gradient + rounded)
+  const gaCtx = document.getElementById('gaChart').getContext("2d");
+  new Chart(gaCtx, {
+    type: 'bar',
+    data: {
+      labels: gaData.map(d => d.wec),
+      datasets: [{
+        label: "Grid Availability (%)",
+        data: gaData.map(d => d.ga),
+        backgroundColor: gaData.map((_, i) =>
+          createGradient(gaCtx, palette[i % palette.length], "#ffffff")
+        ),
+        borderRadius: 12
+      }]
+    },
+    options: {
+      ...commonOptions,
+      scales: { y: { beginAtZero: true, max: 100 } }
+    }
+  });
+
+  // 4️⃣ Operating Hours (Line with glow points + smooth area fill)
+  const ohCtx = document.getElementById('ohChart').getContext("2d");
+  new Chart(ohCtx, {
+    type: 'line',
+    data: {
+      labels: ohData.map(d => d.wec),
+      datasets: [{
+        label: "Operating Hours",
+        data: ohData.map(d => d.hours),
+        borderColor: "#e15759",
+        backgroundColor: createGradient(ohCtx, "rgba(225,87,89,0.6)", "rgba(225,87,89,0.1)"),
+        fill: true,
+        tension: 0.4,
+        pointStyle: 'circle',
+        pointRadius: 6,
+        pointHoverRadius: 10,
+        pointBackgroundColor: "#fff",
+        pointBorderColor: "#e15759",
+        pointBorderWidth: 2
+      }]
+    },
+    options: {
+      ...commonOptions,
+      animation: {
+        duration: 2000,
+        easing: 'easeInOutQuart'
+      }
+    }
+  });
+</script>
+
+
+
+<script>
+  $(document).ready(function() {
+    $('.select2').select2({ width: '100%' });
+  });
+</script>
+
+
+{% endblock %}

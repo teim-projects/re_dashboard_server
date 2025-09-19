@@ -169,7 +169,7 @@ padding: 5px;
               GENERATION AND OPERATING HOURS</a>
             <a class="nav-link navcontent {% if request.path == '/grid-failure/' %}active{% endif %}" href="{% url 'wind_Grid_Availability_and_Machine' %}">GRID
               FAILURE AND MACHINE AVAILABILITY</a>
-            <a class="nav-link navcontent {% if request.path == '/drill-down/' %}active{% endif %}" href="#">DRILL
+            <a class="nav-link navcontent {% if request.path == '/drill-down/' %}active{% endif %}" href="{% url 'wind_drill_down' %}">DRILL
               DOWN</a>
             <a class="nav-link navcontent {% if request.path == '/total-breakdown/' %}active{% endif %}" href="#">TOTAL
               BREAKDOWN HOURS</a>

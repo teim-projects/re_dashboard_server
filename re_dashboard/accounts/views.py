@@ -241,8 +241,6 @@ from django.contrib.auth.models import User
 import pandas as pd
 from accounts.models import Provider
 from accounts.models import EnergyType
-
-
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
@@ -253,19 +251,23 @@ from accounts.models import Provider, EnergyType
 
 import pandas as pd
 import os
-
-import os
-import pandas as pd
 import re
+import xlrd
+from openpyxl import Workbook
 
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.core.files.storage import FileSystemStorage
-from django.contrib.auth.decorators import login_required
-from django.db import connection
 
-# from .models import Provider, EnergyType
-from django.contrib.auth.models import User
+def convert_xls_to_xlsx(xls_path, xlsx_path):
+    """Convert old .xls file to .xlsx using xlrd + openpyxl"""
+    book = xlrd.open_workbook(xls_path)
+    sheet = book.sheet_by_index(0)
+    wb = Workbook()
+    ws = wb.active
+
+    for row in range(sheet.nrows):
+        ws.append(sheet.row_values(row))
+
+    wb.save(xlsx_path)
+    return xlsx_path
 
 
 @login_required
@@ -341,23 +343,35 @@ def add_provider_with_structure(request):
             # ✅ Read file into pandas DataFrame
             if file_ext == ".csv":
                 df = pd.read_csv(file_path)
-            elif file_ext in [".xls", ".xlsx", ".xlsm", ".xlsb"]:
-                df = pd.read_excel(file_path, engine='openpyxl')
+
+            elif file_ext == ".xls":
+                try:
+                    # Try conversion (real Excel binary)
+                    xlsx_path = file_path + "x"
+                    convert_xls_to_xlsx(file_path, xlsx_path)
+                    df = pd.read_excel(xlsx_path, engine="openpyxl")
+                    os.remove(xlsx_path)
+                except Exception:
+                    # Fallback: treat as HTML table
+                    df_list = pd.read_html(file_path)
+                    df = df_list[0]
+
+            elif file_ext in [".xlsx", ".xlsm", ".xlsb"]:
+                df = pd.read_excel(file_path, engine="openpyxl")
+
             elif file_ext == ".ods":
-                df = pd.read_excel(file_path, engine='odf')
+                df = pd.read_excel(file_path, engine="odf")
+
             else:
                 messages.error(request, f"Unsupported file type: {file_ext}.")
                 return redirect("add_provider")
 
-            # ✅ Clean column names — MATCHES upload logic
+            # ✅ Clean column names
             df.columns = [re.sub(r'\W+', '_', str(col).strip()).lower().strip('_') for col in df.columns]
 
             # ✅ Build SQL create statement
             column_defs = [f"`{col}` TEXT" for col in df.columns]
             column_defs += ["`provider` TEXT", "`energy_type` TEXT", "`uploaded_by` TEXT"]
-
-
-    
 
             create_sql = f"""
                 CREATE TABLE IF NOT EXISTS `{table_name}` (
@@ -369,7 +383,10 @@ def add_provider_with_structure(request):
             with connection.cursor() as cursor:
                 cursor.execute(create_sql)
 
-            messages.success(request, f"✅ Table '{table_name}' created successfully for provider '{provider_name}' and user '{selected_username}'.")
+            messages.success(
+                request,
+                f"✅ Table '{table_name}' created successfully for provider '{provider_name}' and user '{selected_username}'."
+            )
 
         except Exception as e:
             messages.error(request, f"❌ Error creating table: {str(e)}")
@@ -400,7 +417,6 @@ def add_provider_with_structure(request):
         'provider_table_map': provider_table_map,
         'users': staff_users,
     })
-
 
 
 from django.contrib.auth.decorators import login_required

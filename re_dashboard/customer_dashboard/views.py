@@ -831,31 +831,6 @@ def wind_avg_genration(request):
 
 
 
-import json
-from collections import defaultdict
-from datetime import datetime, date
-from django.http import HttpResponse
-from django.shortcuts import render
-from django.db import connection
-from django.contrib.auth.decorators import login_required
-
-
-def _pick(col_map, *candidates):
-    """Return actual-cased column name if it matches any of the candidates."""
-    for c in candidates:
-        lc = c.lower()
-        if lc in col_map:
-            return col_map[lc]
-    return None
-
-
-from django.shortcuts import render
-from django.db import connection
-from django.contrib.auth.decorators import login_required
-from datetime import datetime, date
-from collections import defaultdict
-import json
-
 from collections import defaultdict
 from datetime import datetime, date
 from django.http import HttpResponse
@@ -864,28 +839,71 @@ from django.db import connection
 from django.contrib.auth.decorators import login_required
 import json
 
-def _pick(col_map, *candidates):
-    """Find actual column name from possible variants."""
-    for c in candidates:
-        lc = c.lower()
-        if lc in col_map:
-            return col_map[lc]
-    return None
-from collections import defaultdict
-from datetime import datetime, date
-from django.http import HttpResponse
-from django.shortcuts import render
-from django.db import connection
-from django.contrib.auth.decorators import login_required
-import json
 
 def _pick(col_map, *candidates):
-    """Find actual column name from possible variants."""
+    """Find actual column name from possible variants with normalization."""
+    def normalize(name):
+        return (
+            name.lower()
+            .replace(".", "")
+            .replace("%", "")
+            .replace(" ", "")
+            .replace("_", "")
+            .strip()
+        )
     for c in candidates:
-        lc = c.lower()
-        if lc in col_map:
-            return col_map[lc]
+        norm_c = normalize(c)
+        for actual in col_map:
+            if normalize(actual) == norm_c:
+                return col_map[actual]
     return None
+
+def parse_date_like(v):
+    if isinstance(v, date):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+
+    # Add more date formats including dd-mm-yyyy
+    formats = (
+        "%Y-%m-%d",   # 2022-01-01
+        "%d/%m/%Y",   # 01/01/2022
+        "%d-%m-%Y",   # 01-01-2022
+        "%d-%b-%Y",   # 01-Jan-2022
+        "%d.%m.%Y",   # 01.01.2022
+    )
+
+    for fmt in formats:
+        try:
+            return datetime.strptime(str(v).strip(), fmt).date()
+        except Exception:
+            continue
+
+    # Fallback: try to split manually
+    try:
+        parts = str(v).replace("/", "-").replace(".", "-").split("-")
+        if len(parts) == 3:
+            if len(parts[0]) == 4:  # yyyy-mm-dd
+                return datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
+            else:  # dd-mm-yyyy
+                return datetime(int(parts[2]), int(parts[1]), int(parts[0])).date()
+    except Exception:
+        pass
+
+    return None
+
+
+def to_hours(value):
+    try:
+        val = float(value)
+        if 0 <= val <= 24:
+            return val
+        if 24 < val <= 1440:
+            return val / 60.0
+    except:
+        return 0.0
+    return 0.0
+
 
 @login_required
 def wind_Grid_Availability_and_Machine(request):
@@ -901,7 +919,8 @@ def wind_Grid_Availability_and_Machine(request):
         context = {
             "grid_chart_data": json.dumps([]),
             "availability_chart_data": json.dumps([]),
-            "plf_chart_data": json.dumps([]),
+            "plf_yearly_data": json.dumps([]),
+            "plf_monthly_data": json.dumps({}),
             "providers": [], "customers": [], "states": [],
             "sites": [], "wtgs": [],
             "selected_providers": [], "selected_customers": [],
@@ -925,8 +944,8 @@ def wind_Grid_Availability_and_Machine(request):
     # Data accumulators
     year_failure_hours = defaultdict(list)
     month_failure_hours = defaultdict(list)
-    year_plf = defaultdict(list)       # for PLF by year
-    month_plf = defaultdict(list)      # for PLF by month
+    year_plf = defaultdict(list)
+    month_plf = defaultdict(list)
     distincts = {
         "providers": set(),
         "customers": set(),
@@ -935,60 +954,38 @@ def wind_Grid_Availability_and_Machine(request):
         "wtgs": set(),
     }
 
-    def parse_date_like(v):
-        if isinstance(v, date):
-            return v
-        if isinstance(v, datetime):
-            return v.date()
-        formats = ("%Y-%m-%d", "%d/%m/%Y", "%d-%b-%Y")
-        for fmt in formats:
-            try:
-                return datetime.strptime(str(v), fmt).date()
-            except:
-                continue
-        return None
-
-    def to_hours(value):
-        try:
-            val = float(value)
-            if 0 <= val <= 24:
-                return val
-            if 24 < val <= 1440:
-                return val / 60.0
-        except:
-            return 0.0
-        return 0.0
-
     # Process each table
     for table in table_names:
         with connection.cursor() as cursor:
             cursor.execute(f"SHOW COLUMNS FROM `{table}`")
             cols = [row[0] for row in cursor.fetchall()]
-        col_map = {c.lower(): c for c in cols}
+        col_map = {c: c for c in cols}  # keep actual case
 
-        date_col = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
-        gf_col = _pick(col_map, "gf", "grid_failure")
-        ga_col = _pick(col_map, "ga", "grid_availability")
-        gia_col = _pick(col_map, "gia", "grid_indicator_availability")
+        # --- Column mappings (support multiple formats) ---
+        date_col = _pick(col_map, "date", "gen_date", "reading_date", "day_date", "gen. date")
 
-        wtg_col = _pick(col_map, "wec", "wtg")
-        customer_col = _pick(col_map, "customername", "customer", "consumer", "client")
+        gf_col = _pick(col_map, "gf", "gridfailure", "grid failure", "failure hours")
+        ga_col = _pick(col_map, "ga", "gridavailability", "grid availability", "ga%")
+        gia_col = _pick(col_map, "gia", "gridinternalavailability", "grid indicator availability", "gia%")
+
+        wtg_col = _pick(col_map, "wec", "wecno", "wecnumber", "wtg", "wtgno", "wtg number", "locno", "section")
+        customer_col = _pick(col_map, "customer", "customername", "consumer", "client", "clientname", "customer name")
         state_col = _pick(col_map, "state", "statename", "st")
         site_col = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname",
                          "park", "sitecode", "city", "town", "village")
-        provider_col = _pick(col_map, "provider", "oem", "oemprovider", "oem_name")
+        provider_col = _pick(col_map, "provider", "oem", "oemprovider", "oemname", "oem_name")
 
-        # ✅ PLF columns
-        plf_day_col = _pick(col_map, "%plf day", "plf_day", "plf")
-        plf_mtd_col = _pick(col_map, "%plf mtd", "plf_mtd")
-        plf_ytd_col = _pick(col_map, "%plf ytd", "plf_ytd")
+        gen_col = _pick(col_map, "generation", "gen", "genkwh", "g", "generation(kwh)")
+        gen_hrs_col = _pick(col_map, "genhrs", "gen hrs", "genhours", "generation hours")
+        opr_hrs_col = _pick(col_map, "ophrs", "opr hrs", "operating hours", "machine hrs")
+
+        plf_day_col = _pick(col_map, "plf_day", "plfday", "%plf day", "plf")
 
         if not date_col:
             continue
 
         # Build filters
-        conditions = []
-        params = []
+        conditions, params = [], []
         if date_from:
             conditions.append(f"`{date_col}` >= %s")
             params.append(date_from)
@@ -1020,12 +1017,9 @@ def wind_Grid_Availability_and_Machine(request):
 
         # Select only needed columns
         select_cols = [date_col]
-        if gf_col: select_cols.append(gf_col)
-        if ga_col: select_cols.append(ga_col)
-        if gia_col: select_cols.append(gia_col)
-        if plf_day_col: select_cols.append(plf_day_col)
-        if plf_mtd_col: select_cols.append(plf_mtd_col)
-        if plf_ytd_col: select_cols.append(plf_ytd_col)
+        for col in [gf_col, ga_col, gia_col, plf_day_col, gen_hrs_col, opr_hrs_col, gen_col]:
+            if col:
+                select_cols.append(col)
 
         select_clause = ", ".join(f"`{col}`" for col in select_cols)
         query = f"SELECT {select_clause} FROM `{table}` {where_clause}"
@@ -1048,32 +1042,28 @@ def wind_Grid_Availability_and_Machine(request):
             if gf_col and row[idx.get(gf_col)] not in (None, ""):
                 hours = to_hours(row[idx[gf_col]])
             elif ga_col and row[idx.get(ga_col)] not in (None, ""):
-                ga = float(row[idx[ga_col]])
-                ga = max(0.0, min(100.0, ga))
-                hours = (100.0 - ga) * 24.0 / 100.0
+                try:
+                    ga = float(row[idx[ga_col]])
+                    ga = max(0.0, min(100.0, ga))
+                    hours = (100.0 - ga) * 24.0 / 100.0
+                except:
+                    pass
             elif gia_col and row[idx.get(gia_col)] not in (None, ""):
-                gia = float(row[idx[gia_col]])
-                gia = max(0.0, min(100.0, gia))
-                hours = (100.0 - gia) * 24.0 / 100.0
+                try:
+                    gia = float(row[idx[gia_col]])
+                    gia = max(0.0, min(100.0, gia))
+                    hours = (100.0 - gia) * 24.0 / 100.0
+                except:
+                    pass
 
             year_failure_hours[year].append(hours)
             month_failure_hours[month].append(hours)
 
-            # --- Plant Load Factor calc ---
+            # --- PLF ---
             plf_val = None
             if plf_day_col and row[idx.get(plf_day_col)] not in (None, ""):
                 try:
                     plf_val = float(row[idx[plf_day_col]])
-                except:
-                    plf_val = None
-            elif plf_mtd_col and row[idx.get(plf_mtd_col)] not in (None, ""):
-                try:
-                    plf_val = float(row[idx[plf_mtd_col]])
-                except:
-                    plf_val = None
-            elif plf_ytd_col and row[idx.get(plf_ytd_col)] not in (None, ""):
-                try:
-                    plf_val = float(row[idx[plf_ytd_col]])
                 except:
                     plf_val = None
 
@@ -1099,10 +1089,7 @@ def wind_Grid_Availability_and_Machine(request):
     for year in sorted(year_failure_hours.keys()):
         hours_list = year_failure_hours[year]
         avg_failure = round(sum(hours_list) / len(hours_list), 2) if hours_list else 0.0
-        grid_chart_data.append({
-            "year": year,
-            "avg_failure": avg_failure
-        })
+        grid_chart_data.append({"year": year, "avg_failure": avg_failure})
 
     availability_chart_data = []
     for month in sorted(month_failure_hours.keys()):
@@ -1116,20 +1103,25 @@ def wind_Grid_Availability_and_Machine(request):
             "machine_availability": avg_machine
         })
 
-    # ✅ Prepare PLF chart data
-    plf_chart_data = []
+    # PLF (Yearly)
+    plf_yearly_data = []
     for year in sorted(year_plf.keys()):
         vals = year_plf[year]
         avg_plf = round(sum(vals) / len(vals), 2) if vals else 0.0
-        plf_chart_data.append({
-            "year": year,
-            "avg_plf": avg_plf
-        })
+        plf_yearly_data.append({"year": year, "avg_plf": avg_plf})
+
+    # PLF (Monthly per year)
+    plf_monthly_data = defaultdict(list)
+    for month, vals in month_plf.items():
+        avg_plf = round(sum(vals) / len(vals), 2) if vals else 0.0
+        year = month.split("-")[0]
+        plf_monthly_data[year].append({"month": month, "avg_plf": avg_plf})
 
     context = {
         "grid_chart_data": json.dumps(grid_chart_data),
         "availability_chart_data": json.dumps(availability_chart_data),
-        "plf_chart_data": json.dumps(plf_chart_data),
+        "plf_yearly_data": json.dumps(plf_yearly_data),
+        "plf_monthly_data": json.dumps(plf_monthly_data),
         "providers": sorted(distincts["providers"]),
         "customers": sorted(distincts["customers"]),
         "states": sorted(distincts["states"]),
@@ -1145,3 +1137,253 @@ def wind_Grid_Availability_and_Machine(request):
         "no_data": False,
     }
     return render(request, "wind_Grid_Availability_and_Machine.html", context)
+
+from collections import defaultdict
+from datetime import datetime, date
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+import json
+
+
+def _pick(col_map, *candidates):
+    """Find actual column name from possible variants with normalization."""
+    def normalize(name):
+        return (
+            name.lower()
+            .replace(".", "")
+            .replace("%", "")
+            .replace(" ", "")
+            .replace("_", "")
+            .strip()
+        )
+    for c in candidates:
+        norm_c = normalize(c)
+        for actual in col_map:
+            if normalize(actual) == norm_c:
+                return col_map[actual]
+    return None
+
+
+def parse_date_like(v):
+    if isinstance(v, date):
+        return v
+    if isinstance(v, datetime):
+        return v.date()
+    formats = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d-%b-%Y", "%d.%m.%Y")
+    for fmt in formats:
+        try:
+            return datetime.strptime(str(v).strip(), fmt).date()
+        except Exception:
+            continue
+    try:
+        parts = str(v).replace("/", "-").replace(".", "-").split("-")
+        if len(parts) == 3:
+            if len(parts[0]) == 4:
+                return datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
+            else:
+                return datetime(int(parts[2]), int(parts[1]), int(parts[0])).date()
+    except Exception:
+        pass
+    return None
+
+
+def parse_hours(value):
+    """Convert Operating Hours into float hours."""
+    if not value:
+        return 0.0
+    try:
+        if isinstance(value, (int, float)):
+            return float(value)
+        parts = str(value).split(":")
+        if len(parts) == 3:
+            h, m, s = map(int, parts)
+            return h + m/60 + s/3600
+        elif len(parts) == 2:
+            h, m = map(int, parts)
+            return h + m/60
+        elif len(parts) == 1:
+            return float(parts[0])
+    except:
+        return 0.0
+    return 0.0
+
+
+@login_required
+def wind_drill_down(request):
+    user = request.user.username.lower()
+
+    # --- find all wind tables for this user ---
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [row[0] for row in cursor.fetchall()]
+    table_names = [t for t in tables if t.startswith(user + "_") and t.endswith("_wind")]
+
+    if not table_names:
+        return render(request, "wind_drill_down.html", {
+            "site_gen_data": "[]",
+            "ma_data": "[]",
+            "ga_data": "[]",
+            "oh_data": "[]",
+            "providers": [],
+            "customers": [],
+            "states": [],
+            "sites": [],
+            "wtgs": [],
+            "selected_providers": [],
+            "selected_customers": [],
+            "selected_states": [],
+            "selected_sites": [],
+            "selected_wtgs": [],
+            "no_data": True,
+            "no_data_msg": "No wind tables found for your account."
+        })
+
+    # --- filters from GET ---
+    date_from = request.GET.get("date_from")
+    date_to = request.GET.get("date_to")
+    selected_providers = request.GET.getlist("provider")
+    selected_customers = request.GET.getlist("customer")
+    selected_states = request.GET.getlist("state")
+    selected_sites = request.GET.getlist("site")
+    selected_wtgs = request.GET.getlist("wtg")
+
+    # --- aggregators ---
+    site_gen = defaultdict(float)
+    ma_by_wec = defaultdict(list)
+    ga_by_wec = defaultdict(list)
+    oh_by_wec = defaultdict(float)
+
+    # --- distinct filter values ---
+    providers_set, customers_set, states_set, sites_set, wtgs_set = set(), set(), set(), set(), set()
+
+    for table in table_names:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+            cols = [row[0] for row in cursor.fetchall()]
+        col_map = {c: c for c in cols}
+
+        date_col = _pick(col_map, "date", "gen date", "reading_date", "day_date")
+        site_col = _pick(col_map, "site", "location", "plant", "park")
+        wec_col = _pick(col_map, "wec", "wtg", "wecno", "wtgno", "loc no")
+        gen_col = _pick(col_map, "generation", "gen", "genkwh", "gen kwh day")
+        ma_col = _pick(col_map, "ma", "machineavailability", "machine availability", "ma%", "m/c avail%")
+        ga_col = _pick(col_map, "ga", "gridavailability", "grid availability", "ga%", "gia")
+        
+        oh_col = _pick(col_map, "o.hrs", "ophrs", "operating hours", "machine hrs", "gen hrs", "opr hrs")
+
+        provider_col = _pick(col_map, "provider", "oem")
+        customer_col = _pick(col_map, "customer", "customer name", "client")
+        state_col = _pick(col_map, "state")
+        site_filter_col = site_col
+
+        if not date_col:
+            continue
+
+        # --- build WHERE clause ---
+        conditions, params = [], []
+        if date_from:
+            conditions.append(f"`{date_col}` >= %s")
+            params.append(date_from)
+        if date_to:
+            conditions.append(f"`{date_col}` <= %s")
+            params.append(date_to)
+        if selected_providers and provider_col:
+            placeholders = ",".join(["%s"] * len(selected_providers))
+            conditions.append(f"`{provider_col}` IN ({placeholders})")
+            params.extend(selected_providers)
+        if selected_customers and customer_col:
+            placeholders = ",".join(["%s"] * len(selected_customers))
+            conditions.append(f"`{customer_col}` IN ({placeholders})")
+            params.extend(selected_customers)
+        if selected_states and state_col:
+            placeholders = ",".join(["%s"] * len(selected_states))
+            conditions.append(f"`{state_col}` IN ({placeholders})")
+            params.extend(selected_states)
+        if selected_sites and site_filter_col:
+            placeholders = ",".join(["%s"] * len(selected_sites))
+            conditions.append(f"`{site_filter_col}` IN ({placeholders})")
+            params.extend(selected_sites)
+        if selected_wtgs and wec_col:
+            placeholders = ",".join(["%s"] * len(selected_wtgs))
+            conditions.append(f"`{wec_col}` IN ({placeholders})")
+            params.extend(selected_wtgs)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        select_cols = [c for c in [date_col, site_col, wec_col, gen_col, ma_col, ga_col, oh_col,
+                                   provider_col, customer_col, state_col] if c]
+        select_clause = ", ".join(f"`{c}`" for c in select_cols)
+
+        query = f"SELECT {select_clause} FROM `{table}` {where_clause}"
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        idx = {col: i for i, col in enumerate(select_cols)}
+
+        for row in rows:
+            d = parse_date_like(row[idx[date_col]])
+            if not d:
+                continue
+
+            site_val = row[idx.get(site_col)] if site_col else "Unknown"
+            wec_val = row[idx.get(wec_col)] if wec_col else "Unknown"
+
+            # collect distinct filter values
+            if provider_col and row[idx.get(provider_col)]: providers_set.add(row[idx[provider_col]])
+            if customer_col and row[idx.get(customer_col)]: customers_set.add(row[idx[customer_col]])
+            if state_col and row[idx.get(state_col)]: states_set.add(row[idx[state_col]])
+            if site_col and row[idx.get(site_col)]: sites_set.add(row[idx[site_col]])
+            if wec_col and row[idx.get(wec_col)]: wtgs_set.add(row[idx[wec_col]])
+
+            # Generation
+            if gen_col and row[idx.get(gen_col)] not in (None, ""):
+                try:
+                    site_gen[site_val] += float(row[idx[gen_col]])
+                except:
+                    pass
+
+            # Machine Availability
+            if ma_col and row[idx.get(ma_col)] not in (None, ""):
+                try:
+                    ma_by_wec[wec_val].append(float(row[idx[ma_col]]))
+                except:
+                    pass
+
+            # Grid Availability
+            if ga_col and row[idx.get(ga_col)] not in (None, ""):
+                try:
+                    ga_by_wec[wec_val].append(float(row[idx[ga_col]]))
+                except:
+                    pass
+
+            # Operating Hours
+            if oh_col and row[idx.get(oh_col)] not in (None, ""):
+                oh_by_wec[wec_val] += parse_hours(row[idx[oh_col]])
+
+    # --- prepare chart data ---
+    site_gen_data = [{"site": k, "generation": v} for k, v in site_gen.items()]
+    ma_data = [{"wec": k, "ma": sum(v)/len(v)} for k, v in ma_by_wec.items() if v]
+    ga_data = [{"wec": k, "ga": sum(v)/len(v)} for k, v in ga_by_wec.items() if v]
+    oh_data = [{"wec": k, "hours": v} for k, v in oh_by_wec.items()]
+
+    context = {
+        "site_gen_data": json.dumps(site_gen_data),
+        "ma_data": json.dumps(ma_data),
+        "ga_data": json.dumps(ga_data),
+        "oh_data": json.dumps(oh_data),
+        "providers": sorted(providers_set),
+        "customers": sorted(customers_set),
+        "states": sorted(states_set),
+        "sites": sorted(sites_set),
+        "wtgs": sorted(wtgs_set),
+        "selected_providers": selected_providers,
+        "selected_customers": selected_customers,
+        "selected_states": selected_states,
+        "selected_sites": selected_sites,
+        "selected_wtgs": selected_wtgs,
+        "date_from": date_from,
+        "date_to": date_to,
+        "no_data": False,
+    }
+    return render(request, "wind_drill_down.html", context)

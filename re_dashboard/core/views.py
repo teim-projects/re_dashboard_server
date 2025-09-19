@@ -438,34 +438,11 @@ from accounts.models import EnergyType
 from django.contrib.auth.models import User
 
 
-from django.db import connection
-from django.utils.text import slugify
-from django.core.files.storage import FileSystemStorage
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.shortcuts import render, redirect
-import pandas as pd
-
-from accounts.models import EnergyType
-
-
-from django.contrib.auth.models import User
-
-
-from django.db import connection
-from django.utils.text import slugify
-from django.core.files.storage import FileSystemStorage
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from django.shortcuts import render, redirect
-import pandas as pd
-
-from accounts.models import EnergyType
-
 import os
 import re
 import traceback
 import pandas as pd
+import numpy as np
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -473,8 +450,10 @@ from django.core.files.storage import FileSystemStorage
 from django.db import connection
 from django.contrib.auth.models import User
 from django.utils.timezone import now
+
+from accounts.models import Provider, EnergyType
  
-import numpy as np
+
 @login_required
 def upload_files(request):
     energy_types = EnergyType.objects.all()
@@ -522,19 +501,35 @@ def upload_files(request):
         file_path = fs.path(filename)
 
         try:
-            # ✅ Load file with pandas
+            # ✅ Detect file extension
             ext = os.path.splitext(filename)[1].lower()
+
+            # ✅ Load file with pandas
             if ext == '.csv':
                 df = pd.read_csv(file_path)
-            elif ext in ['.xls', '.xlsx', '.xlsm', '.ods', '.odt']:
-                df = pd.read_excel(file_path, engine='odf' if ext in ['.ods', '.odt'] else None)
+
+            elif ext == '.xls':
+                try:
+                    # Try as real Excel
+                    df = pd.read_excel(file_path, engine="xlrd")
+                except Exception:
+                    # Fallback: many .xls are actually HTML
+                    df_list = pd.read_html(file_path)
+                    df = df_list[0]
+
+            elif ext in ['.xlsx', '.xlsm']:
+                df = pd.read_excel(file_path, engine="openpyxl")
+
+            elif ext in ['.ods', '.odt']:
+                df = pd.read_excel(file_path, engine="odf")
+
             else:
                 raise Exception("Unsupported file format. Allowed: CSV, XLS, XLSX, XLSM, ODS, ODT")
 
             # ✅ Clean column names
-            df.columns = [re.sub(r'\W+', '_', col.strip()).lower().strip('_') for col in df.columns]
+            df.columns = [re.sub(r'\W+', '_', str(col).strip()).lower().strip('_') for col in df.columns]
 
-            # ✅ Convert all NaN / NaT / inf to None
+            # ✅ Convert NaN / NaT / inf to None
             df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
             df = df.astype(object).where(pd.notnull(df), None)
             df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
@@ -592,7 +587,6 @@ def upload_files(request):
         'staff_users': User.objects.filter(is_superuser=False),
     })
 
-from django.shortcuts import render
 from django.db import connection
 from django.contrib.auth.models import User
 from accounts.models import Provider
