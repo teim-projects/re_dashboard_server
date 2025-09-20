@@ -416,28 +416,54 @@ def download_template(request):
     return response
 
 
-
-
-import pandas as pd
-from django.db import connection
-from django.core.files.storage import FileSystemStorage
-from django.contrib import messages
-from accounts.models import EnergyType
-from accounts.models import Provider  # Assuming model is in `core`
-from django.contrib.auth.models import User
-from django.contrib.auth.decorators import login_required
-
-from django.db import connection
-from django.core.files.storage import FileSystemStorage
-from django.contrib import messages
-import pandas as pd
 import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
 
+from django.shortcuts import render, redirect
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from accounts.models import EnergyType
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
 from django.contrib.auth.models import User
+from django.utils.timezone import now
 
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
 
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
+
+import os, re, traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+import os
+import re
+import traceback
+import pandas as pd
 import os
 import re
 import traceback
@@ -450,115 +476,162 @@ from django.core.files.storage import FileSystemStorage
 from django.db import connection
 from django.contrib.auth.models import User
 from django.utils.timezone import now
-
 from accounts.models import Provider, EnergyType
- 
+from .models import UploadMetadata
+
+# --- Column cleaner
+def clean_col(col: str) -> str:
+    return re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
+
+# --- Detect meta-info row & robust Excel/HTML detection
+def read_file_with_meta_check(file_path, ext):
+    def looks_like_meta(row_values):
+        text = " ".join(str(v) for v in row_values if pd.notnull(v)).lower()
+        return "wec wise report" in text or "date :" in text
+
+    # Check for HTML content
+    with open(file_path, "rb") as f:
+        header = f.read(8)
+        is_html = header.startswith(b'<!DOCTYPE') or header.startswith(b'<html')
+
+    try:
+        skip_rows = 0
+
+        if ext == ".csv":
+            preview = pd.read_csv(file_path, nrows=1, header=None)
+            skip_rows = 1 if looks_like_meta(preview.iloc[0].tolist()) else 0
+            df = pd.read_csv(file_path, header=0, skiprows=skip_rows)
+
+        elif ext == ".xls":
+            # Try old Excel binary first
+            try:
+                df = pd.read_excel(file_path, header=0, engine="xlrd")
+            except Exception:
+                # fallback to HTML table parsing
+                df = pd.read_html(file_path)[0]
+
+        elif ext in [".xlsx", ".xlsm"]:
+            preview = pd.read_excel(file_path, nrows=1, header=None, engine="openpyxl")
+            skip_rows = 1 if looks_like_meta(preview.iloc[0].tolist()) else 0
+            df = pd.read_excel(file_path, header=0, skiprows=skip_rows, engine="openpyxl")
+
+        elif ext in [".ods", ".odt"]:
+            preview = pd.read_excel(file_path, nrows=1, header=None, engine="odf")
+            skip_rows = 1 if looks_like_meta(preview.iloc[0].tolist()) else 0
+            df = pd.read_excel(file_path, header=0, skiprows=skip_rows, engine="odf")
+
+        else:
+            raise Exception(f"Unsupported file format: {ext}")
+
+    except Exception as e:
+        raise Exception(f"Unsupported format or corrupt file: {str(e)}")
+
+    return df
+
+import pandas as pd
+from datetime import datetime, date
+
+# --- Normalize date column: keep only YYYY-MM-DD
+def normalize_date(val):
+    if val is None or pd.isnull(val):
+        return None
+    # Check for datetime, timestamp, or string
+    if isinstance(val, (datetime, date, pd.Timestamp)):
+        return val.date() if isinstance(val, datetime) else val
+    # Otherwise try to parse string like '2024-01-01 00:00:00'
+    s = str(val).split(" ")[0]
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%d")
+        return dt.date()
+    except Exception:
+        return s  # fallback: keep as string
 
 @login_required
 def upload_files(request):
     energy_types = EnergyType.objects.all()
     providers = Provider.objects.all()
 
-    # ✅ Fetch all existing DB tables
+    # --- Fetch existing DB tables
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
 
-    # ✅ Build username_provider_energytype style labels
     expected_tables = []
     for table in db_tables:
-        parts = table.split('_')
+        parts = table.split("_")
         if len(parts) >= 3:
             username = parts[0]
-            provider_slug = '_'.join(parts[1:-1])
+            provider_slug = "_".join(parts[1:-1])
             energy_type_slug = parts[-1]
-            if Provider.objects.filter(name__iexact=provider_slug.replace('_', ' ')).exists() and \
-               EnergyType.objects.filter(name__iexact=energy_type_slug.replace('_', ' ')).exists():
+            if Provider.objects.filter(name__iexact=provider_slug.replace("_", " ")).exists() and \
+               EnergyType.objects.filter(name__iexact=energy_type_slug.replace("_", " ")).exists():
                 expected_tables.append({
-                    'name': table,
-                    'label': f"{username} - {provider_slug.replace('_', ' ').title()} - {energy_type_slug.title()}"
+                    "name": table,
+                    "label": f"{username} - {provider_slug.replace('_',' ').title()} - {energy_type_slug.title()}"
                 })
 
-    if request.method == 'POST':
-        table_name = request.POST.get('provider', '').strip()
-        provider_name = request.POST.get('provider_name', '').strip()
-        data_file = request.FILES.get('data_file')
+    if request.method == "POST":
+        table_name = request.POST.get("provider", "").strip()
+        provider_name = request.POST.get("provider_name", "").strip()
+        data_file = request.FILES.get("data_file")
 
         if not table_name or not data_file or not provider_name:
             messages.error(request, "❌ Table, file, and provider are required.")
-            return redirect('upload_files')
-
-        try:
-            parts = table_name.split('_')
-            uploaded_by = parts[0]
-            energy_type = parts[-1].replace('_', ' ').title()
-        except Exception:
-            messages.error(request, "❌ Invalid table format.")
-            return redirect('upload_files')
+            return redirect("upload_files")
 
         fs = FileSystemStorage()
         filename = fs.save(data_file.name, data_file)
         file_path = fs.path(filename)
 
         try:
-            # ✅ Detect file extension
             ext = os.path.splitext(filename)[1].lower()
+            df = read_file_with_meta_check(file_path, ext)
 
-            # ✅ Load file with pandas
-            if ext == '.csv':
-                df = pd.read_csv(file_path)
+            # --- Clean column names
+            df.columns = [clean_col(c) for c in df.columns]
 
-            elif ext == '.xls':
-                try:
-                    # Try as real Excel
-                    df = pd.read_excel(file_path, engine="xlrd")
-                except Exception:
-                    # Fallback: many .xls are actually HTML
-                    df_list = pd.read_html(file_path)
-                    df = df_list[0]
-
-            elif ext in ['.xlsx', '.xlsm']:
-                df = pd.read_excel(file_path, engine="openpyxl")
-
-            elif ext in ['.ods', '.odt']:
-                df = pd.read_excel(file_path, engine="odf")
-
-            else:
-                raise Exception("Unsupported file format. Allowed: CSV, XLS, XLSX, XLSM, ODS, ODT")
-
-            # ✅ Clean column names
-            df.columns = [re.sub(r'\W+', '_', str(col).strip()).lower().strip('_') for col in df.columns]
-
-            # ✅ Convert NaN / NaT / inf to None
+            # --- Replace invalid values
             df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
             df = df.astype(object).where(pd.notnull(df), None)
             df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
 
-            # ✅ Fetch table columns
+            # --- Fetch DB columns
             with connection.cursor() as cursor:
                 cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
                 table_columns = [col[0].lower() for col in cursor.fetchall()]
 
-            # ✅ Check missing columns
-            missing_cols = [col for col in df.columns if col not in table_columns]
-            if missing_cols:
-                raise Exception(f"Columns not found in table `{table_name}`: {missing_cols}")
+            # --- Keep only matching columns
+            valid_columns = [col for col in df.columns if col in table_columns]
+            df = df[valid_columns]
 
-            # ✅ Add extra fields if table supports them
-            if 'energy_type' in table_columns and 'energy_type' not in df.columns:
-                df['energy_type'] = energy_type
-            if 'uploaded_by' in table_columns and 'uploaded_by' not in df.columns:
-                df['uploaded_by'] = uploaded_by
-            if 'provider' in table_columns and 'provider' not in df.columns:
-                df['provider'] = provider_name
+            if df.shape[1] == 0:
+                messages.error(request, "❌ Upload failed: No matching columns between file and table.")
+                return redirect("upload_files")
 
-            # ✅ Prepare SQL
-            columns = ', '.join(f"`{col}`" for col in df.columns)
-            placeholders = ', '.join(['%s'] * len(df.columns))
+            # --- Normalize date columns
+            date_cols = [c for c in df.columns if "date" in c]
+            for dc in date_cols:
+                df[dc] = df[dc].apply(normalize_date)
+
+            # --- Add mandatory fields
+            parts = table_name.split("_")
+            uploaded_by = parts[0]
+            energy_type = parts[-1].replace("_", " ").title()
+
+            if "energy_type" in table_columns:
+                df["energy_type"] = energy_type
+            if "uploaded_by" in table_columns:
+                df["uploaded_by"] = uploaded_by
+            if "provider" in table_columns:
+                df["provider"] = provider_name
+
+            # --- Prepare SQL insert
+            columns = ", ".join(f"`{col}`" for col in df.columns)
+            placeholders = ", ".join(["%s"] * len(df.columns))
             insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
-
-            # ✅ Insert in bulk
             values = [tuple(row) for row in df.values]
+
+            # --- Bulk insert
             with connection.cursor() as cursor:
                 cursor.executemany(insert_sql, values)
                 rows_inserted = cursor.rowcount
@@ -566,7 +639,7 @@ def upload_files(request):
             if rows_inserted > 0:
                 UploadMetadata.objects.update_or_create(
                     table_name=table_name,
-                    defaults={'last_modified': now()}
+                    defaults={"last_modified": now()}
                 )
                 messages.success(request, f"✅ Uploaded {rows_inserted} rows to '{table_name}'.")
             else:
@@ -578,20 +651,15 @@ def upload_files(request):
         finally:
             fs.delete(filename)
 
-        return redirect('upload_files')
+        return redirect("upload_files")
 
-    return render(request, 'upload_files.html', {
-        'expected_tables': expected_tables,
-        'providers': providers,
-        'energy_types': energy_types,
-        'staff_users': User.objects.filter(is_superuser=False),
+    return render(request, "upload_files.html", {
+        "expected_tables": expected_tables,
+        "providers": providers,
+        "energy_types": energy_types,
+        "staff_users": User.objects.filter(is_superuser=False),
     })
 
-from django.db import connection
-from django.contrib.auth.models import User
-from accounts.models import Provider
-
-from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.db import connection, DatabaseError
 
