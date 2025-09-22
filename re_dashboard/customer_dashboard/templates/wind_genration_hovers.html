@@ -49,33 +49,20 @@
     <select id="yearSelector" class="form-select form-select-sm mt-2" style="width:100px;">
     <option value="">All Years</option>
   </select>
-  <!-- Single Dropdown Toggle for Downloads + Clear -->
-  <div class="d-flex justify-content-end pr-5 ">
-    <div class="dropdown">
-      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="genMenu" data-bs-toggle="dropdown" aria-expanded="false">
-        ☰
-      </button>
-      <div class="d-flex justify-content-end mb-2">
+  <div id="customLegend" style=" text-align:center;"></div>
 
-</div>
-      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="genMenu">
-        <li><a class="dropdown-item" href="#" id="downloadSVG">Download SVG</a></li>
-        <li><a class="dropdown-item" href="#" id="downloadPNG">Download PNG</a></li>
-        <li><a class="dropdown-item" href="#" id="downloadCSV">Download CSV</a></li>
-        <li><hr class="dropdown-divider"></li>
-        <li><a class="dropdown-item text-danger" href="#" id="clearTreemapFilter">Clear Filters</a></li>
-      </ul>
-    </div>
-  </div>
+ 
 
-  <div id="treemapD3" style="width:100%;  margin-top: -50px;"></div>
-  <h6 id="totalHours" class="text-center mt-3 fw-bold text-dark"></h6>
+<div id="treemapApex" style="width:100%;  " class="mb-1"></div>
+<h6 id="totalHours" class="text-center  fw-bold text-dark " >
+  Loading Total Hours…
+</h6>
 </div>
 
         
         <!-- ===== Table Card ===== -->
       <!-- ===== Table Card ===== -->
-<div class="card shadow-lg mb-4 border-0 col-md-12 col-12 col-lg-12">
+<div class="card shadow-lg mb-4 border-0 col-md-12 col-12 col-lg-12  ">
     <div class="card-header bg-gradient-primary text-white   fw-bold fs-5 text-dark      ">
       <p class="text-center">
                 Generation Hours Table
@@ -458,18 +445,17 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     });
 </script>
- <script src="https://d3js.org/d3.v7.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
 const rawData = {{ chart_data|safe }};
 const years = [...new Set(rawData.map(d => d.year))];
 
-// 🎨 Color palette (year-wise)
+// Color palette
 const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
 const yearColors = {};
-years.forEach((year,i)=>yearColors[year]=palette[i % palette.length]);
+years.forEach((y,i)=>yearColors[y]=palette[i % palette.length]);
 
-// 📌 Year dropdown
+// Populate year dropdown
 const yearSelector = document.getElementById("yearSelector");
 years.forEach(y=>{
   const opt = document.createElement("option");
@@ -477,153 +463,160 @@ years.forEach(y=>{
   yearSelector.appendChild(opt);
 });
 
-// 🌳 Tooltip
-let tooltip = d3.select("body").append("div")
-  .attr("class","treemap-tooltip")
-  .style("position","absolute")
-  .style("background","rgba(0,0,0,0.75)")
-  .style("color","#fff")
-  .style("padding","5px 10px")
-  .style("border-radius","4px")
-  .style("pointer-events","none")
-  .style("opacity",0);
-
 let activeYear = null;
+let chart = null;
 
-// ================== TREEMAP FUNCTION ==================
+// Build series for Apex treemap
+function buildSeries(filterYear=null){
+  const filtered = filterYear ? rawData.filter(d=>d.year==filterYear) : rawData;
+  return filtered.map(d=>({ 
+    x: d.wtg, 
+    y: +d.hours, 
+    fillColor: yearColors[d.year], 
+    year: d.year 
+  }));
+}
+
+function updateTotalHours(filterYear=null){
+  const filtered = filterYear ? rawData.filter(d=>d.year==filterYear) : rawData;
+  const total = filtered.reduce((sum,d)=>sum + (parseFloat(d.hours) || 0), 0);
+
+  console.log("DEBUG totalHours:", filterYear, "=", total, "rows:", filtered.length);
+
+  const el = document.getElementById("totalHours");
+  if(!el) { console.error("❌ totalHours element not found"); return; }
+
+  if(filtered.length === 0){
+    el.textContent = "No data available";
+  } else {
+    const label = filterYear ? `(${filterYear})` : "(All Years)";
+    el.textContent = `Total Generation Hours ${label}: ${Math.round(total).toLocaleString()} hrs`;
+    el.style.display = "block";  
+    el.style.color = "black";    
+    el.style.fontWeight = "bold";
+  }
+}
+
+
+// Render custom legend
+function renderLegend(){
+  const legendContainer = document.getElementById("customLegend");
+  legendContainer.innerHTML = '';
+  years.forEach(y=>{
+    const item = document.createElement("span");
+    item.style.display="inline-block";
+    item.style.margin="0 10px";
+    item.style.cursor="pointer";
+    item.innerHTML = `<span style="display:inline-block;width:15px;height:15px;background:${yearColors[y]};margin-right:5px;"></span>${y}`;
+    // Hover
+    item.addEventListener("mouseenter", ()=>{ if(!activeYear) highlightYearFunc(y); });
+    item.addEventListener("mouseleave", ()=>{ if(!activeYear) resetHighlight(); });
+    // Click
+    item.addEventListener("click", ()=>{
+      activeYear = (activeYear===y ? null : y);
+      if(activeYear) highlightYearFunc(activeYear);
+      else resetHighlight();
+    });
+    legendContainer.appendChild(item);
+  });
+}
+// Render treemap
 function renderTreemap(filterYear=null){
-  d3.select("#treemapD3").select("svg").remove();
+  const seriesData = buildSeries(filterYear);
 
-  let filteredData = filterYear ? rawData.filter(d=>d.year==filterYear) : rawData;
-  let filteredYears = filterYear ? [filterYear] : years;
-
-  // Build hierarchy
-  const hierarchy = {
-    name:"root",
-    children: filteredYears.map(year=>({
-      name: year,
-      color: yearColors[year],
-      children: filteredData.filter(d=>d.year==year).map(d=>({
-        name: d.wtg,
-        value: d.hours,
-        color: yearColors[year],
-        year: year
-      }))
-    }))
+  const options = {
+    chart: {
+      type: 'treemap',
+      height: '',
+      width: '100%',
+      toolbar: { show:true, tools:{ download:true } },
+      animations: { enabled:true, easing:'easeinout', speed:400 }
+    },
+    series: [{ data: seriesData }],
+   tooltip: {
+  custom: function({ series, seriesIndex, dataPointIndex, w }) {
+    const dp = w.config.series[seriesIndex].data[dataPointIndex];
+    const totalHours = w.config.series[0].data.reduce((sum, d) => sum + d.y, 0);
+ 
+    return `
+      <div style="
+        padding:10px;
+        border-radius:8px;
+        background: #f9f9f9;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        font-family: 'Arial', sans-serif;
+      ">
+        <div style="font-size:14px; font-weight:bold; color:#333;">${dp.x}</div>
+        <div style="margin:4px 0;">
+          <span style="display:inline-block;width:12px;height:12px;background:${dp.fillColor};margin-right:5px;border-radius:50%;"></span>
+          Year: <b>${dp.year}</b>
+        </div>
+        <div style="color:#007bff;">Hours: <b>${dp.y.toLocaleString()}</b> hrs</div>
+       </div>
+    `;
+  }
+},plotOptions: {
+      treemap: {
+        distributed: true,
+        enableShades: false,
+        colorScale: { ranges: [] },
+        showParentLabel: true
+      }
+    },
+    dataLabels: { enabled:true, style:{fontSize:'12px'} },
+    colors: palette,
+    responsive:[{ breakpoint:768, options:{ chart:{height:400} } }]
   };
 
-  const container = document.getElementById("treemapD3");
-  const width = container.clientWidth;
-  const height = Math.max(400, width*0.6);
-
-  const root = d3.hierarchy(hierarchy).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
-  d3.treemap().size([width,height]).padding(3)(root);
-
-  const svg = d3.select("#treemapD3").append("svg")
-    .attr("width","100%")
-    .attr("height",height+70)
-    .attr("viewBox",`0 0 ${width} ${height+70}`)
-    .attr("preserveAspectRatio","xMidYMid meet");
-
-  const nodes = svg.selectAll("g.node")
-    .data(root.leaves())
-    .enter().append("g")
-    .attr("class","node")
-    .attr("transform",d=>`translate(${d.x0},${d.y0+40})`);
-
-  nodes.append("rect")
-    .attr("width",d=>d.x1-d.x0)
-    .attr("height",d=>d.y1-d.y0)
-    .attr("fill",d=>d.data.color)
-    .attr("rx",6).attr("ry",6)
-    .attr("stroke","#fff")
-    .style("filter","drop-shadow(1px 1px 2px rgba(0,0,0,0.2))")
-    .on("mouseover",function(){d3.select(this).transition().duration(200).style("filter","drop-shadow(2px 2px 5px rgba(0,0,0,0.4))")})
-    .on("mouseout",function(){d3.select(this).transition().duration(200).style("filter","drop-shadow(1px 1px 2px rgba(0,0,0,0.2))")});
-
-  nodes.append("text")
-    .attr("x",d=>(d.x1-d.x0)/2)
-    .attr("y",d=>(d.y1-d.y0)/2)
-    .attr("text-anchor","middle")
-    .attr("dominant-baseline","middle")
-    .text(d=>d.data.name)
-    .attr("fill","white")
-    .style("font-weight","600")
-    .style("font-size",d=>Math.max(10,Math.min(8,(d.x1-d.x0)/6))+"px")
-    .style("opacity",d=>(d.x1-d.x0>40 && d.y1-d.y0>20)?1:0);
-
-  nodes.on("mousemove",(event,d)=>{
-      tooltip.style("opacity",1)
-        .html(`<b>${d.data.name}</b><br><span style="color:${d.data.color}">●</span> ${d.data.year} | ${d.value.toFixed(1)} hrs`)
-        .style("left",(event.pageX+10)+"px")
-        .style("top",(event.pageY-25)+"px");
-    })
-    .on("mouseout",()=>tooltip.transition().duration(200).style("opacity",0));
-
-  // ================== LEGEND ==================
-  const legend = svg.append("g").attr("transform",`translate(${width/2 - filteredYears.length*45},20)`);
-  filteredYears.forEach((year,i)=>{
-    const legendItem = legend.append("g")
-      .attr("transform",`translate(${i*90},0)`)
-      .style("cursor","pointer");
-
-    legendItem.append("rect")
-      .attr("width",16).attr("height",16)
-      .attr("rx",3).attr("ry",3)
-      .attr("fill",yearColors[year]);
-
-    legendItem.append("text")
-      .attr("x",22).attr("y",12)
-      .text(year)
-      .style("font-size","14px")
-      .attr("fill","#333");
-
-    legendItem.on("mouseenter",()=>{if(!activeYear) highlightYear(year)})
-      .on("mouseleave",()=>{if(!activeYear) resetHighlight()})
-      .on("click",()=>{activeYear=(activeYear===year?null:year); activeYear?highlightYear(activeYear):resetHighlight()});
+  if(chart) chart.destroy();
+  chart = new ApexCharts(document.querySelector("#treemapApex"), options);
+  chart.render().then(()=>{
+      renderLegend();
+      updateTotalHours(filterYear);   // ✅ now runs after chart is ready
   });
+}
 
-  document.getElementById("totalHours").innerText =
-    "Total Generation Hours: "+d3.sum(filteredData,d=>d.hours).toFixed(0);
 
-  function highlightYear(year){
-    nodes.select("rect").style("opacity",d=>d.data.year===year?1:0.15);
-    nodes.select("text").style("opacity",d=>d.data.year===year?1:0.15);
-  }
+// ===================== Highlight Functions =====================
+function highlightYearFunc(year){
+  const seriesData = buildSeries(yearSelector.value || null);
+  chart.updateSeries([{
+    data: seriesData.map(d=>{
+      if(d.year===year) return d;
+      return {...d, fillColor:"rgba(200,200,200,0.3)"};
+    })
+  }], false);
+}
 
-  function resetHighlight(){
-    nodes.select("rect").transition().duration(300).style("opacity",1);
-    nodes.select("text").transition().duration(300).style("opacity",d=>{
-      const w=d.x1-d.x0,h=d.y1-d.y0; return (w>40 && h>20)?1:0;
-    });
-  }
+function resetHighlight(){
+  const seriesData = buildSeries(yearSelector.value || null);
+  chart.updateSeries([{
+    data: seriesData.map(d=>({ ...d, fillColor: yearColors[d.year] }))
+  }], false);
 }
 
 // ================== INITIAL RENDER ==================
 renderTreemap();
 
-// ================== YEAR DROPDOWN EVENT ==================
-yearSelector.addEventListener("change",function(){
-  const selectedYear=this.value;
-  if(selectedYear) renderTreemap(selectedYear);
-  else renderTreemap();
+// Year dropdown change
+yearSelector.addEventListener("change", function(){
+  const yr = this.value || null;
+  activeYear = null;
+  renderTreemap(yr);
 });
 
-// ================== CLEAR FILTER ==================
-document.getElementById("clearTreemapFilter").addEventListener("click",function(e){
+// Clear filter button
+document.getElementById("clearTreemapFilter").addEventListener("click", function(e){
   e.preventDefault();
   yearSelector.value="";
   activeYear=null;
   renderTreemap();
 });
 
-// ================== RESPONSIVE ==================
-let resizeTimeout;
-window.addEventListener("resize",()=>{
-  clearTimeout(resizeTimeout);
-  resizeTimeout=setTimeout(()=>{renderTreemap(activeYear||null)},300);
-});
+// Window resize
+window.addEventListener("resize", ()=> renderTreemap(yearSelector.value || null));
 </script>
+
 
 
 

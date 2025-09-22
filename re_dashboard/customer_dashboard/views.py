@@ -377,7 +377,6 @@ def wind_generation_kwh(request):
     }
     return render(request, "wind_generation_kwh.html", context)
 
-
 from collections import defaultdict
 from datetime import datetime, date
 from django.shortcuts import render
@@ -465,7 +464,7 @@ def wind_generation_hours(request):
     customers = request.GET.getlist("customer")
     states = request.GET.getlist("state")
     sites = request.GET.getlist("site")
-    wtgs = request.GET.getlist("wtg")
+    wtgs = [w.strip().upper() for w in request.GET.getlist("wtg")]  # normalize filters
 
     # --- Containers
     wtg_year_hours = defaultdict(float)
@@ -550,7 +549,9 @@ def wind_generation_hours(request):
             years_set.add(year)
             if not wtg_val:
                 continue
-            wtg = str(wtg_val)
+            wtg = str(wtg_val).strip().upper()  # normalize WTG
+            if not wtg:
+                continue
             wtg_year_hours[(wtg, year)] += float(hrs or 0)
             total_hours += float(hrs or 0)
 
@@ -560,7 +561,7 @@ def wind_generation_hours(request):
                 return []
             with connection.cursor() as cursor:
                 cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
-                return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
+                return [str(r[0]).strip().upper() for r in cursor.fetchall() if r[0] not in (None, "")]
         distincts["providers"].update(distinct_list(provider_col))
         distincts["customers"].update(distinct_list(customer_col))
         distincts["states"].update(distinct_list(state_col))
@@ -575,8 +576,14 @@ def wind_generation_hours(request):
                 wtg_year_hours[key] = 0.0
 
     # --- Prepare chart & table data
-    chart_data = [{"wtg": k[0], "year": k[1], "hours": round(v,2)} for k,v in sorted(wtg_year_hours.items(), key=lambda x: (x[0][1], x[0][0]))]
-    table_data = [{"wtg_no": k[0], "year": k[1], "hours": round(v,2)} for k,v in wtg_year_hours.items()]
+    chart_data = [
+        {"wtg": k[0], "year": k[1], "hours": round(v,2)}
+        for k,v in sorted(wtg_year_hours.items(), key=lambda x: (x[0][1], x[0][0]))
+    ]
+    table_data = [
+        {"wtg_no": k[0], "year": k[1], "hours": round(v,2)}
+        for k,v in wtg_year_hours.items()
+    ]
     years = sorted(years_set)
 
     context = {
@@ -601,7 +608,6 @@ def wind_generation_hours(request):
     }
 
     return render(request, "wind_genration_hovers.html", context)
-
 
 import json
 from collections import defaultdict
