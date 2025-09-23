@@ -1244,7 +1244,7 @@ def wind_drill_down(request):
         ma_col = _pick(col_map, "ma", "machineavailability", "machine availability", "ma%", "m/c avail%")
         ga_col = _pick(col_map, "ga", "gridavailability", "grid availability", "ga%", "gia")
         
-        oh_col = _pick(col_map, "o.hrs", "ophrs", "operating hours", "machine hrs", "gen hrs", "opr hrs")
+        oh_col = _pick(col_map, "O_hrs","Opr_Hrs" ,"ohrs", "operatinghours", "op_hours", "op_hrs")
 
         provider_col = _pick(col_map, "provider", "oem")
         customer_col = _pick(col_map, "customer", "customer name", "client")
