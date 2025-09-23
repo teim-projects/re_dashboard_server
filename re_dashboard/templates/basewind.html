@@ -173,12 +173,11 @@ padding: 5px;
               DOWN</a>
             <a class="nav-link navcontent {% if request.path == '/total-breakdown/' %}active{% endif %}" href="#">TOTAL
               BREAKDOWN HOURS</a>
-            <a class="nav-link navcontent {% if request.path == '/overall-breakdown/' %}active{% endif %}"
-              href="#">OVERALL BREAKDOWN ANALYSIS</a>
+ 
             <a class="nav-link navcontent {% if request.path == '/breakdown-2/' %}active{% endif %}" href="{% url 'wind_breakdown_log' %}">BREAKDOWN
-              ANALYSIS 2</a>
+              ANALYSIS</a>
             <a class="nav-link navcontent {% if request.path == '/avg-machine-availability/' %}active{% endif %}"
-              href="#">AVERAGE MACHINE AVAILABILITY</a>
+              href="{% url 'wind_Avg_Machine_Availability' %}">AVERAGE MACHINE AVAILABILITY</a>
             <a class="nav-link navcontent {% if request.path == '/avg-grid-availability/' %}active{% endif %}"
               href="#">AVERAGE GRID AVAILABILITY</a>
             <a class="nav-link navcontent {% if request.path == '/plf/' %}active{% endif %}" href="#">PLANT LOAD
