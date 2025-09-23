@@ -530,21 +530,48 @@ def read_file_with_meta_check(file_path, ext):
 
 import pandas as pd
 from datetime import datetime, date
-
-# --- Normalize date column: keep only YYYY-MM-DD
+# --- Normalize date values
 def normalize_date(val):
-    if val is None or pd.isnull(val):
+    """
+    Convert Excel/CSV date into YYYY-MM-DD string.
+    """
+    if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
         return None
-    # Check for datetime, timestamp, or string
-    if isinstance(val, (datetime, date, pd.Timestamp)):
-        return val.date() if isinstance(val, datetime) else val
-    # Otherwise try to parse string like '2024-01-01 00:00:00'
-    s = str(val).split(" ")[0]
     try:
-        dt = datetime.strptime(s, "%Y-%m-%d")
-        return dt.date()
+        return pd.to_datetime(val).date()
     except Exception:
-        return s  # fallback: keep as string
+        return None
+
+
+# --- Normalize hours values
+def normalize_hours(val):
+    """
+    Convert values like '1 days 00:00:00', '21:30:00', or 24 into float hours.
+    """
+    if val is None or val == "" or str(val).lower() == "nan":
+        return None
+    try:
+        if isinstance(val, (int, float)):
+            return float(val)
+
+        s = str(val).strip()
+
+        # Case: '1 days 00:00:00'
+        if "day" in s:
+            parts = s.split()
+            days = float(parts[0])
+            h, m, sec = [float(x) for x in parts[-1].split(":")]
+            return days * 24 + h + m/60 + sec/3600
+
+        # Case: '21:30:00'
+        if ":" in s:
+            h, m, sec = [float(x) for x in s.split(":")]
+            return h + m/60 + sec/3600
+
+        # Otherwise, plain number string
+        return float(s)
+    except:
+        return None
 
 @login_required
 def upload_files(request):
@@ -613,6 +640,12 @@ def upload_files(request):
             for dc in date_cols:
                 df[dc] = df[dc].apply(normalize_date)
 
+            # --- Normalize hours columns
+            if "o_hrs" in df.columns:
+                df["o_hrs"] = df["o_hrs"].apply(normalize_hours)
+            if "l_hrs" in df.columns:
+                df["l_hrs"] = df["l_hrs"].apply(normalize_hours)
+
             # --- Add mandatory fields
             parts = table_name.split("_")
             uploaded_by = parts[0]
@@ -660,7 +693,6 @@ def upload_files(request):
         "staff_users": User.objects.filter(is_superuser=False),
     })
 
-from django.contrib.auth.decorators import login_required
 from django.db import connection, DatabaseError
 
 from django.db import connection, DatabaseError

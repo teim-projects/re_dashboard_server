@@ -377,6 +377,7 @@ def wind_generation_kwh(request):
     }
     return render(request, "wind_generation_kwh.html", context)
 
+
 from collections import defaultdict
 from datetime import datetime, date
 from django.shortcuts import render
@@ -464,7 +465,7 @@ def wind_generation_hours(request):
     customers = request.GET.getlist("customer")
     states = request.GET.getlist("state")
     sites = request.GET.getlist("site")
-    wtgs = [w.strip().upper() for w in request.GET.getlist("wtg")]  # normalize filters
+    wtgs = request.GET.getlist("wtg")
 
     # --- Containers
     wtg_year_hours = defaultdict(float)
@@ -549,9 +550,7 @@ def wind_generation_hours(request):
             years_set.add(year)
             if not wtg_val:
                 continue
-            wtg = str(wtg_val).strip().upper()  # normalize WTG
-            if not wtg:
-                continue
+            wtg = str(wtg_val)
             wtg_year_hours[(wtg, year)] += float(hrs or 0)
             total_hours += float(hrs or 0)
 
@@ -561,7 +560,7 @@ def wind_generation_hours(request):
                 return []
             with connection.cursor() as cursor:
                 cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
-                return [str(r[0]).strip().upper() for r in cursor.fetchall() if r[0] not in (None, "")]
+                return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
         distincts["providers"].update(distinct_list(provider_col))
         distincts["customers"].update(distinct_list(customer_col))
         distincts["states"].update(distinct_list(state_col))
@@ -576,14 +575,8 @@ def wind_generation_hours(request):
                 wtg_year_hours[key] = 0.0
 
     # --- Prepare chart & table data
-    chart_data = [
-        {"wtg": k[0], "year": k[1], "hours": round(v,2)}
-        for k,v in sorted(wtg_year_hours.items(), key=lambda x: (x[0][1], x[0][0]))
-    ]
-    table_data = [
-        {"wtg_no": k[0], "year": k[1], "hours": round(v,2)}
-        for k,v in wtg_year_hours.items()
-    ]
+    chart_data = [{"wtg": k[0], "year": k[1], "hours": round(v,2)} for k,v in sorted(wtg_year_hours.items(), key=lambda x: (x[0][1], x[0][0]))]
+    table_data = [{"wtg_no": k[0], "year": k[1], "hours": round(v,2)} for k,v in wtg_year_hours.items()]
     years = sorted(years_set)
 
     context = {
@@ -608,6 +601,7 @@ def wind_generation_hours(request):
     }
 
     return render(request, "wind_genration_hovers.html", context)
+
 
 import json
 from collections import defaultdict
@@ -1369,6 +1363,36 @@ def wind_drill_down(request):
     return render(request, "wind_drill_down.html", context)
 
 
+import json
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+
+
+# Helper: pick column name matching any in candidates
+def _pick(col_map, *candidates):
+    for c in candidates:
+        c_norm = c.lower().replace(" ", "").replace("_", "").replace(".", "")
+        for k, v in col_map.items():
+            if k.lower().replace(" ", "").replace("_", "").replace(".", "") == c_norm:
+                return v
+    return None
+
+
+# Helper: parse date-like values
+def parse_date_like(value):
+    import datetime
+    if not value:
+        return None
+    if isinstance(value, datetime.date):
+        return value
+    try:
+        return datetime.datetime.strptime(str(value), "%Y-%m-%d").date()
+    except Exception:
+        try:
+            return datetime.datetime.strptime(str(value), "%d-%m-%Y").date()
+        except Exception:
+            return None
 
 
 @login_required
@@ -1412,7 +1436,7 @@ def wind_breakdown_log(request):
         date_col = _pick(col_map, "date", "gen date", "reading_date", "day_date")
         site_col = _pick(col_map, "site", "location", "plant", "park")
         wec_col = _pick(col_map, "wec", "wtg", "wecno", "wtgno")
-        lhrs_col = _pick(col_map, "l.hrs", "lhours", "loss hours", "lhrs", "lhour")
+        lhrs_col = _pick(col_map, "l.hrs","l_hrs", "lhours", "loss hours", "lhrs", "lhour")
         remarks_col = _pick(col_map, "remarks", "comment", "reason", "note")
 
         provider_col = _pick(col_map, "provider", "oem")
@@ -1459,6 +1483,7 @@ def wind_breakdown_log(request):
         with connection.cursor() as cursor:
             cursor.execute(query, params)
             rows = cursor.fetchall()
+
         idx = {col: i for i, col in enumerate(select_cols)}
 
         for row in rows:
@@ -1466,18 +1491,12 @@ def wind_breakdown_log(request):
             if not d:
                 continue
 
-            lhrs = row[idx.get(lhrs_col)] if lhrs_col else None
+            lhrs = str(row[idx.get(lhrs_col)]) if lhrs_col and row[idx.get(lhrs_col)] is not None else ""
             remarks = str(row[idx.get(remarks_col)]).strip() if remarks_col and row[idx.get(remarks_col)] else ""
 
-            # --- Breakdown condition ---
-            is_breakdown = False
-            if lhrs and str(lhrs) not in ("", "0", "00:00", "00:00:00"):
-                is_breakdown = True
-            if remarks and remarks not in ("0", "nan", "na", "none"):
-                is_breakdown = True
-
-            if not is_breakdown:
-                continue
+            # ✅ Always include row. If empty, default to "0"
+            if not lhrs and not remarks:
+                remarks = "0"
 
             record = {
                 "state": row[idx.get(state_col)] if state_col else "Unknown",
@@ -1489,11 +1508,19 @@ def wind_breakdown_log(request):
             breakdown_records.append(record)
 
             # Collect distinct filter values
-            if provider_col and row[idx.get(provider_col)]: providers_set.add(row[idx[provider_col]])
-            if customer_col and row[idx.get(customer_col)]: customers_set.add(row[idx[customer_col]])
-            if state_col and row[idx.get(state_col)]: states_set.add(row[idx[state_col]])
-            if site_col and row[idx.get(site_col)]: sites_set.add(row[idx[site_col]])
-            if wec_col and row[idx.get(wec_col)]: wtgs_set.add(row[idx[wec_col]])
+            if provider_col and row[idx.get(provider_col)]:
+                providers_set.add(row[idx[provider_col]])
+            if customer_col and row[idx.get(customer_col)]:
+                customers_set.add(row[idx[customer_col]])
+            if state_col and row[idx.get(state_col)]:
+                states_set.add(row[idx[state_col]])
+            if site_col and row[idx.get(site_col)]:
+                sites_set.add(row[idx[site_col]])
+            if wec_col and row[idx.get(wec_col)]:
+                wtgs_set.add(row[idx[wec_col]])
+
+    # Debug print
+    print("📊 Breakdown records:", breakdown_records)
 
     # Sort by date
     breakdown_records = sorted(breakdown_records, key=lambda x: x["date"])
@@ -1513,6 +1540,6 @@ def wind_breakdown_log(request):
         "date_from": date_from,
         "date_to": date_to,
         "no_data": False if breakdown_records else True,
-        "no_data_msg": "No breakdowns found for given filters." if not breakdown_records else "",
+        "no_data_msg": "No data found for given filters." if not breakdown_records else "",
     }
     return render(request, "wind_breakdown_log.html", context)

@@ -466,25 +466,24 @@ years.forEach(y=>{
 let activeYear = null;
 let chart = null;
 
-// Build series for Apex treemap
+// Build series for Apex treemap (original values, keep negatives)
 function buildSeries(filterYear=null){
   const filtered = filterYear ? rawData.filter(d=>d.year==filterYear) : rawData;
   return filtered.map(d=>({ 
     x: d.wtg, 
-    y: +d.hours, 
+    y: +d.hours, // ❌ keep original value for treemap display
     fillColor: yearColors[d.year], 
     year: d.year 
   }));
 }
 
+// Update total hours (sum only positive values)
 function updateTotalHours(filterYear=null){
   const filtered = filterYear ? rawData.filter(d=>d.year==filterYear) : rawData;
-  const total = filtered.reduce((sum,d)=>sum + (parseFloat(d.hours) || 0), 0);
-
-  console.log("DEBUG totalHours:", filterYear, "=", total, "rows:", filtered.length);
+  const total = filtered.reduce((sum,d)=> sum + Math.max(0, parseFloat(d.hours) || 0), 0);
 
   const el = document.getElementById("totalHours");
-  if(!el) { console.error("❌ totalHours element not found"); return; }
+  if(!el) return;
 
   if(filtered.length === 0){
     el.textContent = "No data available";
@@ -497,7 +496,6 @@ function updateTotalHours(filterYear=null){
   }
 }
 
-
 // Render custom legend
 function renderLegend(){
   const legendContainer = document.getElementById("customLegend");
@@ -508,10 +506,8 @@ function renderLegend(){
     item.style.margin="0 10px";
     item.style.cursor="pointer";
     item.innerHTML = `<span style="display:inline-block;width:15px;height:15px;background:${yearColors[y]};margin-right:5px;"></span>${y}`;
-    // Hover
     item.addEventListener("mouseenter", ()=>{ if(!activeYear) highlightYearFunc(y); });
     item.addEventListener("mouseleave", ()=>{ if(!activeYear) resetHighlight(); });
-    // Click
     item.addEventListener("click", ()=>{
       activeYear = (activeYear===y ? null : y);
       if(activeYear) highlightYearFunc(activeYear);
@@ -520,6 +516,7 @@ function renderLegend(){
     legendContainer.appendChild(item);
   });
 }
+
 // Render treemap
 function renderTreemap(filterYear=null){
   const seriesData = buildSeries(filterYear);
@@ -533,29 +530,29 @@ function renderTreemap(filterYear=null){
       animations: { enabled:true, easing:'easeinout', speed:400 }
     },
     series: [{ data: seriesData }],
-   tooltip: {
-  custom: function({ series, seriesIndex, dataPointIndex, w }) {
-    const dp = w.config.series[seriesIndex].data[dataPointIndex];
-    const totalHours = w.config.series[0].data.reduce((sum, d) => sum + d.y, 0);
- 
-    return `
-      <div style="
-        padding:10px;
-        border-radius:8px;
-        background: #f9f9f9;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-        font-family: 'Arial', sans-serif;
-      ">
-        <div style="font-size:14px; font-weight:bold; color:#333;">${dp.x}</div>
-        <div style="margin:4px 0;">
-          <span style="display:inline-block;width:12px;height:12px;background:${dp.fillColor};margin-right:5px;border-radius:50%;"></span>
-          Year: <b>${dp.year}</b>
-        </div>
-        <div style="color:#007bff;">Hours: <b>${dp.y.toLocaleString()}</b> hrs</div>
-       </div>
-    `;
-  }
-},plotOptions: {
+    tooltip: {
+      custom: function({ series, seriesIndex, dataPointIndex, w }) {
+        const dp = w.config.series[seriesIndex].data[dataPointIndex];
+        const tooltipValue = Math.max(0, dp.y); // ✅ show 0 if negative
+        return `
+          <div style="
+            padding:10px;
+            border-radius:8px;
+            background: #f9f9f9;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            font-family: 'Arial', sans-serif;
+          ">
+            <div style="font-size:14px; font-weight:bold; color:#333;">${dp.x}</div>
+            <div style="margin:4px 0;">
+              <span style="display:inline-block;width:12px;height:12px;background:${dp.fillColor};margin-right:5px;border-radius:50%;"></span>
+              Year: <b>${dp.year}</b>
+            </div>
+            <div style="color:#007bff;">Hours: <b>${tooltipValue.toLocaleString()}</b> hrs</div>
+          </div>
+        `;
+      }
+    },
+    plotOptions: {
       treemap: {
         distributed: true,
         enableShades: false,
@@ -572,12 +569,11 @@ function renderTreemap(filterYear=null){
   chart = new ApexCharts(document.querySelector("#treemapApex"), options);
   chart.render().then(()=>{
       renderLegend();
-      updateTotalHours(filterYear);   // ✅ now runs after chart is ready
+      updateTotalHours(filterYear);
   });
 }
 
-
-// ===================== Highlight Functions =====================
+// Highlight functions
 function highlightYearFunc(year){
   const seriesData = buildSeries(yearSelector.value || null);
   chart.updateSeries([{
@@ -595,7 +591,7 @@ function resetHighlight(){
   }], false);
 }
 
-// ================== INITIAL RENDER ==================
+// Initial render
 renderTreemap();
 
 // Year dropdown change
@@ -616,6 +612,8 @@ document.getElementById("clearTreemapFilter").addEventListener("click", function
 // Window resize
 window.addEventListener("resize", ()=> renderTreemap(yearSelector.value || null));
 </script>
+
+
 
 
 

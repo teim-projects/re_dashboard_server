@@ -1,0 +1,295 @@
+{% extends 'basewind.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid" style="margin-top: 100px;">
+
+    <!-- Card -->
+    <div class="card shadow mb-4 border-0 rounded-3">
+
+        <!-- Card header -->
+        <div class="card-header py-3 d-flex justify-content-between align-items-center"
+             style="background: linear-gradient(135deg, #1d2671, #c33764); color: #fff;">
+            <h5 class="m-0">🌪️ Wind Breakdown Log</h5>
+            <button id="toggleFilters" class="btn btn-light btn-sm">
+                <i class="fas fa-filter"></i> Filters
+            </button>
+        </div>
+
+        <!-- Card body -->
+        <div class="card-body">
+
+            <!-- Active Filters -->
+            {% if selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs or date_from or date_to %}
+                <div class="mb-3">
+                    <strong>Active Filters:</strong>
+                    {% for p in selected_providers %}<span class="badge bg-primary me-1">Provider: {{ p }}</span>{% endfor %}
+                    {% for c in selected_customers %}<span class="badge bg-info me-1">Customer: {{ c }}</span>{% endfor %}
+                    {% for s in selected_states %}<span class="badge bg-success me-1">State: {{ s }}</span>{% endfor %}
+                    {% for site in selected_sites %}<span class="badge bg-warning me-1">Site: {{ site }}</span>{% endfor %}
+                    {% for w in selected_wtgs %}<span class="badge bg-danger me-1">WTG: {{ w }}</span>{% endfor %}
+                    {% if date_from %}<span class="badge bg-secondary me-1">From: {{ date_from }}</span>{% endif %}
+                    {% if date_to %}<span class="badge bg-secondary me-1">To: {{ date_to }}</span>{% endif %}
+                    <!-- Clear Filters Button -->
+                    <a href="{% url 'wind_breakdown_log' %}" class="btn btn-sm btn-outline-danger">
+                        <i class="fas fa-times"></i> Clear Filters
+                    </a>
+                </div>
+            {% endif %}
+
+            <!-- Filter Buttons Row (hidden by default) -->
+            <div id="filterButtons" class="d-flex flex-wrap gap-2 mb-4" style="display: none;">
+                <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+                    <i class="fas fa-filter"></i> DATE RANGE
+                </button>
+                <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
+                    <i class="fas fa-filter"></i> OEM PROVIDER
+                </button>
+                <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
+                    <i class="fas fa-filter"></i> CUSTOMER
+                </button>
+                <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
+                    <i class="fas fa-filter"></i> STATE NAME
+                </button>
+                <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
+                    <i class="fas fa-filter"></i> SITE NAME
+                </button>
+                <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
+                    <i class="fas fa-filter"></i> WTG NUMBER
+                </button>
+            </div>
+
+            <!-- DataTable -->
+            <div class="table-responsive">
+
+                <!-- ✅ Hidden JSON data -->
+                <script id="bd" type="application/json">
+                    {{ breakdown_data|safe }}
+                </script>
+
+                <table id="breakdownTable" class="display nowrap" style="width:100%">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>State</th>
+                            <th>Site</th>
+                            <th>WTG</th>
+                            <th>Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- All Modals (unchanged) -->
+<!-- Date Range Modal -->
+<div class="modal fade" id="dateRangeModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Select Date Range</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body d-flex gap-2">
+        <input type="date" name="date_from" value="{{ date_from }}" class="form-control">
+        <input type="date" name="date_to" value="{{ date_to }}" class="form-control">
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key not in "date_from,date_to" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Provider Modal -->
+<div class="modal fade" id="providerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select Provider(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for p in providers %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="provider" value="{{ p }}"
+             {% if not selected_providers or p in selected_providers %}checked{% endif %}>
+            <label class="form-check-label">{{ p }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No providers found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "provider" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Customer Modal -->
+<div class="modal fade" id="customerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select Customer(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for c in customers %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="customer" value="{{ c }}"
+              {% if not selected_customers or c in selected_customers %}checked{% endif %}>
+            <label class="form-check-label">{{ c }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No customers found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "customer" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- State Modal -->
+<div class="modal fade" id="stateModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select State(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for s in states %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="state" value="{{ s }}"
+              {% if not selected_states or s in selected_states %}checked{% endif %}>
+            <label class="form-check-label">{{ s }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No states found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "state" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Site Modal -->
+<div class="modal fade" id="siteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Select Site(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% for s in sites %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="site" value="{{ s }}"
+              {% if not selected_sites or s in selected_sites %}checked{% endif %}>
+            <label class="form-check-label">{{ s }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No sites found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "site" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- WTG Modal -->
+<div class="modal fade" id="wtgModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form method="get" class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Select WTG(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% for w in wtgs %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="wtg" value="{{ w }}"
+              {% if not selected_wtgs or w in selected_wtgs %}checked{% endif %}>
+            <label class="form-check-label">{{ w }}</label>
+          </div>
+        {% empty %}<p class="text-muted">No WTG numbers found.</p>{% endfor %}
+      </div>
+      {% for key,vals in request.GET.lists %}
+        {% if key != "wtg" %}
+          {% for v in vals %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}
+        {% endif %}
+      {% endfor %}
+      <div class="modal-footer"><button type="submit" class="btn btn-primary">Apply</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+ 
+{% block extra_scripts %}
+<script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.1.0/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.1.0/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/2.1.0/js/buttons.print.min.js"></script>
+<pre style="background:#222;color:#0f0;padding:10px;">
+{{ breakdown_data|safe }}
+</pre>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    // ✅ Parse breakdown data safely
+    let raw = document.getElementById("bd").textContent.trim() || "[]";
+    let data = [];
+    try {
+        data = JSON.parse(raw);
+    } catch (e) {
+        console.error("❌ Failed to parse breakdown_data JSON:", e, raw);
+    }
+
+    console.log("💡 Breakdown data loaded:", data);
+
+    let table = $('#breakdownTable').DataTable({
+        dom: 'Bfrtip',
+        buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
+        data: data,
+        columns: [
+            { data: "date" },
+            { data: "state" },
+            { data: "site" },
+            { data: "wec" },
+            { data: "remarks" }
+        ],
+        language: {
+            emptyTable: "🚫 No records found for the selected filters."
+        }
+    });
+
+    // ✅ Toggle Filters row
+    const toggleBtn = document.getElementById("toggleFilters");
+    const filterRow = document.getElementById("filterButtons");
+    if (toggleBtn) {
+        toggleBtn.addEventListener("click", function () {
+            filterRow.style.display =
+                (filterRow.style.display === "none" || filterRow.style.display === "")
+                    ? "flex" : "none";
+        });
+    }
+
+    // ✅ Auto-show filters if active
+    {% if selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs or date_from or date_to %}
+        document.getElementById("filterButtons").style.display = "flex";
+    {% endif %}
+});
+</script>
+{% endblock %}
