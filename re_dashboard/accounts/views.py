@@ -411,7 +411,7 @@ def add_provider_with_structure(request):
         related_tables = [t for t in all_tables if f"_{key}_" in t]
         provider_table_map[provider.name] = related_tables
 
-    return render(request, 'add_Provider.html', {
+    return render(request, 'add_provider.html', {
         'providers': providers,
         'energy_types': energy_types,
         'provider_table_map': provider_table_map,

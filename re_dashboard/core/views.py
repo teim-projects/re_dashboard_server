@@ -47,6 +47,15 @@ from django.contrib.auth.models import User
 from accounts.models import Provider, EnergyType
 import datetime
 
+from django.contrib import messages
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from django.contrib.auth.models import User
+from accounts.models import Provider, EnergyType
+from datetime import datetime
+
+
 @login_required
 def modify_data(request):
     users = User.objects.filter(is_superuser=False)
@@ -83,22 +92,39 @@ def modify_data(request):
             return redirect("modify_data")
 
         try:
-            # Convert 'YYYY-MM-DD' to 'DD-MM-YYYY'
-            start_date_obj = datetime.datetime.strptime(start_date, "%Y-%m-%d")
-            end_date_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d")
+            # Validate input dates
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
 
-            start_date_formatted = start_date_obj.strftime("%d-%m-%Y")
-            end_date_formatted = end_date_obj.strftime("%d-%m-%Y")
+            if start_date_obj > end_date_obj:
+                messages.error(request, "⚠️ Start date cannot be after End date.")
+                return redirect("modify_data")
 
+            # 🔑 Detect correct date column
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
+                columns = [row[0].lower() for row in cursor.fetchall()]
+
+            date_col = None
+            for candidate in ["gen_date", "date", "Date"]:
+                if candidate.lower() in columns:
+                    date_col = candidate
+                    break
+
+            if not date_col:
+                messages.error(request, "❌ No valid date column found in the selected table.")
+                return redirect("modify_data")
+
+            # Perform delete
             with connection.cursor() as cursor:
                 delete_sql = f"""
                     DELETE FROM `{table_name}`
                     WHERE uploaded_by = (
                         SELECT username FROM auth_user WHERE id = %s
                     )
-                    AND gen_date BETWEEN %s AND %s
+                    AND `{date_col}` BETWEEN %s AND %s
                 """
-                cursor.execute(delete_sql, [user_id, start_date_formatted, end_date_formatted])
+                cursor.execute(delete_sql, [user_id, start_date, end_date])
                 if cursor.rowcount == 0:
                     messages.warning(request, "⚠️ No records matched the criteria.")
                 else:

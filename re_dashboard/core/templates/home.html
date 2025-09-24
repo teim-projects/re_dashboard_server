@@ -7,6 +7,7 @@
   margin-top: 80px;
   padding: 40px 20px 120px 20px; /* bottom padding to prevent footer overlap */
   animation: fadeInUp 1s ease-in-out;
+  min-height: 77vh !important;
 }
 
 .card-hover {
@@ -95,20 +96,6 @@
   </div>
 </div>
 
-<!-- Footer -->
-<div class="container-fluid dashboard-footer footer">
-  <div class="row justify-content-center text-center">
-    <div class="col-auto">
-      <span>
-        © 2025. Powered by
-        <img src="{% static 'images/crono.png' %}" alt="Chronoanalytics Logo">
-        <a href="http://www.chronoanalytics.in/" target="_blank">Chronoanalytics Solution</a>
-        |
-        Marketed by
-        <img src="{% static 'images/TeimLogo.png' %}" alt="Teim Logo">
-        <a href="http://teim.in/" target="_blank">TEIM</a>
-      </span>
-    </div>
-  </div>
-</div>
+    {% include 'fotter.html' %}
+
 {% endblock content %}

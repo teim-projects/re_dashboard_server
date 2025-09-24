@@ -13,8 +13,7 @@ body {
   font-family: 'Poppins', sans-serif;
   position: relative;
   overflow-x: hidden;
-  min-height: 100vh;
-}
+ }
 
 body::before {
   content: '';
@@ -41,8 +40,8 @@ body::before {
   }
 
   .login-wrapper {
-    min-height: 100vh;
-    padding-top: 150px;
+    min-height: 90vh;
+    padding-top: 130px;
   }
 
   .login-card {
@@ -168,7 +167,7 @@ body::before {
 <div class="container login-wrapper">
   <div class="row justify-content-center">
     <div class="col-md-6">
-      <div class="login-card" data-aos="zoom-in">
+      <div class="login-card" data-aos="flip-up">
         <div class="login-header">Login Page</div>
         <div class="login-body">
           <form method="post">
@@ -214,21 +213,7 @@ body::before {
   </div>
 </div>
 
-<div class="container-fluid py-3 mt-5   footer">
-  <div class="row text-center justify-content-center">
-    <div class="col-md-auto">
-      <span style="font-weight: 600; color: #000;">
-        © 2025. Powered by
-        <img src="{% static 'images/crono.png' %}" alt="Chronoanalytics Logo">
-        <a href="http://www.chronoanalytics.in/" target="_blank">Chronoanalytics Solution</a>
-        |
-        Marketed by
-        <img src="{% static 'images/TeimLogo.png' %}" alt="Teim Logo">
-        <a href="http://teim.in/" target="_blank">TEIM</a>
-      </span>
-    </div>
-  </div>
-</div>
+ 
 {% endblock content %}
 
 {% block scripts %}
@@ -244,4 +229,7 @@ body::before {
     window.history.back();
   }
 </script>
+
+   {% include 'fotter.html' %}
+
 {% endblock scripts %}

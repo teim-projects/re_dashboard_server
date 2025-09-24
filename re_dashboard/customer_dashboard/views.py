@@ -207,156 +207,208 @@ from django.http import HttpResponse
 from django.db import connection
 from django.contrib.auth.decorators import login_required
 
+import json
+import re
+from collections import defaultdict
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
 
-def _pick(col_map, *candidates):
-    """Return the actual-cased column name from SHOW COLUMNS that matches any candidate (case-insensitive)."""
-    for cand in candidates:
-        lc = cand.lower()
-        if lc in col_map:
-            return col_map[lc]
-    return None
+
+import json
+import re
+from collections import defaultdict
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
 
 
 def normalize(col):
-    """
-    Normalize column name for comparison:
-    - lowercase
-    - replace non-alphanumeric with _
-    - strip _
-    """
+    """Normalize column name for comparison"""
     return re.sub(r'[^a-z0-9]+', '_', col.lower()).strip('_')
+
+
+def _pick(col_map, *candidates):
+    """Match candidate names against actual columns (case/space/dot insensitive)."""
+    for cand in candidates:
+        cand_norm = normalize(cand)
+        for k, v in col_map.items():
+            if normalize(k) == cand_norm:
+                return v
+    return None
+
+
+import json
+import re
+from collections import defaultdict
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+
+def normalize(col):
+    """Normalize column name for comparison"""
+    return re.sub(r'[^a-z0-9]+', '_', col.lower()).strip('_')
+
+
+def _pick(col_map, *candidates):
+    """
+    Match candidate names against actual columns (case/space/dot insensitive).
+    Returns actual column name if found.
+    """
+    for cand in candidates:
+        cand_norm = normalize(cand)
+        for k, v in col_map.items():
+            if normalize(k) == cand_norm:
+                return v
+    return None
 
 
 @login_required
 def wind_generation_kwh(request):
     user = request.user.username.lower()
 
-    # --- Find ALL user's wind tables: <username>_*_wind
+    # --- Find ALL user's wind tables
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
     table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
+
     if not table_names:
-      context = {
-        "chart_data": json.dumps([]),
-        "table_data": [],
-        "total_generation": 0,
-        "providers": [],
-        "customers": [],
-        "states": [],
-        "sites": [],
-        "wtgs": [],
-        "selected_providers": [],
-        "selected_customers": [],
-        "selected_states": [],
-        "selected_sites": [],
-        "selected_wtgs": [],
-        "date_from": None,
-        "date_to": None,
-        "no_data": True,   # 👈 flag for SweetAlert
-        "no_data_msg": "No wind generation data found for your account."
-       }
-      return render(request, "wind_generation_kwh.html", context)
+        context = {
+            "chart_data": json.dumps([]),
+            "table_data": [],
+            "total_generation": 0,
+            "providers": [], "customers": [], "states": [], "sites": [], "wtgs": [],
+            "selected_providers": [], "selected_customers": [],
+            "selected_states": [], "selected_sites": [], "selected_wtgs": [],
+            "date_from": None, "date_to": None,
+            "no_data": True,
+            "no_data_msg": "No wind generation data found for your account."
+        }
+        return render(request, "wind_generation_kwh.html", context)
 
-    # --- Collect filters from GET (multi-select)
-    date_from  = request.GET.get("date_from") or None
-    date_to    = request.GET.get("date_to") or None
-    providers  = request.GET.getlist("provider")
-    customers  = request.GET.getlist("customer")
-    states     = request.GET.getlist("state")
-    sites      = request.GET.getlist("site")
-    wtgs       = request.GET.getlist("wtg")
+    # ✅ Use only one table (like old system)
+    # If multiple exist, pick the first alphabetically (can change to latest if needed)
+    table_names.sort()
+    table_name = table_names[0]
+    print(f"✅ Using only table: {table_name}")
 
-    # Global aggregations
-    wtg_sum = defaultdict(int)
-    total_generation = 0
+    # --- Collect filters from GET
+    date_from = request.GET.get("date_from") or None
+    date_to = request.GET.get("date_to") or None
+    providers = request.GET.getlist("provider")
+    customers = request.GET.getlist("customer")
+    states = request.GET.getlist("state")
+    sites = request.GET.getlist("site")
+    wtgs = request.GET.getlist("wtg")
+
+    # Global aggregation
+    wtg_sum = defaultdict(float)
 
     # Distinct values for filters
-    distincts = {k: set() for k in ["providers","customers","states","sites","wtgs"]}
+    distincts = {k: set() for k in ["providers", "customers", "states", "sites", "wtgs"]}
 
-    for table_name in table_names:
-        # --- Read schema
+    # --- Read schema
+    with connection.cursor() as cursor:
+        cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
+        cols = [r[0] for r in cursor.fetchall()]
+    col_map = {normalize(c): c for c in cols}
+
+    # --- Flexible column mapping
+    wtg_col = _pick(col_map, "loc_no", "loc no", "wtg", "wtg_no", "wec")
+    gen_col = _pick(col_map, "gen_kwh_day", "gen_kwh", "generation", "gen (kwh)", "kwh")
+    date_col = _pick(col_map, "gen_date", "date")
+    customer_col = _pick(col_map, "customer_name", "customer")
+    state_col = _pick(col_map, "state")
+    site_col = _pick(col_map, "site", "wind_farm_name")
+    provider_col = _pick(col_map, "provider", "oem")
+
+    if not wtg_col or not gen_col:
+        print(f"❌ Skipping {table_name}, missing columns")
+        context = {
+            "chart_data": json.dumps([]),
+            "table_data": [],
+            "total_generation": 0,
+            "providers": [], "customers": [], "states": [], "sites": [], "wtgs": [],
+            "selected_providers": providers,
+            "selected_customers": customers,
+            "selected_states": states,
+            "selected_sites": sites,
+            "selected_wtgs": wtgs,
+            "date_from": date_from,
+            "date_to": date_to,
+            "no_data": True,
+            "no_data_msg": f"Missing WTG/Generation column in {table_name}"
+        }
+        return render(request, "wind_generation_kwh.html", context)
+
+    # --- Build conditions
+    conditions, params = [], []
+
+    if date_col:
+        if date_from and date_to:
+            conditions.append(f"`{date_col}` BETWEEN %s AND %s")
+            params += [date_from, date_to]
+        elif date_from:
+            conditions.append(f"`{date_col}` >= %s")
+            params.append(date_from)
+        elif date_to:
+            conditions.append(f"`{date_col}` <= %s")
+            params.append(date_to)
+
+    def add_in(col, values):
+        values = [v for v in values if v not in (None, "", "null")]
+        if col and values:
+            placeholders = ",".join(["%s"] * len(values))
+            conditions.append(f"`{col}` IN ({placeholders})")
+            params.extend(values)
+
+    add_in(provider_col, providers)
+    add_in(customer_col, customers)
+    add_in(state_col, states)
+    add_in(site_col, sites)
+    add_in(wtg_col, wtgs)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    # --- Aggregate generation
+    query = f"""
+        SELECT `{wtg_col}`, SUM(`{gen_col}`) AS total_gen
+        FROM `{table_name}`
+        {where_clause}
+        GROUP BY `{wtg_col}`
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    # Debug table-wise sum
+    print("⚡ Rows fetched:", len(rows))
+    print("⚡ Table total:", sum(float(r[1] or 0) for r in rows))
+
+    for wtg, gen in rows:
+        wtg_sum[str(wtg)] += float(gen or 0)
+
+    # --- Collect distinct values
+    def distinct_list(col):
+        if not col:
+            return []
         with connection.cursor() as cursor:
-            cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
-            cols = [r[0] for r in cursor.fetchall()]
+            cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
+            return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
+    distincts["providers"].update(distinct_list(provider_col))
+    distincts["customers"].update(distinct_list(customer_col))
+    distincts["states"].update(distinct_list(state_col))
+    distincts["sites"].update(distinct_list(site_col))
+    distincts["wtgs"].update(distinct_list(wtg_col))
 
-        # Map normalized → original
-        col_map = {normalize(c): c for c in cols}
-
-        # --- Explicit mapping
-        wtg_col      = col_map.get("loc_no") or col_map.get("wec") or col_map.get("wtg_no")
-        gen_col      = col_map.get("gen_kwh_day") or col_map.get("gen_kwh") or col_map.get("generation")  # 👈 main fix
-        date_col     = col_map.get("gen_date") or col_map.get("date")
-        customer_col = col_map.get("customer_name") or col_map.get("customer")
-        state_col    = col_map.get("state")
-        site_col     = col_map.get("site") or col_map.get("wind_farm_name")
-        provider_col = col_map.get("provider") or col_map.get("oem")
-
-        if not wtg_col or not gen_col:
-            continue
-
-        # --- Build conditions
-        conditions, params = [], []
-
-        if date_col:
-            if date_from and date_to:
-                conditions.append(f"`{date_col}` BETWEEN %s AND %s")
-                params += [date_from, date_to]
-            elif date_from:
-                conditions.append(f"`{date_col}` >= %s")
-                params.append(date_from)
-            elif date_to:
-                conditions.append(f"`{date_col}` <= %s")
-                params.append(date_to)
-
-        def add_in(col, values):
-            values = [v for v in values if v not in (None, "", "null")]
-            if col and values:
-                placeholders = ",".join(["%s"] * len(values))
-                conditions.append(f"`{col}` IN ({placeholders})")
-                params.extend(values)
-
-        add_in(provider_col, providers)
-        add_in(customer_col, customers)
-        add_in(state_col, states)
-        add_in(site_col, sites)
-        add_in(wtg_col, wtgs)
-
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-        # --- Aggregate daily gen
-        query = f"""
-            SELECT `{wtg_col}`, SUM(`{gen_col}`) AS total_gen
-            FROM `{table_name}`
-            {where_clause}
-            GROUP BY `{wtg_col}`
-        """
-        with connection.cursor() as cursor:
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-
-        for wtg, gen in rows:
-            gen = int(gen or 0)
-            wtg_key = str(wtg)
-            wtg_sum[wtg_key] += gen
-            total_generation += gen
-
-        # --- Distincts
-        def distinct_list(col):
-            if not col: return []
-            with connection.cursor() as cursor:
-                cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
-                return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
-        distincts["providers"].update(distinct_list(provider_col))
-        distincts["customers"].update(distinct_list(customer_col))
-        distincts["states"].update(distinct_list(state_col))
-        distincts["sites"].update(distinct_list(site_col))
-        distincts["wtgs"].update(distinct_list(wtg_col))
-
-    # --- Chart data
+    # --- Final aggregations
     chart_data = [{"wtg": k, "generation": v} for k, v in wtg_sum.items()]
     chart_data.sort(key=lambda x: x["generation"], reverse=True)
     table_data = [{"wtg_no": d["wtg"], "generation": d["generation"]} for d in chart_data]
+
+    total_generation = sum(wtg_sum.values())
 
     context = {
         "chart_data": json.dumps(chart_data),
@@ -1750,3 +1802,294 @@ def wind_Avg_Machine_Availability(request):
     }
 
     return render(request, "wind_Avg_Machine_Availability.html", context)
+
+
+
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
+
+import os, re, traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+import os
+import re
+import traceback
+import pandas as pd
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+from accounts.models import Provider, EnergyType
+from core.models import UploadMetadata
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.utils.timezone import now
+import pandas as pd, numpy as np, os, re, traceback
+from core.models import UploadMetadata
+from accounts.models import Provider, EnergyType
+# --- Normalize date values to datetime format
+def normalize_datetime(val):
+    """
+    Convert Excel/CSV date into datetime string YYYY-MM-DD 00:00:00
+    """
+    if pd.isna(val) or str(val).strip().lower() in ["", "nan", "nat"]:
+        return None
+    try:
+        dt = pd.to_datetime(val)
+        return dt.strftime("%Y-%m-%d 00:00:00")  # keep time at 00:00:00
+    except Exception:
+        return None
+
+# --- Main Upload View
+@login_required
+def customer_upload(request):
+    username = request.user.username.lower()
+    providers = Provider.objects.all()
+    energy_types = EnergyType.objects.all()
+
+    # --- Fetch DB tables for this user only
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [row[0] for row in cursor.fetchall()]
+
+    user_tables = []
+    for table in db_tables:
+        if table.startswith(username + "_"):
+            parts = table.split("_")
+            provider_slug = "_".join(parts[1:-1])
+            energy_slug = parts[-1]
+            label = f"{username} - {provider_slug.replace('_',' ').title()} - {energy_slug.title()}"
+            user_tables.append({"name": table, "label": label})
+
+    if request.method == "POST":
+        table_name = request.POST.get("table_name", "").strip()
+        provider_name = request.POST.get("provider_name", "").strip()
+        data_file = request.FILES.get("data_file")
+
+        if not table_name or not data_file or not provider_name:
+            messages.error(request, "❌ Table, file, and provider are required.")
+            return redirect("customer_upload")
+
+        fs = FileSystemStorage()
+        filename = fs.save(data_file.name, data_file)
+        file_path = fs.path(filename)
+
+        try:
+            ext = os.path.splitext(filename)[1].lower()
+            df = pd.read_csv(file_path) if ext == ".csv" else pd.read_excel(file_path)
+
+            # --- Clean columns
+            df.columns = [clean_col(c) for c in df.columns]
+
+            # --- Replace bad values
+            df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
+            df = df.astype(object).where(pd.notnull(df), None)
+            df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+
+            # --- Normalize date & hours before insert ---
+            for col in df.columns:
+                if "date" in col.lower():
+                    df[col] = df[col].apply(normalize_datetime)  # ✅ store as YYYY-MM-DD 00:00:00
+                elif "hrs" in col.lower() or "hours" in col.lower():
+                    df[col] = df[col].apply(normalize_hours)
+
+            # --- Match DB table columns
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
+                table_columns = [col[0].lower() for col in cursor.fetchall()]
+
+            df = df[[c for c in df.columns if c in table_columns]]
+            if df.shape[1] == 0:
+                messages.error(request, "❌ No matching columns between file and table.")
+                return redirect("customer_upload")
+
+            # --- Add mandatory fields
+            if "uploaded_by" in table_columns:
+                df["uploaded_by"] = username
+            if "provider" in table_columns:
+                df["provider"] = provider_name
+            if "energy_type" in table_columns:
+                df["energy_type"] = request.POST.get("energy_type", "").title()
+
+            # --- Insert into DB ---
+            columns = ", ".join(f"`{col}`" for col in df.columns)
+            placeholders = ", ".join(["%s"] * len(df.columns))
+            insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
+            values = [tuple(row) for row in df.values]
+
+            with connection.cursor() as cursor:
+                cursor.executemany(insert_sql, values)
+                rows_inserted = cursor.rowcount
+
+            if rows_inserted > 0:
+                UploadMetadata.objects.update_or_create(
+                    table_name=table_name, defaults={"last_modified": now()}
+                )
+                messages.success(request, f"✅ Uploaded {rows_inserted} rows to '{table_name}'.")
+            else:
+                messages.error(request, "❌ Upload failed: No rows inserted.")
+
+        except Exception as e:
+            print(traceback.format_exc())
+            messages.error(request, f"❌ Upload failed: {str(e)}")
+        finally:
+            fs.delete(filename)
+
+        return redirect("customer_upload")
+
+    return render(request, "customer_upload.html", {
+        "user_tables": user_tables,
+        "providers": providers,
+        "energy_types": energy_types,
+    })
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+
+@login_required
+def Modifydata(request):
+    user = request.user
+
+    # --- Fetch all tables for this user ---
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+              AND table_name LIKE %s
+        """, [f"{user.username}_%"])
+        tables = [row[0] for row in cursor.fetchall()]
+
+    expected_tables = [{'name': t, 'label': t.replace('_', ' - ')} for t in tables]
+
+    if request.method == "POST":
+        table_name = request.POST.get('table_name')
+        start_date = request.POST.get('start_date')
+        end_date = request.POST.get('end_date')
+
+        if not all([table_name, start_date, end_date]):
+            messages.error(request, "⚠️ All fields are required.")
+            return redirect('Modifydata')
+
+        if table_name not in tables:
+            messages.error(request, "❌ Invalid table selected.")
+            return redirect('Modifydata')
+
+        try:
+            # --- convert strings to datetime objects ---
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+            if start_dt > end_dt:
+                messages.error(request, "⚠️ Start date cannot be after end date.")
+                return redirect('Modifydata')
+
+            # --- Detect the correct date column ---
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
+                columns = [row[0].lower() for row in cursor.fetchall()]
+
+            date_col = None
+            for candidate in ["tdate", "gen_date", "date", "Date"]:
+                if candidate.lower() in columns:
+                    date_col = candidate
+                    break
+
+            if not date_col:
+                messages.error(request, "❌ No valid date column found in the selected table.")
+                return redirect('Modifydata')
+
+            # --- DELETE all rows in detected date column in range ---
+            with connection.cursor() as cursor:
+                query = f"""
+                    DELETE FROM `{table_name}`
+                    WHERE `{date_col}` BETWEEN %s AND %s
+                """
+                cursor.execute(query, [start_date, end_date])
+                rows_deleted = cursor.rowcount
+
+            if rows_deleted > 0:
+                messages.success(
+                    request,
+                    f"✅ Deleted {rows_deleted} rows from {table_name} "
+                    f"between {start_date} and {end_date}."
+                )
+            else:
+                messages.warning(
+                    request,
+                    f"⚠️ No rows found in {table_name} between {start_date} and {end_date}."
+                )
+
+            return redirect('Modifydata')
+
+        except Exception as e:
+            messages.error(request, f"❌ Error: {str(e)}")
+            return redirect('Modifydata')
+
+    return render(request, 'Modifydata.html', {
+        'expected_tables': expected_tables,
+    })
