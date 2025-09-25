@@ -1834,29 +1834,33 @@ import os
 import re
 import traceback
 import pandas as pd
-import os
-import re
-import traceback
-import pandas as pd
 import numpy as np
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-from django.contrib.auth.models import User
-from django.utils.timezone import now
-from accounts.models import Provider, EnergyType
-from core.models import UploadMetadata
+import os
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.storage import FileSystemStorage
 from django.db import connection
 from django.utils.timezone import now
-import pandas as pd, numpy as np, os, re, traceback
-from core.models import UploadMetadata
 from accounts.models import Provider, EnergyType
+from core.models import UploadMetadata
+
+
+# --- Normalize column names
+def clean_col(name: str) -> str:
+    """
+    Clean column names:
+    - Strip spaces
+    - Lowercase
+    - Replace spaces/dots/hyphens with underscores
+    """
+    if not name:
+        return ""
+    name = str(name).strip().lower()
+    name = re.sub(r'[^a-z0-9]+', '_', name)  # replace special chars with _
+    return name.strip('_')
+
+
 # --- Normalize date values to datetime format
 def normalize_datetime(val):
     """
@@ -1869,6 +1873,20 @@ def normalize_datetime(val):
         return dt.strftime("%Y-%m-%d 00:00:00")  # keep time at 00:00:00
     except Exception:
         return None
+
+
+# --- Normalize hours values
+def normalize_hours(val):
+    """
+    Convert hours/hrs column to float (keep None for invalid values)
+    """
+    if pd.isna(val) or str(val).strip().lower() in ["", "nan", "inf", "-inf"]:
+        return None
+    try:
+        return float(val)
+    except Exception:
+        return None
+
 
 # --- Main Upload View
 @login_required
@@ -1919,7 +1937,7 @@ def customer_upload(request):
             # --- Normalize date & hours before insert ---
             for col in df.columns:
                 if "date" in col.lower():
-                    df[col] = df[col].apply(normalize_datetime)  # ✅ store as YYYY-MM-DD 00:00:00
+                    df[col] = df[col].apply(normalize_datetime)
                 elif "hrs" in col.lower() or "hours" in col.lower():
                     df[col] = df[col].apply(normalize_hours)
 
@@ -1972,6 +1990,7 @@ def customer_upload(request):
         "providers": providers,
         "energy_types": energy_types,
     })
+
 
 from django.shortcuts import render, redirect
 from django.contrib import messages

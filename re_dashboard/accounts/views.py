@@ -32,12 +32,14 @@ def register_user(request):
         profile = UserProfile.objects.create(user=user)
         profile.energy_types.set(selected_ids)
 
-        messages.success(request, "User registered successfully!")
         return redirect('user_list')  # or wherever you want to show the modal
 
     else:
         energy_choices = EnergyType.objects.all()
-        return render(request, 'signup.html', context={"energy_choices": energy_choices})
+    return render(request, 'signup.html', {
+    "energy_choices": EnergyType.objects.all(),
+    "user_registered": True
+    })
 
 def login_view(request):
     if request.method == 'POST':
