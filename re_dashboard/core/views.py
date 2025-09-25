@@ -599,6 +599,23 @@ def normalize_hours(val):
     except:
         return None
 
+# --- Helper: sanitize values for DB ---
+def sanitize_value(val):
+    """Convert invalid DB values into None (MySQL NULL)."""
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except Exception:
+        pass
+    if isinstance(val, (np.floating, float)) and (np.isnan(val) or np.isinf(val)):
+        return None
+    if str(val).strip().lower() in ["nan", "nat", "none", ""]:
+        return None
+    return val
+
+
 @login_required
 def upload_files(request):
     energy_types = EnergyType.objects.all()
@@ -643,7 +660,7 @@ def upload_files(request):
             # --- Clean column names
             df.columns = [clean_col(c) for c in df.columns]
 
-            # --- Replace invalid values
+            # --- Replace invalid values early
             df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
             df = df.astype(object).where(pd.notnull(df), None)
             df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
@@ -688,7 +705,9 @@ def upload_files(request):
             columns = ", ".join(f"`{col}`" for col in df.columns)
             placeholders = ", ".join(["%s"] * len(df.columns))
             insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
-            values = [tuple(row) for row in df.values]
+
+            # --- Sanitize all values before insert
+            values = [tuple(sanitize_value(v) for v in row) for row in df.values]
 
             # --- Bulk insert
             with connection.cursor() as cursor:
