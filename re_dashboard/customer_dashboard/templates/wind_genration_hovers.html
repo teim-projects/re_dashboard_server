@@ -45,20 +45,25 @@
     {% else %}
         <!-- ===== Treemap Chart Card ===== -->
        <!-- ===== Treemap Chart Card ===== -->
-<div class="card shadow-sm  mb-3 col-md-12 col-12 col-lg-12 " >
-    <select id="yearSelector" class="form-select form-select-sm mt-2" style="width:100px;">
+<div class="card shadow-sm mb-3 col-md-12 col-12 col-lg-12">
+  <select id="yearSelector" class="form-select form-select-sm mt-2" style="width:100px;">
     <option value="">All Years</option>
   </select>
-  <div id="customLegend" style=" text-align:center;"></div>
+  <div id="customLegend" style="text-align:center;"></div>
 
- 
+<div id="lineChartApex"></div>
+<div id="customLegend" style="margin-top:10px;"></div>
+<p id="totalHours" style="font-weight:bold;"></p>
 
-<div id="treemapApex" style="width:100%;  " class="mb-1"></div>
-<h6 id="totalHours" class="text-center  fw-bold text-dark " >
-  Loading Total Hours…
-</h6>
+<!-- Pagination controls -->
+<div id="paginationControls" style="margin-top:10px; text-align:center;">
+  <button id="prevPage" disabled>⬅ Prev</button>
+  <span id="pageInfo" style="margin:0 10px;">Page 1</span>
+  <button id="nextPage">Next ➡</button>
+</div>  <h6 id="totalHours" class="text-center fw-bold text-dark">
+    Loading Total Hours…
+  </h6>
 </div>
-
         
         <!-- ===== Table Card ===== -->
       <!-- ===== Table Card ===== -->
@@ -446,6 +451,8 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 </script>
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
 const rawData = {{ chart_data|safe }};
 const years = [...new Set(rawData.map(d => d.year))];
@@ -455,167 +462,149 @@ const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#f
 const yearColors = {};
 years.forEach((y,i)=>yearColors[y]=palette[i % palette.length]);
 
-// Populate year dropdown
-const yearSelector = document.getElementById("yearSelector");
-years.forEach(y=>{
-  const opt = document.createElement("option");
-  opt.value = y; opt.textContent = y;
-  yearSelector.appendChild(opt);
-});
+// Collect all WTGs
+const allWTGs = [...new Set(rawData.map(d=>d.wtg))].sort();
 
-let activeYear = null;
-let chart = null;
+// Pagination setup
+const pageSize = 20;
+let currentPage = 0; // 0-based
 
-// Build series for Apex treemap (original values, keep negatives)
-function buildSeries(filterYear=null){
-  const filtered = filterYear ? rawData.filter(d=>d.year==filterYear) : rawData;
-  return filtered.map(d=>({ 
-    x: d.wtg, 
-    y: +d.hours, // ❌ keep original value for treemap display
-    fillColor: yearColors[d.year], 
-    year: d.year 
-  }));
+// Build series for the current page
+function buildLineSeries(filterYear=null){
+  const start = currentPage * pageSize;
+  const end = start + pageSize;
+  const visibleWTGs = allWTGs.slice(start, end);
+
+  const dataByYear = {};
+  rawData.forEach(d=>{
+    if(filterYear && d.year != filterYear) return;
+    if(!dataByYear[d.year]) dataByYear[d.year] = {};
+    dataByYear[d.year][d.wtg] = +d.hours || 0;
+  });
+
+  const series = Object.keys(dataByYear).map(y=>{
+    return {
+      name: y,
+      data: visibleWTGs.map(wtg => dataByYear[y][wtg] ?? null),
+      color: yearColors[y]
+    };
+  });
+
+  return { series, visibleWTGs };
 }
 
-// Update total hours (sum only positive values)
+// Update total hours
 function updateTotalHours(filterYear=null){
   const filtered = filterYear ? rawData.filter(d=>d.year==filterYear) : rawData;
   const total = filtered.reduce((sum,d)=> sum + Math.max(0, parseFloat(d.hours) || 0), 0);
-
   const el = document.getElementById("totalHours");
   if(!el) return;
-
   if(filtered.length === 0){
     el.textContent = "No data available";
   } else {
     const label = filterYear ? `(${filterYear})` : "(All Years)";
     el.textContent = `Total Generation Hours ${label}: ${Math.round(total).toLocaleString()} hrs`;
-    el.style.display = "block";  
-    el.style.color = "black";    
-    el.style.fontWeight = "bold";
   }
 }
 
-// Render custom legend
-function renderLegend(){
+// Render custom legend with hover highlight
+function renderLegend(series){
   const legendContainer = document.getElementById("customLegend");
   legendContainer.innerHTML = '';
-  years.forEach(y=>{
+  series.forEach((s,idx)=>{
     const item = document.createElement("span");
-    item.style.display="inline-block";
-    item.style.margin="0 10px";
-    item.style.cursor="pointer";
-    item.innerHTML = `<span style="display:inline-block;width:15px;height:15px;background:${yearColors[y]};margin-right:5px;"></span>${y}`;
-    item.addEventListener("mouseenter", ()=>{ if(!activeYear) highlightYearFunc(y); });
-    item.addEventListener("mouseleave", ()=>{ if(!activeYear) resetHighlight(); });
-    item.addEventListener("click", ()=>{
-      activeYear = (activeYear===y ? null : y);
-      if(activeYear) highlightYearFunc(activeYear);
-      else resetHighlight();
+    item.innerHTML = `<span style="display:inline-block;width:15px;height:15px;background:${s.color};margin-right:5px;"></span>${s.name}`;
+    item.addEventListener("mouseenter", ()=> {
+      chart.updateOptions({
+        series: series.map((sr,i)=>({
+          ...sr,
+          color: i===idx ? sr.color : "#ddd"
+        }))
+      }, false, true);
+    });
+    item.addEventListener("mouseleave", ()=> {
+      chart.updateOptions({ series }, false, true);
     });
     legendContainer.appendChild(item);
   });
 }
 
-// Render treemap
-function renderTreemap(filterYear=null){
-  const seriesData = buildSeries(filterYear);
+let chart = null;
+
+// Render chart with pagination
+function renderLineChart(filterYear=null){
+  const { series, visibleWTGs } = buildLineSeries(filterYear);
 
   const options = {
     chart: {
-      type: 'treemap',
-      height: '',
+      type: 'line',
+      height: 500,
       width: '100%',
       toolbar: { show:true, tools:{ download:true } },
       animations: { enabled:true, easing:'easeinout', speed:400 }
     },
-    series: [{ data: seriesData }],
+    series: series,
+    stroke: { curve:'smooth', width:2 },
+    markers: { size:3 },
+    xaxis: {
+      categories: visibleWTGs,
+      title:{ text:"WTGs" },
+      labels: { rotate: -45 }
+    },
+    yaxis: {
+      title:{ text:"Hours" },
+      labels:{ formatter: val => Math.round(val) }
+    },
     tooltip: {
-      custom: function({ series, seriesIndex, dataPointIndex, w }) {
-        const dp = w.config.series[seriesIndex].data[dataPointIndex];
-        const tooltipValue = Math.max(0, dp.y); // ✅ show 0 if negative
-        return `
-          <div style="
-            padding:10px;
-            border-radius:8px;
-            background: #f9f9f9;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-            font-family: 'Arial', sans-serif;
-          ">
-            <div style="font-size:14px; font-weight:bold; color:#333;">${dp.x}</div>
-            <div style="margin:4px 0;">
-              <span style="display:inline-block;width:12px;height:12px;background:${dp.fillColor};margin-right:5px;border-radius:50%;"></span>
-              Year: <b>${dp.year}</b>
-            </div>
-            <div style="color:#007bff;">Hours: <b>${tooltipValue.toLocaleString()}</b> hrs</div>
-          </div>
-        `;
-      }
+      shared: true,
+      intersect: false,
+      y: { formatter: val => val !== null ? `${val} hrs` : "-" }
     },
-    plotOptions: {
-      treemap: {
-        distributed: true,
-        enableShades: false,
-        colorScale: { ranges: [] },
-        showParentLabel: true
-      }
-    },
-    dataLabels: { enabled:true, style:{fontSize:'12px'} },
-    colors: palette,
-    responsive:[{ breakpoint:768, options:{ chart:{height:400} } }]
+    legend: { show:false },
+    grid: { strokeDashArray:3 }
   };
 
   if(chart) chart.destroy();
-  chart = new ApexCharts(document.querySelector("#treemapApex"), options);
+  chart = new ApexCharts(document.querySelector("#lineChartApex"), options);
   chart.render().then(()=>{
-      renderLegend();
-      updateTotalHours(filterYear);
+    renderLegend(series);
+    updateTotalHours(filterYear);
+    updatePaginationControls();
   });
 }
 
-// Highlight functions
-function highlightYearFunc(year){
-  const seriesData = buildSeries(yearSelector.value || null);
-  chart.updateSeries([{
-    data: seriesData.map(d=>{
-      if(d.year===year) return d;
-      return {...d, fillColor:"rgba(200,200,200,0.3)"};
-    })
-  }], false);
-}
-
-function resetHighlight(){
-  const seriesData = buildSeries(yearSelector.value || null);
-  chart.updateSeries([{
-    data: seriesData.map(d=>({ ...d, fillColor: yearColors[d.year] }))
-  }], false);
+// Update pagination buttons
+function updatePaginationControls(){
+  const totalPages = Math.ceil(allWTGs.length / pageSize);
+  document.getElementById("pageInfo").textContent = `Page ${currentPage+1} of ${totalPages}`;
+  document.getElementById("prevPage").disabled = (currentPage === 0);
+  document.getElementById("nextPage").disabled = (currentPage >= totalPages-1);
 }
 
 // Initial render
-renderTreemap();
+renderLineChart();
 
 // Year dropdown change
 yearSelector.addEventListener("change", function(){
   const yr = this.value || null;
-  activeYear = null;
-  renderTreemap(yr);
+  renderLineChart(yr);
 });
 
-// Clear filter button
-document.getElementById("clearTreemapFilter").addEventListener("click", function(e){
-  e.preventDefault();
-  yearSelector.value="";
-  activeYear=null;
-  renderTreemap();
+// Pagination buttons
+document.getElementById("prevPage").addEventListener("click", ()=>{
+  if(currentPage > 0){
+    currentPage--;
+    renderLineChart(yearSelector.value || null);
+  }
 });
-
-// Window resize
-window.addEventListener("resize", ()=> renderTreemap(yearSelector.value || null));
+document.getElementById("nextPage").addEventListener("click", ()=>{
+  const totalPages = Math.ceil(allWTGs.length / pageSize);
+  if(currentPage < totalPages-1){
+    currentPage++;
+    renderLineChart(yearSelector.value || null);
+  }
+});
 </script>
-
-
-
-
 
 
 {% endblock %}

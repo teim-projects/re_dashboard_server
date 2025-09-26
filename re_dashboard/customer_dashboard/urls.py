@@ -17,6 +17,7 @@ urlpatterns = [
     path('wind_Avg_Machine_Availability', views.wind_Avg_Machine_Availability, name="wind_Avg_Machine_Availability"),
     path("customer_upload", views.customer_upload, name="customer_upload"),
     path("Modifydata", views.Modifydata, name="Modifydata"),
+    path("wind_wtg_plf", views.wind_wtg_plf, name="wind_wtg_plf"),
  
 
 ]

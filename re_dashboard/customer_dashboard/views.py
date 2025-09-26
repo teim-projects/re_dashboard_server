@@ -1005,7 +1005,7 @@ def wind_Grid_Availability_and_Machine(request):
         gen_hrs_col = _pick(col_map, "genhrs", "gen hrs", "genhours", "generation hours")
         opr_hrs_col = _pick(col_map, "ophrs", "opr hrs", "operating hours", "machine hrs")
 
-        plf_day_col = _pick(col_map, "plf_day", "plfday", "%plf day", "plf")
+        plf_day_col = _pick(col_map, "plf_day", "plfday", "%plf day", "plf","cf")
 
         if not date_col:
             continue
@@ -2112,3 +2112,158 @@ def Modifydata(request):
     return render(request, 'Modifydata.html', {
         'expected_tables': expected_tables,
     })
+
+
+
+
+@login_required
+def wind_wtg_plf(request):
+    username = request.user.username.lower()
+
+    # --- Filters
+    date_from = request.GET.get("date_from") or None
+    date_to = request.GET.get("date_to") or None
+    providers = request.GET.getlist("provider")
+    customers = request.GET.getlist("customer")
+    states = request.GET.getlist("state")
+    sites = request.GET.getlist("site")
+    wtgs = request.GET.getlist("wtg")
+
+    plf_data = defaultdict(list)
+    provider_plf_data = defaultdict(list)   # ✅ new dict for provider-wise data
+    distincts = {
+        "providers": set(),
+        "customers": set(),
+        "states": set(),
+        "sites": set(),
+        "wtgs": set(),
+    }
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES")
+        db_tables = [row[0] for row in cursor.fetchall()]
+    table_names = [t for t in db_tables if t.startswith(username + "_") and t.endswith("_wind")]
+
+    for table in table_names:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
+            cols = [c[0] for c in cursor.fetchall()]
+        col_map = {c.lower(): c for c in cols}
+
+        # --- Flexible col picking
+        def _pick(cmap, *candidates):
+            for cand in candidates:
+                if cand.lower() in cmap:
+                    return cmap[cand.lower()]
+            return None
+
+        wtg_col      = _pick(col_map, "wec", "loc_no", "wtg", "wtg_no", "turbine", "turbineno", "locno")
+        plf_col      = _pick(col_map, "cf", "plf", "plantloadfactor", "capacityfactor")
+        date_col     = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
+        customer_col = _pick(col_map, "customername", "customer", "consumer", "client")
+        state_col    = _pick(col_map, "state", "statename", "st")
+        site_col     = _pick(col_map, "site", "sitename", "location", "plant", "windfarmname", "park", "sitecode", "city", "town", "village")
+        provider_col = _pick(col_map, "provider", "oem", "oemprovider", "oem_name")
+
+        if not (wtg_col and plf_col):
+            continue
+
+        # --- WHERE filters
+        conditions, params = [], []
+        if date_col:
+            if date_from and date_to:
+                conditions.append(f"`{date_col}` BETWEEN %s AND %s")
+                params += [date_from, date_to]
+            elif date_from:
+                conditions.append(f"`{date_col}` >= %s")
+                params += [date_from]
+            elif date_to:
+                conditions.append(f"`{date_col}` <= %s")
+                params += [date_to]
+
+        def add_in(col, values):
+            nonlocal conditions, params
+            values = [v for v in values if v not in (None, "", "null")]
+            if col and values:
+                placeholders = ",".join(["%s"] * len(values))
+                conditions.append(f"`{col}` IN ({placeholders})")
+                params.extend(values)
+
+        add_in(provider_col, providers)
+        add_in(customer_col, customers)
+        add_in(state_col, states)
+        add_in(site_col, sites)
+        add_in(wtg_col, wtgs)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # --- Query PLF WTG-wise
+        query_wtg = f"""
+            SELECT `{wtg_col}`, AVG(`{plf_col}`) as avg_plf
+            FROM `{table}`
+            {where_clause}
+            GROUP BY `{wtg_col}`
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(query_wtg, params)
+            rows = cursor.fetchall()
+        for wtg, avg_plf in rows:
+            if wtg and avg_plf is not None:
+                plf_data[str(wtg)].append(float(avg_plf))
+
+        # --- Query PLF Provider-wise
+        if provider_col:
+            query_provider = f"""
+                SELECT `{provider_col}`, AVG(`{plf_col}`) as avg_plf
+                FROM `{table}`
+                {where_clause}
+                GROUP BY `{provider_col}`
+            """
+            with connection.cursor() as cursor:
+                cursor.execute(query_provider, params)
+                prov_rows = cursor.fetchall()
+            for prov, avg_plf in prov_rows:
+                if prov and avg_plf is not None:
+                    provider_plf_data[str(prov)].append(float(avg_plf))
+
+        # --- Collect distincts
+        def distinct_list(col):
+            if not col:
+                return []
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table}` ORDER BY `{col}`;")
+                return [str(r[0]) for r in cursor.fetchall() if r[0]]
+
+        distincts["providers"].update(distinct_list(provider_col))
+        distincts["customers"].update(distinct_list(customer_col))
+        distincts["states"].update(distinct_list(state_col))
+        distincts["sites"].update(distinct_list(site_col))
+        distincts["wtgs"].update(distinct_list(wtg_col))
+
+    # --- Final aggregated PLF per WTG
+    plf_final = {wtg: sum(vals) / len(vals) for wtg, vals in plf_data.items()}
+    plf_chart_data = [{"x": k, "y": round(v, 2)} for k, v in plf_final.items()]
+    plf_chart_data.sort(key=lambda x: x["y"], reverse=True)
+
+    # --- Final aggregated PLF per Provider
+    provider_final = {prov: sum(vals) / len(vals) for prov, vals in provider_plf_data.items()}
+    provider_chart_data = [{"x": k, "y": round(v, 2)} for k, v in provider_final.items()]
+    provider_chart_data.sort(key=lambda x: x["y"], reverse=True)
+
+    context = {
+        "plf_wtg_data": json.dumps(plf_chart_data),
+        "plf_provider_data": json.dumps(provider_chart_data),  # ✅ new dataset
+        "providers": sorted(distincts["providers"]),
+        "customers": sorted(distincts["customers"]),
+        "states": sorted(distincts["states"]),
+        "sites": sorted(distincts["sites"]),
+        "wtgs": sorted(distincts["wtgs"]),
+        "selected_providers": providers,
+        "selected_customers": customers,
+        "selected_states": states,
+        "selected_sites": sites,
+        "selected_wtgs": wtgs,
+        "date_from": date_from,
+        "date_to": date_to,
+    }
+    return render(request, "wind_wtg_plf.html", context)

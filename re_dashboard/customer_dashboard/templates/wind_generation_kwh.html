@@ -54,7 +54,7 @@
           <strong>WTG Wise Generation</strong>
         </div>
         <div class="card-body">
-          <canvas id="treemapChart" style=" width:100%"></canvas>
+<div id="treemapChart" style="width: 100%; height: 500px;"></div>
           <h5 class="mt-3 text-center text-success">
             Day Generation kWh Total: {{ total_generation|intcomma }}
           </h5>
@@ -69,7 +69,7 @@
           <strong>WTG No. & Generation</strong>
         </div>
         <div class="card-body">
-          <table id="wtgTable" class="table table-sm table-bordered table-striped table-hover text-center">
+          <table id="wtgTable" class="table table-md table-bordered table-striped table-hover text-center">
             <thead class="table-light">
               <tr>
                 <th>WTG No</th>
@@ -300,182 +300,115 @@
   font-size: 12px;
 }
 </style>
-
-<!-- Libraries (added DataTables + jQuery) -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<!-- DataTables CSS -->
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+
+<!-- jQuery (required by DataTables) -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+<!-- DataTables JS -->
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 
-<!-- Chart libraries -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0"></script>
-
-<!-- Page Script -->
+<!-- Libraries (added DataTables + jQuery) -->
+ <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
+document.addEventListener("DOMContentLoaded", function () {
+  const chartData = JSON.parse(`{{ chart_data|escapejs }}`);
+  console.log("Chart Data:", chartData);
 
-
-function adjustTreemapHeight(rowCount) {
-  const baseHeight = 200;   // minimum
-  const perRow = 6;        // pixels per WTG row
-  const maxHeight = 500;    // optional limit
-  const newHeight = Math.min(baseHeight + (rowCount * perRow), maxHeight);
-
-  const canvas = document.getElementById("treemapChart");
-  canvas.style.height = newHeight + "px";
-}
-function updateTreemapFromTable(table, chart) {
-  const visibleWTGs = [];
-  table.rows({ page: 'current' }).every(function () {
-    const data = this.data();
-    const wtg = data[0];
-    const gen = parseFloat(String(data[1]).replace(/,/g, '')) || 0;
-    visibleWTGs.push({ wtg: wtg, generation: gen });
-  });
-
-  // Adjust chart height before rebuild
-  adjustTreemapHeight(visibleWTGs.length);
-
-  // Rebuild with visible dataset
-  buildTreemap(visibleWTGs.length ? visibleWTGs : []);
-}
-
-  const rawData = {{ chart_data|safe }};
-
-  // Fill table body (same logic but now building a data array for DataTables)
+  // 📊 Populate table first
   const tableBody = document.getElementById("wtgTableBody");
-  tableBody.innerHTML = "";
-  const tableRows = []; // will hold arrays for DataTables
-  rawData.forEach(row => {
-    // treat falsy generation as 0 but still include if you want to show zeroes.
-    const genVal = row.generation || 0;
-    // Only include rows you want visible in table (keeps behavior similar to original)
-    tableRows.push([row.wtg, genVal.toLocaleString()]);
-    const tr = `<tr><td>${row.wtg}</td><td>${genVal.toLocaleString()}</td></tr>`;
-    tableBody.insertAdjacentHTML("beforeend", tr);
+  chartData.forEach((d) => {
+    const row = `
+      <tr>
+        <td>${d.wtg}</td>
+        <td>${new Intl.NumberFormat().format(d.generation)}</td>
+      </tr>`;
+    tableBody.insertAdjacentHTML("beforeend", row);
   });
 
-  // Create treemap chart instance variable for later updates
-  const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
-  let treemapChart;
-
-  function buildTreemap(dataset) {
-    const ctx = document.getElementById("treemapChart").getContext("2d");
-    if (treemapChart) {
-      treemapChart.destroy();
+  // ✅ Initialize DataTable (with pagination & bootstrap styling)
+  var table = $('#wtgTable').DataTable({
+    paging: true,
+    searching: true,
+    ordering: true,
+    pageLength: 10,
+    lengthMenu: [5, 10, 25, 50, 100],
+    order: [[1, 'desc']],
+    language: {
+      search: "🔍 Search WTG:",
+      lengthMenu: "Show _MENU_ entries per page"
     }
-    treemapChart = new Chart(ctx, {
+  });
+
+  // Prepare data for ApexCharts
+  const seriesData = chartData.map(d => ({
+    x: d.wtg,
+    y: d.generation
+  }));
+
+  var options = {
+    series: [{ data: seriesData }],
+    chart: {
       type: 'treemap',
-      data: {
-        datasets: [{
-          tree: dataset,
-          key: 'generation',
-          groups: ['wtg'],
-          borderColor: '#fff',
-          layoutAlgorithm: 'binary',
-          minVisibleSize: 20,
-          labels: {
-            display: true,
-            formatter: ctx => ctx.raw._data.wtg,
-            align: 'center',
-            color: 'white',
-            font: { size: 12 }
-          },
-          backgroundColor: (ctx) => palette[ctx.index % palette.length]
-        }]
-      },
-      options: {
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: ctx => {
-                const wtg = ctx.raw._data.wtg;
-                const gen = ctx.raw._data.generation;
-                const total = rawData.reduce((s, d) => s + (d.generation || 0), 0);
-                const percent = total ? ((gen / total) * 100).toFixed(1) : 0;
-                return `${wtg}: ${gen.toLocaleString()} kWh (${percent}%)`;
-              }
-            }
+      height: 500,
+      toolbar: { show: true },
+      events: {
+        dataPointSelection: function(event, chartContext, config) {
+          if (config.dataPointIndex !== -1) {
+            const clickedWTG = seriesData[config.dataPointIndex].x;
+            console.log("Clicked WTG:", clickedWTG);
+
+            // 🔎 Filter DataTable by clicked WTG
+            table.search(clickedWTG).draw();
           }
         }
       }
-    });
+    } ,
+    legend: { show: false },
+    dataLabels: {
+  enabled: true,
+  style: { fontSize: '14px', fontWeight: 'bold' },
+  formatter: function (text) {
+    return text; // only show WTG number in treemap block
   }
+ 
 
-  // initial build with full rawData
-  buildTreemap(rawData);
+    },
+    plotOptions: {
+      treemap: {
+        distributed: true,
+        enableShades: true,
+        shadeIntensity: 0.4
+      }
+    },
+    tooltip: {
+      y: {
+        formatter: val => `${val.toLocaleString()} kWh`
+      }
+    },
+    colors: [
+      "#FF6B6B", "#4ECDC4", "#45B7D1", "#F7B731",
+      "#5D62B5", "#29C3BE", "#F3722C", "#90BE6D",
+      "#577590", "#F94144", "#7B2CBF", "#9D4EDD"
+    ]
+  };
 
-  // ===============================
-  // DataTables setup and sync
-  // ===============================
-  // helper: create dynamic lengthMenu
-  function getLengthMenu(totalRows) {
-    let menu = [5, 10];
-    if (totalRows > 10) menu.push(20);
-    if (totalRows > 20) menu.push(50);
-    if (totalRows > 50) menu.push(100);
-    return menu;
-  }
+  var chart = new ApexCharts(document.querySelector("#treemapChart"), options);
+  chart.render();
 
-  $(document).ready(function () {
-    // Initialize DataTable
-    const wtgTable = $('#wtgTable').DataTable({
-      data: tableRows,
-      columns: [
-        { title: "WTG No" },
-        { title: "Generation" }
-      ],
-      pageLength: 10,
-      lengthMenu: getLengthMenu(tableRows.length),
-      ordering: true,
-      order: [[1, 'desc']], // sort by generation desc by default
-      language: {
-        search: "",
-        searchPlaceholder: "🔍 Search WTG...",
-        lengthMenu: "_MENU_"
-      },
-      // render numeric values properly for sorting by converting cell content back to number
-      columnDefs: [{
-        targets: 1,
-        render: function (data, type, row) {
-          // Data was inserted as formatted string (with commas), so for sorting use numeric raw value
-          if (type === 'sort' || type === 'type') {
-            // remove commas then parse
-            return parseFloat(String(data).replace(/,/g, '')) || 0;
-          }
-          return data; // display as formatted string
-        }
-      }]
-    });
-
-    // Function to update treemap based on current table page (or filtered rows)
-    function updateTreemapFromTable(table, chart) {
-      const visibleWTGs = [];
-      // iterate over rows currently visible on the page (DataTables API)
-      table.rows({ page: 'current' }).every(function () {
-        const data = this.data();
-        // data[0] is wtg, data[1] is generation formatted string
-        const wtg = data[0];
-        const gen = parseFloat(String(data[1]).replace(/,/g, '')) || 0;
-        visibleWTGs.push({ wtg: wtg, generation: gen });
-      });
-
-      // If no visible rows (e.g. empty search), fallback to first page length or empty chart
-      const newDataset = visibleWTGs.length ? visibleWTGs : [];
-
-      // Rebuild treemap with only visible dataset (this keeps the chart reflecting the table view)
-      buildTreemap(newDataset);
-    }
-
-    // First sync after init
-    updateTreemapFromTable(wtgTable, treemapChart);
-
-    // Update treemap whenever table redraws (pagination/search/filter change)
-    wtgTable.on('draw', function () {
-      updateTreemapFromTable(wtgTable, treemapChart);
-    });
+  // 🔄 Reset DataTable filter on treemap double-click
+  document.querySelector("#treemapChart").addEventListener("dblclick", function () {
+    table.search("").draw(); // reset search
   });
+});
 </script>
+
+
+
+
+<!-- Page Script -->
+<!-- Page Script -->
 
   {% include 'fotter.html' %}
 

@@ -180,7 +180,7 @@ padding: 5px;
               href="{% url 'wind_Avg_Machine_Availability' %}">AVERAGE MACHINE AVAILABILITY</a>
             <a class="nav-link navcontent {% if request.path == '/avg-grid-availability/' %}active{% endif %}"
               href="#">AVERAGE GRID AVAILABILITY</a>
-            <a class="nav-link navcontent {% if request.path == '/plf/' %}active{% endif %}" href="#">PLANT LOAD
+            <a class="nav-link navcontent {% if request.path == '/plf/' %}active{% endif %}" href="{% url 'wind_wtg_plf' %}">PLANT LOAD
               FACTOR</a>
           </nav>
 
