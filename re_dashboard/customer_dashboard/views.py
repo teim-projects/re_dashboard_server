@@ -430,6 +430,8 @@ def wind_generation_kwh(request):
     return render(request, "wind_generation_kwh.html", context)
 
 
+
+import json
 from collections import defaultdict
 from datetime import datetime, date
 from django.shortcuts import render
