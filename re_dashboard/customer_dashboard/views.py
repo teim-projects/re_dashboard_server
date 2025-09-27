@@ -11,6 +11,11 @@ from django.contrib.auth.decorators import login_required
 from django.db import connection
 from django.db.utils import ProgrammingError
 
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from django.db.utils import ProgrammingError
+
 @login_required
 def wind_summary1(request):
     table_name = "installation_summary_wind"
@@ -22,36 +27,43 @@ def wind_summary1(request):
     }
     table_exists = True  # flag for SweetAlert
 
+    # Logged-in user → match against `customer` column
+    customer = request.user.username
+
     try:
         with connection.cursor() as cursor:
-            # Capacity by state
+            # Capacity by state (only this customer)
             cursor.execute(f"""
                 SELECT state, SUM(capacity_mw) AS total_capacity
                 FROM `{table_name}`
+                WHERE customer = %s
                 GROUP BY state
-            """)
+            """, [customer])
             data["capacity_by_state"] = cursor.fetchall()
 
             # Land type by state
             cursor.execute(f"""
                 SELECT state, land, COUNT(*) AS land_count
                 FROM `{table_name}`
+                WHERE customer = %s
                 GROUP BY state, land
-            """)
+            """, [customer])
             data["land_type_by_state"] = cursor.fetchall()
 
             # Estimated generation WTG wise
             cursor.execute(f"""
                 SELECT wtg_location_no, avg_estimate_gen_kwh
                 FROM `{table_name}`
-            """)
+                WHERE customer = %s
+            """, [customer])
             data["wtg_generation"] = cursor.fetchall()
 
             # Power sale by state
             cursor.execute(f"""
                 SELECT power_sale_details, state
                 FROM `{table_name}`
-            """)
+                WHERE customer = %s
+            """, [customer])
             data["power_sale"] = cursor.fetchall()
 
     except ProgrammingError:
@@ -78,7 +90,6 @@ from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
 from django.db import connection
 import json
-
 @login_required
 def wind_installation_summary2(request):
     # --- List of possible table names
@@ -86,7 +97,7 @@ def wind_installation_summary2(request):
         "installation_summary_wind",
         "installation_summary_windmil",
         "installation_summary_W",
-        "installation_summary_Wind"
+        "installation_summary_Wind",
         "installation_summary_WIND"
     ]
 
@@ -113,7 +124,10 @@ def wind_installation_summary2(request):
             "no_data_msg": "No installation summary data available."
         })
 
-    # --- Normal flow if table exists
+    # --- Current logged-in user name (match against `customer` column)
+    customer = request.user.username
+
+    # --- Data containers
     data = {
         "power_sale_labels": [],
         "power_sale_counts": [],
@@ -134,14 +148,20 @@ def wind_installation_summary2(request):
                 END AS category,
                 COUNT(*) AS cnt
             FROM `{table_name}`
+            WHERE customer = %s
             GROUP BY category
-        """)
+        """, [customer])
         for row in cursor.fetchall():
             data["power_sale_labels"].append(row[0])
             data["power_sale_counts"].append(row[1])
 
         # Land
-        cursor.execute(f"SELECT land, COUNT(*) FROM `{table_name}` GROUP BY land")
+        cursor.execute(f"""
+            SELECT land, COUNT(*)
+            FROM `{table_name}`
+            WHERE customer = %s
+            GROUP BY land
+        """, [customer])
         for row in cursor.fetchall():
             data["land_labels"].append(row[0])
             data["land_counts"].append(row[1])
@@ -150,17 +170,19 @@ def wind_installation_summary2(request):
         cursor.execute(f"""
             SELECT wtg_location_no, avg_estimate_gen_kwh
             FROM `{table_name}`
+            WHERE customer = %s
             ORDER BY avg_estimate_gen_kwh DESC
             LIMIT 10
-        """)
+        """, [customer])
         wtg_locations = cursor.fetchall()
 
         # OEM Breakup
         cursor.execute(f"""
             SELECT capacity_mw, firm, make, COUNT(*)
             FROM `{table_name}`
+            WHERE customer = %s
             GROUP BY capacity_mw, firm, make
-        """)
+        """, [customer])
         oem_breakup = cursor.fetchall()
 
     # --- Handle case: table exists but no rows
