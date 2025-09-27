@@ -18,6 +18,7 @@ urlpatterns = [
     path("customer_upload", views.customer_upload, name="customer_upload"),
     path("Modifydata", views.Modifydata, name="Modifydata"),
     path("wind_wtg_plf", views.wind_wtg_plf, name="wind_wtg_plf"),
+    path("wind_Grid_Availability", views.wind_Grid_Availability, name="wind_Grid_Availability"),
  
 
 ]

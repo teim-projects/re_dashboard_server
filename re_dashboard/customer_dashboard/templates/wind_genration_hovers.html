@@ -52,33 +52,24 @@
   <div id="customLegend" style="text-align:center;"></div>
 
 <div id="lineChartApex"></div>
-<div id="customLegend" style="margin-top:10px;"></div>
-<p id="totalHours" style="font-weight:bold;"></p>
+ <p id="totalHours" style="font-weight:bold; z-index: 50000;" class="text-center"></p>
+ 
 
-<!-- Pagination controls -->
-<div id="paginationControls" style="margin-top:10px; text-align:center;">
-  <button id="prevPage" disabled>⬅ Prev</button>
-  <span id="pageInfo" style="margin:0 10px;">Page 1</span>
-  <button id="nextPage">Next ➡</button>
-</div>  <h6 id="totalHours" class="text-center fw-bold text-dark">
-    Loading Total Hours…
-  </h6>
-</div>
+ 
         
         <!-- ===== Table Card ===== -->
       <!-- ===== Table Card ===== -->
-<div class="card shadow-lg mb-4 border-0 col-md-12 col-12 col-lg-12  ">
-    <div class="card-header bg-gradient-primary text-white   fw-bold fs-5 text-dark      ">
-      <p class="text-center">
+<div class="  mb-4 border-0 col-md-12 col-12 col-lg-12  ">
+    
+
+          <button id="toggleTableBtn" class="btn btn-sm btn-light" style="float: right !important;">
+    Show Table
+</button>
+ <div class="card-body p-2" id="tableCardBody" style="display: none;">
+       <strong class="text-center">
                 Generation Hours Table
 
-      </p>
-        <!-- Toggle Button -->
-        <button id="toggleTableBtn" class="btn btn-sm btn-light  " style="float: right !important;">
-            Show Table
-        </button>
-    </div>
-    <div class="card-body p-2" id="tableCardBody" style="display: none;">
+      </strong>
         <!-- Search Box -->
         <div class="d-flex justify-content-end mb-2">
             <input type="text" id="tableSearch" class="form-control w-25" placeholder="Search WTG..." />
@@ -124,118 +115,35 @@
 <!-- ===== Rotation CSS ===== -->
     {% endif %}
 </div>
-<!-- ===== SEARCH + PAGINATION SCRIPT ===== -->
 <script>
+document.addEventListener("DOMContentLoaded", function() {
+    const toggleBtn = document.getElementById("toggleTableBtn");
+    const tableBody = document.getElementById("tableCardBody");
 
-   const toggleBtn = document.getElementById('toggleTableBtn');
-    const tableBody = document.getElementById('tableCardBody');
-
-    toggleBtn.addEventListener('click', () => {
-        if (tableBody.style.display === 'none') {
-            tableBody.style.display = 'block';
-            toggleBtn.textContent = 'Hide Table';
+    toggleBtn.addEventListener("click", function() {
+        if (tableBody.style.display === "none" || tableBody.style.display === "") {
+            tableBody.style.display = "block";
+            toggleBtn.textContent = "Hide Table";
         } else {
-            tableBody.style.display = 'none';
-            toggleBtn.textContent = 'Show Table';
+            tableBody.style.display = "none";
+            toggleBtn.textContent = "Show Table";
         }
     });
-document.addEventListener("DOMContentLoaded", function() {
-    const allRows = Array.from(document.querySelectorAll("#generationTableBody .data-row, #generationTableBody .year-row"));
+
+    // Optional: Add search functionality
     const searchInput = document.getElementById("tableSearch");
-    const paginationContainer = document.getElementById("tablePagination");
-    const rowsPerPage = 10;
-    let currentPage = 1;
-    let filteredRows = allRows;
-
-    function renderTable() {
-        const start = (currentPage - 1) * rowsPerPage;
-        const end = start + rowsPerPage;
-
-        // Show year row only if it has at least one visible WTG row under it
-        let visibleRows = [];
-        let tempRows = [];
-        let showYear = false;
-
-        allRows.forEach(row => {
-            if (row.classList.contains("year-row")) {
-                if (tempRows.length > 0 && showYear) visibleRows.push(...tempRows);
-                tempRows = [row];
-                showYear = false;
-            } else {
-                if (filteredRows.includes(row)) {
-                    tempRows.push(row);
-                    showYear = true;
-                }
-            }
-        });
-        if (showYear && tempRows.length > 0) visibleRows.push(...tempRows);
-
-        // Hide all rows
-        allRows.forEach(r => r.style.display = "none");
-
-        // Show only paginated rows
-        const paginatedRows = visibleRows.slice(start, end);
-        paginatedRows.forEach(r => r.style.display = "");
-
-        renderPagination(Math.ceil(visibleRows.length / rowsPerPage));
-    }
-
-    function renderPagination(totalPages) {
-        paginationContainer.innerHTML = "";
-
-        const prevLi = document.createElement("li");
-        prevLi.classList.add("page-item");
-        if (currentPage === 1) prevLi.classList.add("disabled");
-        prevLi.innerHTML = `<a class="page-link" href="#">Previous</a>`;
-        prevLi.addEventListener("click", function(e) {
-            e.preventDefault();
-            if (currentPage > 1) {
-                currentPage--;
-                renderTable();
-            }
-        });
-        paginationContainer.appendChild(prevLi);
-
-        for (let i = 1; i <= totalPages; i++) {
-            const li = document.createElement("li");
-            li.classList.add("page-item");
-            if (i === currentPage) li.classList.add("active");
-            li.innerHTML = `<a class="page-link" href="#">${i}</a>`;
-            li.addEventListener("click", function(e) {
-                e.preventDefault();
-                currentPage = i;
-                renderTable();
-            });
-            paginationContainer.appendChild(li);
-        }
-
-        const nextLi = document.createElement("li");
-        nextLi.classList.add("page-item");
-        if (currentPage === totalPages) nextLi.classList.add("disabled");
-        nextLi.innerHTML = `<a class="page-link" href="#">Next</a>`;
-        nextLi.addEventListener("click", function(e) {
-            e.preventDefault();
-            if (currentPage < totalPages) {
-                currentPage++;
-                renderTable();
-            }
-        });
-        paginationContainer.appendChild(nextLi);
-    }
+    const tableRows = document.querySelectorAll("#generationTableBody tr.data-row");
 
     searchInput.addEventListener("input", function() {
-        const val = this.value.toLowerCase();
-        filteredRows = allRows.filter(row => {
-            if (row.classList.contains("year-row")) return true;
-            return row.cells[0].textContent.toLowerCase().includes(val);
+        const searchTerm = this.value.toLowerCase();
+        tableRows.forEach(row => {
+            const wtg = row.cells[0].textContent.toLowerCase();
+            row.style.display = wtg.includes(searchTerm) ? "" : "none";
         });
-        currentPage = 1;
-        renderTable();
     });
-
-    renderTable();
 });
 </script>
+
 <!-- ===== Modals ===== -->
 
 <!-- ========== Modals ========== --> 
@@ -430,7 +338,19 @@ document.addEventListener("DOMContentLoaded", function() {
     .card-header {
         border-radius: 0.25rem 0.25rem 0 0;
         text-shadow: 0 1px 1px rgba(0,0,0,0.2);
-    }
+    }.table-responsive {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.table thead th {
+    position: sticky;
+    top: 0;
+    background: #343a40;
+    color: white;
+    z-index: 2;
+}
+
 </style>
   {% include 'fotter.html' %}
 
@@ -455,42 +375,36 @@ document.addEventListener("DOMContentLoaded", function() {
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
 const rawData = {{ chart_data|safe }};
-const years = [...new Set(rawData.map(d => d.year))];
+const years = [...new Set(rawData.map(d => d.year))].sort();
 
 // Color palette
 const palette = ["#007bff","#28a745","#ffc107","#dc3545","#17a2b8","#6f42c1","#fd7e14","#20c997"];
 const yearColors = {};
 years.forEach((y,i)=>yearColors[y]=palette[i % palette.length]);
 
-// Collect all WTGs
-const allWTGs = [...new Set(rawData.map(d=>d.wtg))].sort();
-
 // Pagination setup
-const pageSize = 20;
+const pageSize = 30;
 let currentPage = 0; // 0-based
 
-// Build series for the current page
-function buildLineSeries(filterYear=null){
+// Build Treemap data
+function buildTreemapSeries(filterYear=null){
   const start = currentPage * pageSize;
   const end = start + pageSize;
-  const visibleWTGs = allWTGs.slice(start, end);
+  const visibleWTGs = [...new Set(rawData.map(d=>d.wtg))].sort().slice(start,end);
 
-  const dataByYear = {};
+  const treemapData = [];
+
   rawData.forEach(d=>{
     if(filterYear && d.year != filterYear) return;
-    if(!dataByYear[d.year]) dataByYear[d.year] = {};
-    dataByYear[d.year][d.wtg] = +d.hours || 0;
+    if(!visibleWTGs.includes(d.wtg)) return;
+    treemapData.push({
+      x: `${d.wtg} (${d.year})`,
+      y: +d.hours || 0,
+      fillColor: yearColors[d.year]
+    });
   });
 
-  const series = Object.keys(dataByYear).map(y=>{
-    return {
-      name: y,
-      data: visibleWTGs.map(wtg => dataByYear[y][wtg] ?? null),
-      color: yearColors[y]
-    };
-  });
-
-  return { series, visibleWTGs };
+  return { series:[{ data:treemapData }], visibleWTGs };
 }
 
 // Update total hours
@@ -507,67 +421,102 @@ function updateTotalHours(filterYear=null){
   }
 }
 
-// Render custom legend with hover highlight
-function renderLegend(series){
+// Render custom interactive legend
+function renderLegend(){
   const legendContainer = document.getElementById("customLegend");
   legendContainer.innerHTML = '';
-  series.forEach((s,idx)=>{
+
+  years.forEach((y)=>{
     const item = document.createElement("span");
-    item.innerHTML = `<span style="display:inline-block;width:15px;height:15px;background:${s.color};margin-right:5px;"></span>${s.name}`;
-    item.addEventListener("mouseenter", ()=> {
-      chart.updateOptions({
-        series: series.map((sr,i)=>({
-          ...sr,
-          color: i===idx ? sr.color : "#ddd"
-        }))
-      }, false, true);
-    });
-    item.addEventListener("mouseleave", ()=> {
-      chart.updateOptions({ series }, false, true);
-    });
+    item.classList.add("legend-item");
+    item.dataset.year = y;
+    item.style.cursor = "pointer";
+    item.style.marginRight = "15px";
+    item.innerHTML = `
+      <span style="display:inline-block;width:15px;height:15px;background:${yearColors[y]};margin-right:5px;border-radius:3px;"></span>
+      ${y}
+    `;
     legendContainer.appendChild(item);
+
+    // Hover → dim others, highlight this year
+    item.addEventListener("mouseenter", ()=>{
+      document.querySelectorAll(".apexcharts-treemap-rect").forEach(rect=>{
+        const label = rect.getAttribute("data:treemapLabel") || "";
+        if(label.includes(y)) {
+          rect.style.opacity = "1";
+          rect.style.stroke = "#000";
+          rect.style.strokeWidth = "2px";
+        } else {
+          rect.style.opacity = "0.2";
+          rect.style.stroke = "none";
+        }
+      });
+    });
+
+    // Mouse leave → reset all
+    item.addEventListener("mouseleave", ()=>{
+      document.querySelectorAll(".apexcharts-treemap-rect").forEach(rect=>{
+        rect.style.opacity = "1";
+        rect.style.stroke = "none";
+      });
+    });
+
+    // Click → filter chart
+    item.addEventListener("click", ()=>{
+      document.getElementById("yearSelector").value = y;
+      renderTreemap(y);
+    });
+  });
+}
+
+// Populate year dropdown
+function populateYearDropdown(){
+  const yearSelector = document.getElementById("yearSelector");
+  yearSelector.innerHTML = '<option value="">All Years</option>';
+  years.forEach(y=>{
+    const opt = document.createElement("option");
+    opt.value = y;
+    opt.textContent = y;
+    yearSelector.appendChild(opt);
   });
 }
 
 let chart = null;
 
-// Render chart with pagination
-function renderLineChart(filterYear=null){
-  const { series, visibleWTGs } = buildLineSeries(filterYear);
+// Render Treemap with pagination
+function renderTreemap(filterYear=null){
+  const { series } = buildTreemapSeries(filterYear);
 
   const options = {
     chart: {
-      type: 'line',
+      type: 'treemap',
       height: 500,
-      width: '100%',
-      toolbar: { show:true, tools:{ download:true } },
-      animations: { enabled:true, easing:'easeinout', speed:400 }
+      toolbar: { show:true, tools:{ download:true } }
     },
     series: series,
-    stroke: { curve:'smooth', width:2 },
-    markers: { size:3 },
-    xaxis: {
-      categories: visibleWTGs,
-      title:{ text:"WTGs" },
-      labels: { rotate: -45 }
+    legend: { show:false },
+    plotOptions: {
+      treemap: {
+        distributed: true,
+        enableShades: false,
+      }
     },
-    yaxis: {
-      title:{ text:"Hours" },
-      labels:{ formatter: val => Math.round(val) }
+    dataLabels: {
+      enabled: true,
+      formatter: function(text, opt) {
+        return `${text}\n${opt.value} hrs`;
+      },
+      style: { fontSize: '12px', colors: ['#fff'] }
     },
     tooltip: {
-      shared: true,
-      intersect: false,
-      y: { formatter: val => val !== null ? `${val} hrs` : "-" }
-    },
-    legend: { show:false },
-    grid: { strokeDashArray:3 }
+      y: { formatter: val => `${val} hrs` }
+    }
   };
 
   if(chart) chart.destroy();
   chart = new ApexCharts(document.querySelector("#lineChartApex"), options);
   chart.render().then(()=>{
-    renderLegend(series);
+    renderLegend();
     updateTotalHours(filterYear);
     updatePaginationControls();
   });
@@ -575,36 +524,41 @@ function renderLineChart(filterYear=null){
 
 // Update pagination buttons
 function updatePaginationControls(){
-  const totalPages = Math.ceil(allWTGs.length / pageSize);
+  const totalWTGs = [...new Set(rawData.map(d=>d.wtg))].length;
+  const totalPages = Math.ceil(totalWTGs / pageSize);
   document.getElementById("pageInfo").textContent = `Page ${currentPage+1} of ${totalPages}`;
   document.getElementById("prevPage").disabled = (currentPage === 0);
   document.getElementById("nextPage").disabled = (currentPage >= totalPages-1);
 }
 
 // Initial render
-renderLineChart();
+populateYearDropdown();
+renderTreemap();
 
 // Year dropdown change
-yearSelector.addEventListener("change", function(){
+document.getElementById("yearSelector").addEventListener("change", function(){
   const yr = this.value || null;
-  renderLineChart(yr);
+  renderTreemap(yr);
 });
 
 // Pagination buttons
 document.getElementById("prevPage").addEventListener("click", ()=>{
   if(currentPage > 0){
     currentPage--;
-    renderLineChart(yearSelector.value || null);
+    renderTreemap(document.getElementById("yearSelector").value || null);
   }
 });
 document.getElementById("nextPage").addEventListener("click", ()=>{
-  const totalPages = Math.ceil(allWTGs.length / pageSize);
+  const totalWTGs = [...new Set(rawData.map(d=>d.wtg))].length;
+  const totalPages = Math.ceil(totalWTGs / pageSize);
   if(currentPage < totalPages-1){
     currentPage++;
-    renderLineChart(yearSelector.value || null);
+    renderTreemap(document.getElementById("yearSelector").value || null);
   }
 });
 </script>
+
+
 
 
 {% endblock %}

@@ -431,7 +431,7 @@ def wind_generation_kwh(request):
 
 
 
-import json
+
 from collections import defaultdict
 from datetime import datetime, date
 from django.shortcuts import render
@@ -1574,8 +1574,7 @@ def wind_breakdown_log(request):
                 wtgs_set.add(row[idx[wec_col]])
 
     # Debug print
-    print("📊 Breakdown records:", breakdown_records)
-
+ 
     # Sort by date
     breakdown_records = sorted(breakdown_records, key=lambda x: x["date"])
 
@@ -2269,3 +2268,176 @@ def wind_wtg_plf(request):
         "date_to": date_to,
     }
     return render(request, "wind_wtg_plf.html", context)
+
+
+from collections import defaultdict
+from datetime import datetime, date
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.shortcuts import render
+import json
+
+
+def _pick(col_map, *candidates):
+    """Return the actual column name if it matches any of the candidates"""
+    for c in candidates:
+        lc = c.lower()
+        if lc in col_map:
+            return col_map[lc]
+    return None
+
+
+@login_required
+def wind_Grid_Availability(request):
+    user = request.user.username.lower()
+
+    # --- Get all wind tables for user
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [row[0] for row in cursor.fetchall()]
+    table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
+
+    if not table_names:
+        return render(request, "wind_Grid_Availability.html", {
+            "ext_data": [], "int_data": [],
+            "ext_json": "[]", "int_json": "[]",
+            "overall_ext": 0, "overall_int": 0,
+            "providers": [], "customers": [], "states": [], "sites": [], "wtgs": [],
+            "selected_providers": [], "selected_customers": [], "selected_states": [], "selected_sites": [], "selected_wtgs": [],
+            "date_from": None, "date_to": None,
+            "no_data": True,
+            "no_data_msg": "No wind tables found for your account.",
+            "paginator": None,
+            "table_page": None
+        })
+
+    # --- Get filters from GET
+    date_from = request.GET.get("date_from") or None
+    date_to = request.GET.get("date_to") or None
+    providers = request.GET.getlist("provider")
+    customers = request.GET.getlist("customer")
+    states = request.GET.getlist("state")
+    sites = request.GET.getlist("site")
+    wtgs = request.GET.getlist("wtg")
+
+    # --- Containers
+    ext_avl = defaultdict(list)
+    int_avl = defaultdict(list)
+    distincts = {"providers": set(), "customers": set(), "states": set(), "sites": set(), "wtgs": set()}
+
+    for table_name in table_names:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
+            cols = [r[0] for r in cursor.fetchall()]
+        col_map = {c.lower(): c for c in cols}
+
+        # --- Identify columns
+        date_col = _pick(col_map, "date", "gen_date", "reading_date", "day_date")
+        wtg_col = _pick(col_map, "wec", "wtg", "loc_no", "turbine")
+        ext_col = _pick(col_map, "ga", "externalgridavailability", "ega", "ext_grid")
+        int_col = _pick(col_map, "gia", "internalgridavailability", "iga", "int_grid")
+
+        provider_col = _pick(col_map, "provider", "oem")
+        customer_col = _pick(col_map, "customer", "consumer", "client")
+        state_col = _pick(col_map, "state", "statename")
+        site_col = _pick(col_map, "site", "sitename", "plant")
+
+        if not date_col or not wtg_col or not ext_col or not int_col:
+            continue
+
+        # --- Build conditions
+        conditions, params = [], []
+
+        if date_from and date_to:
+            conditions.append(f"`{date_col}` BETWEEN %s AND %s")
+            params += [date_from, date_to]
+        elif date_from:
+            conditions.append(f"`{date_col}` >= %s")
+            params.append(date_from)
+        elif date_to:
+            conditions.append(f"`{date_col}` <= %s")
+            params.append(date_to)
+
+        def add_in(col, values):
+            nonlocal conditions, params
+            if col and values:
+                placeholders = ",".join(["%s"] * len(values))
+                conditions.append(f"`{col}` IN ({placeholders})")
+                params.extend(values)
+
+        add_in(provider_col, providers)
+        add_in(customer_col, customers)
+        add_in(state_col, states)
+        add_in(site_col, sites)
+        add_in(wtg_col, wtgs)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # --- Query
+        query = f"""
+            SELECT `{wtg_col}`, 
+                   AVG(COALESCE(`{ext_col}`,0)) AS ext_avg,
+                   AVG(COALESCE(`{int_col}`,0)) AS int_avg
+            FROM `{table_name}`
+            {where_clause}
+            GROUP BY `{wtg_col}`
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        for wtg_val, ext, inta in rows:
+            if not wtg_val:
+                continue
+            ext_avl[str(wtg_val)].append(float(ext or 0))
+            int_avl[str(wtg_val)].append(float(inta or 0))
+
+        # --- Distincts
+        def distinct_list(col):
+            if not col:
+                return []
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table_name}` ORDER BY `{col}`;")
+                return [str(r[0]) for r in cursor.fetchall() if r[0] not in (None, "")]
+        distincts["providers"].update(distinct_list(provider_col))
+        distincts["customers"].update(distinct_list(customer_col))
+        distincts["states"].update(distinct_list(state_col))
+        distincts["sites"].update(distinct_list(site_col))
+        distincts["wtgs"].update(distinct_list(wtg_col))
+
+    # --- Prepare data
+    ext_data = [{"wtg": wtg, "value": round(sum(vals)/len(vals), 2)} for wtg, vals in ext_avl.items()]
+    int_data = [{"wtg": wtg, "value": round(sum(vals)/len(vals), 2)} for wtg, vals in int_avl.items()]
+
+    # --- Overall
+    all_ext = [val for vals in ext_avl.values() for val in vals]
+    all_int = [val for vals in int_avl.values() for val in vals]
+    overall_ext = round(sum(all_ext)/len(all_ext), 2) if all_ext else 0
+    overall_int = round(sum(all_int)/len(all_int), 2) if all_int else 0
+
+    context = {
+        "ext_data": ext_data, "int_data": int_data,
+        "ext_json": json.dumps(ext_data, default=str),
+        "int_json": json.dumps(int_data, default=str),
+        "overall_ext": overall_ext, "overall_int": overall_int,
+        "providers": sorted(distincts["providers"]),
+        "customers": sorted(distincts["customers"]),
+        "states": sorted(distincts["states"]),
+        "sites": sorted(distincts["sites"]),
+        "wtgs": sorted(distincts["wtgs"]),
+        "selected_providers": providers,
+        "selected_customers": customers,
+        "selected_states": states,
+        "selected_sites": sites,
+        "selected_wtgs": wtgs,
+        "date_from": date_from,
+        "date_to": date_to,
+        "no_data": len(ext_data) == 0 and len(int_data) == 0,
+        "no_data_msg": "No Grid Availability data found for the selected filters." if (len(ext_data) == 0 and len(int_data) == 0) else "",
+    }
+
+    return render(request, "wind_Grid_Availability.html", context)
+
+
