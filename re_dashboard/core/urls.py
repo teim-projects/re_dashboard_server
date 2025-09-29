@@ -30,4 +30,5 @@ urlpatterns = [
     # Include account app routes
     path('accounts/', include('accounts.urls')),
     path('manage-installation/', manage_installation_data, name='manage_installation_data'),
+    path('tracking_dashboard', tracking_dashboard, name='tracking_dashboard'),
 ]

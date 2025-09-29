@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+<div class="main" style="min-height: 82vh;">
+<div class="container" style="margin-top: 60px; ">
+
+  <!-- Summary Cards -->
+  <div class="row my-3 g-4">
+    <div class="col-md-3">
+      <div class="card text-bg-primary shadow-sm summary-card">
+        <div class="card-body text-center">
+          <h5>Total Customers</h5>
+          <h3 class="counter" data-target="{{ total_customers }}">0</h3>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-success shadow-sm summary-card">
+        <div class="card-body text-center">
+          <h5>Active Customers</h5>
+          <h3 class="counter" data-target="{{ active_customers }}">0</h3>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-info shadow-sm summary-card">
+        <div class="card-body text-center">
+          <h5>Total Providers</h5>
+          <h3 class="counter" data-target="{{ total_providers }}">0</h3>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-warning shadow-sm summary-card">
+        <div class="card-body text-center">
+          <h5>Total Energy Types</h5>
+          <h3 class="counter" data-target="{{ total_energy }}">0</h3>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Section -->
+  <div class="row">
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-body">
+          <h5 class="text-center mb-3">⚡ Energy Distribution (Donut)</h5>
+          <div style="height:300px;">
+            <canvas id="energyChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-body">
+          <h5 class="text-center mb-3">👥 Active vs Inactive Customers</h5>
+          <div style="height:300px;">
+            <canvas id="customerChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+{% include 'fotter.html' %}
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+// ===== Donut Chart: Energy Distribution =====
+new Chart(document.getElementById("energyChart"), {
+  type: "doughnut",
+  data: {
+    labels: {{ energy_labels|safe }},
+    datasets: [{
+      data: {{ energy_values|safe }},
+      backgroundColor: [
+        "#36A2EB","#FF6384","#FFCE56","#4BC0C0","#9966FF","#FF9F40"
+      ],
+      borderWidth: 2,
+      borderColor: "#fff",
+      hoverOffset: 18,
+    }]
+  },
+  options: { 
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: "65%",
+    plugins: { 
+      legend: { position: "bottom" },
+      tooltip: {
+        backgroundColor: "rgba(0,0,0,0.8)",
+        padding: 12,
+        titleFont: { size: 14, weight: "bold" },
+        bodyFont: { size: 13 }
+      }
+    },
+    animation: {
+      animateScale: true,
+      animateRotate: true,
+      duration: 1800,
+      easing: "easeOutBounce"
+    }
+  }
+});
+
+// ===== Bar Chart: Active vs Inactive =====
+new Chart(document.getElementById("customerChart"), {
+  type: "bar",
+  data: {
+    labels: ["Active", "Inactive"],
+    datasets: [{
+      label: "Customers",
+      data: [{{ active_customers }}, {{ inactive_customers }}],
+      backgroundColor: ["#28a745", "#dc3545"],
+      borderRadius: 12,
+      hoverBackgroundColor: ["#218838", "#c82333"]
+    }]
+  },
+  options: { 
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { 
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: "rgba(0,0,0,0.8)",
+        bodyFont: { size: 14 },
+        titleFont: { size: 15, weight: "bold" }
+      }
+    },
+    scales: { 
+      y: { beginAtZero: true, ticks: { stepSize: 1 } } 
+    },
+    animation: {
+      duration: 1500,
+      easing: "easeInOutElastic"
+    }
+  }
+});
+// ===== Counter Animation for Totals =====
+document.addEventListener("DOMContentLoaded", () => {
+  const counters = document.querySelectorAll(".counter");
+  const speed = 4000; // higher = slower (was 200)
+
+  counters.forEach(counter => {
+    const updateCount = () => {
+      const target = +counter.getAttribute("data-target");
+      const current = +counter.innerText;
+
+      const increment = Math.ceil(target / speed);
+
+      if (current < target) {
+        counter.innerText = current + increment;
+        setTimeout(updateCount, 100); // was 20, now slower
+      } else {
+        counter.innerText = target;
+      }
+    };
+    updateCount();
+  });
+});
+
+</script>
+
+<style>
+/* 🔥 Card Hover Effects */
+.summary-card, .chart-card {
+  transition: all 0.3s ease-in-out;
+  border-radius: 15px;
+}
+.summary-card:hover, .chart-card:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 12px 25px rgba(0,0,0,0.2);
+}
+
+/* Headings glow on hover */
+h5.text-center:hover {
+  text-shadow: 0 0 8px rgba(0,0,0,0.3);
+  transition: 0.2s;
+}
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  background: url("{% static 'images/ban.jpg' %}") no-repeat center center;
+  background-size: cover;
+  filter: blur(5px);
+  z-index: -1;
+}
+</style>
+
+{% endblock %}
