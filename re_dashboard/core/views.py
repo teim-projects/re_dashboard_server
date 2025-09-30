@@ -6,14 +6,87 @@ def index_page(request):
   return render(request, 'index.html')
 
 
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.contrib.auth.models import User
+from django.db.models import Count
+from django.utils.timezone import now
+import datetime, json
+from collections import defaultdict
+from accounts.models import UserProfile, EnergyType, Provider
+
+
 @login_required
 def dashboard(request):
     user = request.user
+
     if user.is_superuser:
-        return render(request, 'home.html')  # Admin dashboard
-    else:
-        return render(request, 'wind_dashboard.html')  # Regular user dashboard
-    
+        # --- Customer stats ---
+        total_customers = UserProfile.objects.count()
+        active_customers = User.objects.filter(is_active=True).count()
+        inactive_customers = User.objects.filter(is_active=False).count()
+
+        # --- Energy stats ---
+        total_energy = EnergyType.objects.count()
+        energy_data = (
+            EnergyType.objects.annotate(total=Count("userprofile"))
+            .values("name", "total")
+        )
+        energy_labels = [e["name"] for e in energy_data]
+        energy_values = [e["total"] for e in energy_data]
+
+        # --- Provider stats ---
+        total_providers = Provider.objects.count()
+
+        # --- User Registrations (last 6 months, grouped by username) ---
+        today = now().date()
+        six_months_ago = today - datetime.timedelta(days=180)
+        users = User.objects.filter(date_joined__gte=six_months_ago)
+
+        months = [
+            (today - datetime.timedelta(days=i * 30)).strftime("%b %Y")
+            for i in range(6, -1, -1)
+        ]
+
+        user_data = defaultdict(lambda: [0] * len(months))
+        for u in users:
+            month_label = u.date_joined.strftime("%b %Y")
+            if month_label in months:
+                idx = months.index(month_label)
+                user_data[u.username][idx] += 1
+
+        colors = [
+            "#36A2EB", "#FF6384", "#4BC0C0", "#9966FF", "#FF9F40",
+            "#28a745", "#e83e8c", "#20c997", "#6f42c1", "#fd7e14"
+        ]
+        datasets = []
+        for i, (username, values) in enumerate(user_data.items()):
+            datasets.append({
+                "label": username,
+                "data": values,
+                "borderColor": colors[i % len(colors)],
+                "backgroundColor": colors[i % len(colors)] + "33",
+                "fill": True,
+                "tension": 0.3,
+                "pointRadius": 5,
+                "pointHoverRadius": 8
+            })
+
+        context = {
+            "total_customers": total_customers,
+            "active_customers": active_customers,
+            "inactive_customers": inactive_customers,
+            "total_energy": total_energy,
+            "energy_labels": json.dumps(energy_labels),
+            "energy_values": json.dumps(energy_values),
+            "total_providers": total_providers,
+            "registration_labels": json.dumps(months),
+            "registration_datasets": json.dumps(datasets),
+        }
+        return render(request, "tracking_dashboard.html", context)
+
+    # Normal user dashboard
+    return render(request, "wind_dashboard.html")
 
 
 
