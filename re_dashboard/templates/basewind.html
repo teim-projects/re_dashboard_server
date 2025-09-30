@@ -171,7 +171,7 @@ padding: 5px;
               FAILURE AND MACHINE AVAILABILITY</a>
             <a class="nav-link navcontent {% if request.path == '/drill-down/' %}active{% endif %}" href="{% url 'wind_drill_down' %}">DRILL
               DOWN</a>
-            <a class="nav-link navcontent {% if request.path == '/total-breakdown/' %}active{% endif %}" href="#">TOTAL
+            <a class="nav-link navcontent {% if request.path == '/total-breakdown/' %}active{% endif %}" href="{% url 'wind_breakdown_hours'%}">TOTAL
               BREAKDOWN HOURS</a>
  
             <a class="nav-link navcontent {% if request.path == '/breakdown-2/' %}active{% endif %}" href="{% url 'wind_breakdown_log' %}">BREAKDOWN

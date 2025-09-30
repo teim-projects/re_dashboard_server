@@ -19,6 +19,7 @@ urlpatterns = [
     path("Modifydata", views.Modifydata, name="Modifydata"),
     path("wind_wtg_plf", views.wind_wtg_plf, name="wind_wtg_plf"),
     path("wind_Grid_Availability", views.wind_Grid_Availability, name="wind_Grid_Availability"),
+    path("wind_breakdown_hours", views.wind_breakdown_hours, name="wind_breakdown_hours"),
  
 
 ]
