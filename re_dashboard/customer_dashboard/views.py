@@ -1830,12 +1830,15 @@ from django.core.files.storage import FileSystemStorage
 from django.db import connection
 from django.contrib.auth.models import User
 from django.utils.timezone import now
+
+
+
 import os
 import re
 import traceback
 import pandas as pd
 import numpy as np
-import os
+from datetime import datetime, date, time
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -1845,57 +1848,147 @@ from django.utils.timezone import now
 from accounts.models import Provider, EnergyType
 from core.models import UploadMetadata
 
-
 # --- Normalize column names
 def clean_col(name: str) -> str:
-    """
-    Clean column names:
-    - Strip spaces
-    - Lowercase
-    - Replace spaces/dots/hyphens with underscores
-    """
     if not name:
         return ""
     name = str(name).strip().lower()
-    name = re.sub(r'[^a-z0-9]+', '_', name)  # replace special chars with _
+    name = re.sub(r'[^a-z0-9]+', '_', name)
     return name.strip('_')
 
-
-# --- Normalize date values to datetime format
+# --- Normalize date values to YYYY-MM-DD
 def normalize_datetime(val):
-    """
-    Convert Excel/CSV date into datetime string YYYY-MM-DD 00:00:00
-    """
     if pd.isna(val) or str(val).strip().lower() in ["", "nan", "nat"]:
         return None
     try:
-        dt = pd.to_datetime(val)
-        return dt.strftime("%Y-%m-%d 00:00:00")  # keep time at 00:00:00
+        if isinstance(val, (datetime, date)):
+            return val.strftime("%Y-%m-%d")
+        dt = pd.to_datetime(str(val), errors="coerce")
+        if pd.isna(dt):
+            return None
+        return dt.strftime("%Y-%m-%d")
     except Exception:
         return None
 
-
-# --- Normalize hours values
+# --- Convert hours to float
 def normalize_hours(val):
-    """
-    Convert hours/hrs column to float (keep None for invalid values)
-    """
-    if pd.isna(val) or str(val).strip().lower() in ["", "nan", "inf", "-inf"]:
+    if val is None or str(val).strip() == "" or str(val).lower() in ["nan", "null"]:
         return None
     try:
         return float(val)
+    except (ValueError, TypeError):
+        pass
+    if isinstance(val, time):
+        return val.hour + val.minute / 60 + val.second / 3600
+    try:
+        parts = str(val).strip().split(":")
+        if len(parts) == 2:
+            h, m = map(int, parts)
+            s = 0
+        elif len(parts) == 3:
+            h, m, s = map(int, parts)
+        else:
+            return None
+        return h + m / 60 + s / 3600
     except Exception:
         return None
 
+# --- Sanitize dataframe for MySQL
+def sanitize_for_mysql(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df = df.replace({pd.NaT: None, np.nan: None, np.inf: None, -np.inf: None})
+    df = df.replace({"": None, "nan": None, "NaN": None, "NULL": None, "null": None})
+    for col in df.columns:
+        if df[col].dtype == "datetime64[ns]":
+            df[col] = df[col].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else None)
+    df = df.astype(object)
+    return df
 
-# --- Main Upload View
+
+# --- UPDATED: Flexible header detection
+def detect_header_row(df):
+    """
+    Accept everything unless a row contains 'WEC Wise Report'.
+    Skip those rows. First valid row becomes header.
+    """
+    for i, row in df.iterrows():
+        row_values = [str(x).strip().lower() for x in row.values if pd.notna(x)]
+        # ❌ Skip "WEC Wise Report" rows
+        if any("wec wise report" in val for val in row_values):
+            continue
+        # ✅ First valid row becomes header
+        return i
+    # fallback if all skipped
+    return 0
+
+
+def read_energy_file(file_path, ext):
+    if ext == ".csv":
+        df = pd.read_csv(file_path, header=None)
+
+    elif ext == ".xls":
+        try:
+            df = pd.read_excel(file_path, header=None, engine="xlrd")
+        except Exception as e:
+            if "Excel xls file; not supported" in str(e) or "BOF" in str(e) or "zip file" in str(e):
+                try:
+                    df_list = pd.read_html(file_path)
+                    if len(df_list) > 0:
+                        df = df_list[0]
+                    else:
+                        raise ValueError("❌ No table found in the uploaded .xls file.")
+                except Exception:
+                    raise ValueError("❌ The uploaded .xls file is invalid or not a real Excel file.")
+            else:
+                raise e
+
+    elif ext == ".xlsx":
+        df = pd.read_excel(file_path, header=None, engine="openpyxl")
+
+    else:
+        raise ValueError("❌ Unsupported file format. Only .xls, .xlsx, and .csv are allowed.")
+
+    # --- UPDATED: Detect header row
+    header_row = detect_header_row(df)
+
+    # Reload with correct header
+    if ext == ".csv":
+        df = pd.read_csv(file_path, header=header_row)
+    elif ext == ".xlsx":
+        df = pd.read_excel(file_path, header=header_row, engine="openpyxl")
+    elif ext == ".xls":
+        try:
+            df = pd.read_excel(file_path, header=header_row, engine="xlrd")
+        except Exception:
+            df_list = pd.read_html(file_path)
+            df = df_list[0]
+            df.columns = df.iloc[header_row]
+            df = df.drop(range(0, header_row + 1))
+
+    df.columns = [clean_col(c) for c in df.columns]
+    return df
+
+
+def read_mixed_xls(file_path):
+    try:
+        return pd.read_excel(file_path, header=None, engine="xlrd")
+    except Exception as e:
+        if "Expected BOF record" in str(e):
+            df_list = pd.read_html(file_path)
+            if len(df_list) == 0:
+                raise ValueError("❌ No table found in HTML .xls file")
+            return df_list[0]
+        else:
+            raise e
+
+
+# --- Main Upload View ---
 @login_required
 def customer_upload(request):
     username = request.user.username.lower()
     providers = Provider.objects.all()
     energy_types = EnergyType.objects.all()
 
-    # --- Fetch DB tables for this user only
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
@@ -1912,6 +2005,7 @@ def customer_upload(request):
     if request.method == "POST":
         table_name = request.POST.get("table_name", "").strip()
         provider_name = request.POST.get("provider_name", "").strip()
+        energy_type_name = request.POST.get("energy_type", "").title()
         data_file = request.FILES.get("data_file")
 
         if not table_name or not data_file or not provider_name:
@@ -1924,24 +2018,20 @@ def customer_upload(request):
 
         try:
             ext = os.path.splitext(filename)[1].lower()
-            df = pd.read_csv(file_path) if ext == ".csv" else pd.read_excel(file_path)
+            if ext not in [".xls", ".xlsx", ".csv"]:
+                raise ValueError("❌ Unsupported file format. Only .xls, .xlsx, and .csv are allowed.")
 
-            # --- Clean columns
-            df.columns = [clean_col(c) for c in df.columns]
+            df = read_energy_file(file_path, ext)
 
-            # --- Replace bad values
-            df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
-            df = df.astype(object).where(pd.notnull(df), None)
-            df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
-
-            # --- Normalize date & hours before insert ---
+            # Normalize date & hours
             for col in df.columns:
                 if "date" in col.lower():
                     df[col] = df[col].apply(normalize_datetime)
                 elif "hrs" in col.lower() or "hours" in col.lower():
                     df[col] = df[col].apply(normalize_hours)
 
-            # --- Match DB table columns
+            df = sanitize_for_mysql(df)
+
             with connection.cursor() as cursor:
                 cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
                 table_columns = [col[0].lower() for col in cursor.fetchall()]
@@ -1951,15 +2041,13 @@ def customer_upload(request):
                 messages.error(request, "❌ No matching columns between file and table.")
                 return redirect("customer_upload")
 
-            # --- Add mandatory fields
             if "uploaded_by" in table_columns:
                 df["uploaded_by"] = username
             if "provider" in table_columns:
                 df["provider"] = provider_name
             if "energy_type" in table_columns:
-                df["energy_type"] = request.POST.get("energy_type", "").title()
+                df["energy_type"] = energy_type_name
 
-            # --- Insert into DB ---
             columns = ", ".join(f"`{col}`" for col in df.columns)
             placeholders = ", ".join(["%s"] * len(df.columns))
             insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
