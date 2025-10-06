@@ -1416,186 +1416,7 @@ def wind_drill_down(request):
     return render(request, "wind_drill_down.html", context)
 
 
-import json
-from django.db import connection
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
-
-
-# Helper: pick column name matching any in candidates
-def _pick(col_map, *candidates):
-    for c in candidates:
-        c_norm = c.lower().replace(" ", "").replace("_", "").replace(".", "")
-        for k, v in col_map.items():
-            if k.lower().replace(" ", "").replace("_", "").replace(".", "") == c_norm:
-                return v
-    return None
-
-
-# Helper: parse date-like values
-def parse_date_like(value):
-    import datetime
-    if not value:
-        return None
-    if isinstance(value, datetime.date):
-        return value
-    try:
-        return datetime.datetime.strptime(str(value), "%Y-%m-%d").date()
-    except Exception:
-        try:
-            return datetime.datetime.strptime(str(value), "%d-%m-%Y").date()
-        except Exception:
-            return None
-
-
-@login_required
-def wind_breakdown_log(request):
-    user = request.user.username.lower()
-
-    # --- find all wind tables for this user ---
-    with connection.cursor() as cursor:
-        cursor.execute("SHOW TABLES;")
-        tables = [row[0] for row in cursor.fetchall()]
-    table_names = [t for t in tables if t.startswith(user + "_") and t.endswith("_wind")]
-
-    if not table_names:
-        return render(request, "wind_breakdown_log.html", {
-            "breakdown_data": "[]",
-            "providers": [], "customers": [], "states": [], "sites": [], "wtgs": [],
-            "selected_providers": [], "selected_customers": [], "selected_states": [],
-            "selected_sites": [], "selected_wtgs": [],
-            "no_data": True,
-            "no_data_msg": "No wind tables found for your account."
-        })
-
-    # --- filters ---
-    date_from = request.GET.get("date_from")
-    date_to = request.GET.get("date_to")
-    selected_providers = request.GET.getlist("provider")
-    selected_customers = request.GET.getlist("customer")
-    selected_states = request.GET.getlist("state")
-    selected_sites = request.GET.getlist("site")
-    selected_wtgs = request.GET.getlist("wtg")
-
-    breakdown_records = []
-    providers_set, customers_set, states_set, sites_set, wtgs_set = set(), set(), set(), set(), set()
-
-    for table in table_names:
-        with connection.cursor() as cursor:
-            cursor.execute(f"SHOW COLUMNS FROM `{table}`")
-            cols = [row[0] for row in cursor.fetchall()]
-        col_map = {c: c for c in cols}
-
-        date_col = _pick(col_map, "date", "gen date", "reading_date", "day_date")
-        site_col = _pick(col_map, "site", "location", "plant", "park")
-        wec_col = _pick(col_map, "wec", "wtg", "wecno", "wtgno")
-        lhrs_col = _pick(col_map, "l.hrs","l_hrs", "lhours", "loss hours", "lhrs", "lhour")
-        remarks_col = _pick(col_map, "remarks", "comment", "reason", "note")
-
-        provider_col = _pick(col_map, "provider", "oem")
-        customer_col = _pick(col_map, "customer", "customer name", "client")
-        state_col = _pick(col_map, "state")
-
-        if not date_col:
-            continue
-
-        # --- build WHERE ---
-        conditions, params = [], []
-        if date_from:
-            conditions.append(f"`{date_col}` >= %s")
-            params.append(date_from)
-        if date_to:
-            conditions.append(f"`{date_col}` <= %s")
-            params.append(date_to)
-        if selected_providers and provider_col:
-            placeholders = ",".join(["%s"] * len(selected_providers))
-            conditions.append(f"`{provider_col}` IN ({placeholders})")
-            params.extend(selected_providers)
-        if selected_customers and customer_col:
-            placeholders = ",".join(["%s"] * len(selected_customers))
-            conditions.append(f"`{customer_col}` IN ({placeholders})")
-            params.extend(selected_customers)
-        if selected_states and state_col:
-            placeholders = ",".join(["%s"] * len(selected_states))
-            conditions.append(f"`{state_col}` IN ({placeholders})")
-            params.extend(selected_states)
-        if selected_sites and site_col:
-            placeholders = ",".join(["%s"] * len(selected_sites))
-            conditions.append(f"`{site_col}` IN ({placeholders})")
-            params.extend(selected_sites)
-        if selected_wtgs and wec_col:
-            placeholders = ",".join(["%s"] * len(selected_wtgs))
-            conditions.append(f"`{wec_col}` IN ({placeholders})")
-            params.extend(selected_wtgs)
-
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        select_cols = [c for c in [date_col, site_col, wec_col, lhrs_col, remarks_col,
-                                   provider_col, customer_col, state_col] if c]
-        query = f"SELECT {', '.join('`'+c+'`' for c in select_cols)} FROM `{table}` {where_clause}"
-
-        with connection.cursor() as cursor:
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-
-        idx = {col: i for i, col in enumerate(select_cols)}
-
-        for row in rows:
-            d = parse_date_like(row[idx[date_col]])
-            if not d:
-                continue
-
-            lhrs = str(row[idx.get(lhrs_col)]) if lhrs_col and row[idx.get(lhrs_col)] is not None else ""
-            remarks = str(row[idx.get(remarks_col)]).strip() if remarks_col and row[idx.get(remarks_col)] else ""
-
-            # ✅ Always include row. If empty, default to "0"
-            if not lhrs and not remarks:
-                remarks = "0"
-
-            record = {
-                "state": row[idx.get(state_col)] if state_col else "Unknown",
-                "site": row[idx.get(site_col)] if site_col else "Unknown",
-                "wec": row[idx.get(wec_col)] if wec_col else "Unknown",
-                "date": d.strftime("%d-%m-%Y"),
-                "remarks": remarks
-            }
-            breakdown_records.append(record)
-
-            # Collect distinct filter values
-            if provider_col and row[idx.get(provider_col)]:
-                providers_set.add(row[idx[provider_col]])
-            if customer_col and row[idx.get(customer_col)]:
-                customers_set.add(row[idx[customer_col]])
-            if state_col and row[idx.get(state_col)]:
-                states_set.add(row[idx[state_col]])
-            if site_col and row[idx.get(site_col)]:
-                sites_set.add(row[idx[site_col]])
-            if wec_col and row[idx.get(wec_col)]:
-                wtgs_set.add(row[idx[wec_col]])
-
-    # Debug print
  
-    # Sort by date
-    breakdown_records = sorted(breakdown_records, key=lambda x: x["date"])
-
-    context = {
-        "breakdown_data": json.dumps(breakdown_records),
-        "providers": sorted(providers_set),
-        "customers": sorted(customers_set),
-        "states": sorted(states_set),
-        "sites": sorted(sites_set),
-        "wtgs": sorted(wtgs_set),
-        "selected_providers": selected_providers,
-        "selected_customers": selected_customers,
-        "selected_states": selected_states,
-        "selected_sites": selected_sites,
-        "selected_wtgs": selected_wtgs,
-        "date_from": date_from,
-        "date_to": date_to,
-        "no_data": False if breakdown_records else True,
-        "no_data_msg": "No data found for given filters." if not breakdown_records else "",
-    }
-    return render(request, "wind_breakdown_log.html", context)
-
 
 from collections import defaultdict
 from datetime import datetime, date
@@ -2701,3 +2522,178 @@ def wind_breakdown_hours(request):
     }
 
     return render(request, "wind_breakdown_hours.html", context)
+import json
+import datetime
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+
+
+# --- helper: flexible column picker ---
+def _pick(col_map, *candidates):
+    """Return actual-cased column name matching any of the candidates."""
+    for c in candidates:
+        c_norm = c.lower().replace(" ", "").replace("_", "").replace(".", "")
+        for k, v in col_map.items():
+            if k.lower().replace(" ", "").replace("_", "").replace(".", "") == c_norm:
+                return v
+    return None
+
+
+# --- helper: parse date safely ---
+def parse_date_like(value):
+    if not value:
+        return None
+    if isinstance(value, datetime.date):
+        return value
+    try:
+        return datetime.datetime.strptime(str(value), "%Y-%m-%d").date()
+    except Exception:
+        try:
+            return datetime.datetime.strptime(str(value), "%d-%m-%Y").date()
+        except Exception:
+            return None
+
+
+# --- main view ---
+@login_required
+def wind_breakdown_log(request):
+    user = request.user.username.lower()
+    print(f"\n🔍 DEBUG: Fetching breakdown data for user: {user}")
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [row[0] for row in cursor.fetchall()]
+
+    table_names = [t for t in tables if t.startswith(user + "_") and t.endswith("_wind")]
+
+    if not table_names:
+        return render(request, "wind_breakdown_log.html", {
+            "data": [],
+            "breakdown_data": "[]",
+            "providers": [], "customers": [], "states": [], "sites": [], "wtgs": [],
+            "no_data": True,
+            "no_data_msg": "No wind tables found for your account.",
+            "total_hours": 0
+        })
+
+    # filters from GET
+    date_from = request.GET.get("date_from")
+    date_to = request.GET.get("date_to")
+    selected_providers = request.GET.getlist("provider")
+    selected_customers = request.GET.getlist("customer")
+    selected_states = request.GET.getlist("state")
+    selected_sites = request.GET.getlist("site")
+    selected_wtgs = request.GET.getlist("wtg")
+
+    breakdown_records = []
+    providers_set, customers_set, states_set, sites_set, wtgs_set = set(), set(), set(), set(), set()
+    total_hours = 0  # <-- add this
+
+    # iterate tables
+    for table in table_names:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+            cols = [row[0] for row in cursor.fetchall()]
+
+        col_map = {c: c for c in cols}
+
+        date_col = _pick(col_map, "date", "gen date", "reading_date", "day_date", "gen_date")
+        site_col = _pick(col_map, "site", "location", "plant", "park")
+        wec_col = _pick(col_map, "wec", "wtg", "wecno", "wtgno", "loc_no")
+        lhrs_col = _pick(col_map, "l.hrs", "l_hrs", "lhours", "loss hours", "lhrs", "l_hour", "lhrs")
+        remarks_col = _pick(col_map, "remarks", "comment", "reason", "note")
+
+        provider_col = _pick(col_map, "provider", "oem")
+        customer_col = _pick(col_map, "customer", "customer name", "client", "customer_name")
+        state_col = _pick(col_map, "state")
+
+        if not date_col:
+            continue
+
+        # --- where clause ---
+        conditions, params = [], []
+        if date_from: conditions.append(f"`{date_col}` >= %s"); params.append(date_from)
+        if date_to: conditions.append(f"`{date_col}` <= %s"); params.append(date_to)
+        if selected_providers and provider_col:
+            placeholders = ",".join(["%s"] * len(selected_providers))
+            conditions.append(f"`{provider_col}` IN ({placeholders})")
+            params.extend(selected_providers)
+        if selected_customers and customer_col:
+            placeholders = ",".join(["%s"] * len(selected_customers))
+            conditions.append(f"`{customer_col}` IN ({placeholders})")
+            params.extend(selected_customers)
+        if selected_states and state_col:
+            placeholders = ",".join(["%s"] * len(selected_states))
+            conditions.append(f"`{state_col}` IN ({placeholders})")
+            params.extend(selected_states)
+        if selected_sites and site_col:
+            placeholders = ",".join(["%s"] * len(selected_sites))
+            conditions.append(f"`{site_col}` IN ({placeholders})")
+            params.extend(selected_sites)
+        if selected_wtgs and wec_col:
+            placeholders = ",".join(["%s"] * len(selected_wtgs))
+            conditions.append(f"`{wec_col}` IN ({placeholders})")
+            params.extend(selected_wtgs)
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        select_cols = [c for c in [date_col, site_col, wec_col, lhrs_col, remarks_col,
+                                   provider_col, customer_col, state_col] if c]
+        query = f"SELECT {', '.join('`'+c+'`' for c in select_cols)} FROM `{table}` {where_clause}"
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+        idx = {col: i for i, col in enumerate(select_cols)}
+
+        for row in rows:
+            d = parse_date_like(row[idx[date_col]])
+            if not d:
+                continue
+
+            lhrs_val = float(row[idx.get(lhrs_col)]) if lhrs_col and row[idx.get(lhrs_col)] else 0
+            total_hours += lhrs_val  # <-- accumulate total hours
+
+            remarks_val = str(row[idx.get(remarks_col)]).strip() if remarks_col and row[idx.get(remarks_col)] else "-"
+
+            record = {
+                "state": row[idx.get(state_col)] if state_col else "Unknown",
+                "site": row[idx.get(site_col)] if site_col else "Unknown",
+                "wtg": row[idx.get(wec_col)] if wec_col else "Unknown",
+                "date": d.strftime("%d-%m-%Y"),
+                "remark": remarks_val,
+                "breakdown_hours": str(lhrs_val),
+            }
+            breakdown_records.append(record)
+
+            # collect filter values
+            if provider_col and row[idx.get(provider_col)]: providers_set.add(row[idx[provider_col]])
+            if customer_col and row[idx.get(customer_col)]: customers_set.add(row[idx[customer_col]])
+            if state_col and row[idx.get(state_col)]: states_set.add(row[idx[state_col]])
+            if site_col and row[idx.get(site_col)]: sites_set.add(row[idx[site_col]])
+            if wec_col and row[idx.get(wec_col)]: wtgs_set.add(row[idx[wec_col]])
+
+    breakdown_records = sorted(breakdown_records, key=lambda x: x["date"])
+
+    context = {
+        "data": breakdown_records,
+        "breakdown_data": json.dumps(breakdown_records),
+        "providers": sorted(providers_set),
+        "customers": sorted(customers_set),
+        "states": sorted(states_set),
+        "sites": sorted(sites_set),
+        "wtgs": sorted(wtgs_set),
+        "selected_providers": selected_providers,
+        "selected_customers": selected_customers,
+        "selected_states": selected_states,
+        "selected_sites": selected_sites,
+        "selected_wtgs": selected_wtgs,
+        "date_from": date_from,
+        "date_to": date_to,
+        "no_data": False if breakdown_records else True,
+        "no_data_msg": "No data found for given filters." if not breakdown_records else "",
+        "total_hours": total_hours,  # <-- pass total_hours to template
+    }
+
+    return render(request, "wind_breakdown_log.html", context)
