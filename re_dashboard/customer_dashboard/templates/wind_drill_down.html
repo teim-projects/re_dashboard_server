@@ -421,12 +421,19 @@
     }
   };
 
-  // 🎨 Color Palette
-  const palette = [
-    "#4e79a7", "#f28e2b", "#e15759", "#76b7b2",
-    "#59a14f", "#edc948", "#b07aa1", "#ff9da7",
-    "#9c755f", "#bab0ab"
-  ];
+const palette = [
+  "#4285F4", // Google Blue
+  "#DB4437", // Google Red
+  "#F4B400", // Google Yellow
+  "#0F9D58", // Google Green
+  "#AB47BC", // Purple
+  "#00ACC1", // Teal
+  "#FF7043", // Deep Orange
+  "#9E9D24", // Olive
+  "#5E35B1", // Deep Purple
+  "#F06292"  // Pink
+];
+
 
   // ------------------- Charts -------------------
 
@@ -476,7 +483,7 @@
       scales: { x: { beginAtZero: true, max: 100 } }
     }
   });
-
+ 
   // 3️⃣ Grid Availability (Vertical Bars with gradient + rounded)
   const gaCtx = document.getElementById('gaChart').getContext("2d");
   new Chart(gaCtx, {
@@ -486,10 +493,7 @@
       datasets: [{
         label: "Grid Availability (%)",
         data: gaData.map(d => d.ga),
-        backgroundColor: gaData.map((_, i) =>
-          createGradient(gaCtx, palette[i % palette.length], "#ffffff")
-        ),
-        borderRadius: 12
+ backgroundColor: gaData.map((_, i) => palette[i % palette.length]),         borderRadius: 12
       }]
     },
     options: {
@@ -508,14 +512,14 @@
         label: "Operating Hours",
         data: ohData.map(d => d.hours),
         borderColor: "#e15759",
-        backgroundColor: createGradient(ohCtx, "rgba(225,87,89,0.6)", "rgba(225,87,89,0.1)"),
+        backgroundColor: createGradient(ohCtx, "rgba(15,157,88,0.5)", "rgba(15,157,88,0.2)"),
         fill: true,
         tension: 0.4,
         pointStyle: 'circle',
         pointRadius: 6,
         pointHoverRadius: 10,
-        pointBackgroundColor: "#fff",
-        pointBorderColor: "#e15759",
+        pointBackgroundColor: "#9E9D24",
+        pointBorderColor: "#0F9D58",
         pointBorderWidth: 2
       }]
     },

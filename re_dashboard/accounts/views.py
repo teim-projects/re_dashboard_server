@@ -257,7 +257,22 @@ import re
 import xlrd
 from openpyxl import Workbook
 
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+import pandas as pd
+import os
+import re
+import xlrd
+from openpyxl import Workbook
 
+from accounts.models import Provider, EnergyType
+
+
+# --- helper: convert old .xls to .xlsx ---
 def convert_xls_to_xlsx(xls_path, xlsx_path):
     """Convert old .xls file to .xlsx using xlrd + openpyxl"""
     book = xlrd.open_workbook(xls_path)
@@ -277,8 +292,10 @@ def add_provider_with_structure(request):
     energy_types = EnergyType.objects.all()
     staff_users = User.objects.filter(is_superuser=False)
 
+    # ------------------ POST logic ------------------
     if request.method == 'POST':
-        # ✅ Delete a specific table
+
+        # ✅ DELETE specific table
         if 'delete_table_name' in request.POST:
             table_to_delete = request.POST.get('delete_table_name')
             try:
@@ -289,7 +306,7 @@ def add_provider_with_structure(request):
                 messages.error(request, f"Error deleting table: {str(e)}")
             return redirect("add_provider")
 
-        # ✅ Delete entire provider and related tables
+        # ✅ DELETE provider and related tables
         elif 'delete_id' in request.POST:
             delete_id = request.POST.get('delete_id')
             try:
@@ -300,15 +317,17 @@ def add_provider_with_structure(request):
                     for energy in EnergyType.objects.all():
                         for user in staff_users:
                             table_name = f"{user.username.lower()}_{provider_clean}_{energy.name.lower().replace(' ', '_')}"
+                            table_break = f"{table_name}_breakdowndata"
                             cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
+                            cursor.execute(f"DROP TABLE IF EXISTS `{table_break}`")
 
                 provider.delete()
-                messages.success(request, f"Provider and all related tables deleted.")
+                messages.success(request, "Provider and all related tables deleted successfully.")
             except Exception as e:
                 messages.error(request, f"Error deleting provider: {str(e)}")
             return redirect("add_provider")
 
-        # ✅ Add new provider + create structure table
+        # ✅ ADD new provider and create structure
         provider_name = request.POST.get("provider_name", "").strip().lower().replace(' ', '_')
         energy_type_id = request.POST.get("energy_type")
         structure_file = request.FILES.get("structure_file")
@@ -318,6 +337,7 @@ def add_provider_with_structure(request):
             messages.error(request, "All fields are required: provider, energy type, file, and user.")
             return redirect("add_provider")
 
+        # ✅ Fetch related objects
         try:
             user_obj = User.objects.get(username=selected_username)
         except User.DoesNotExist:
@@ -332,63 +352,84 @@ def add_provider_with_structure(request):
             return redirect("add_provider")
 
         provider_obj, created = Provider.objects.get_or_create(name=provider_name)
-        table_name = f"{selected_username.lower()}_{provider_name}_{energy_type_name}"
 
+        # ✅ Save uploaded file temporarily
         fs = FileSystemStorage()
         filename = fs.save(structure_file.name, structure_file)
         file_path = fs.path(filename)
 
         try:
-            # ✅ Detect file extension
+            # ---------- Detect file extension ----------
             file_ext = os.path.splitext(filename)[1].lower()
 
-            # ✅ Read file into pandas DataFrame
             if file_ext == ".csv":
-                df = pd.read_csv(file_path)
+                sheets = {"main": pd.read_csv(file_path)}
 
             elif file_ext == ".xls":
                 try:
-                    # Try conversion (real Excel binary)
                     xlsx_path = file_path + "x"
                     convert_xls_to_xlsx(file_path, xlsx_path)
-                    df = pd.read_excel(xlsx_path, engine="openpyxl")
+                    sheets = pd.read_excel(xlsx_path, engine="openpyxl", sheet_name=None)
                     os.remove(xlsx_path)
                 except Exception:
-                    # Fallback: treat as HTML table
                     df_list = pd.read_html(file_path)
-                    df = df_list[0]
+                    sheets = {"main": df_list[0]}
 
             elif file_ext in [".xlsx", ".xlsm", ".xlsb"]:
-                df = pd.read_excel(file_path, engine="openpyxl")
+                sheets = pd.read_excel(file_path, engine="openpyxl", sheet_name=None)
 
             elif file_ext == ".ods":
-                df = pd.read_excel(file_path, engine="odf")
+                sheets = pd.read_excel(file_path, engine="odf", sheet_name=None)
 
             else:
-                messages.error(request, f"Unsupported file type: {file_ext}.")
+                messages.error(request, f"Unsupported file type: {file_ext}")
                 return redirect("add_provider")
 
-            # ✅ Clean column names
-            df.columns = [re.sub(r'\W+', '_', str(col).strip()).lower().strip('_') for col in df.columns]
+            created_tables = []
 
-            # ✅ Build SQL create statement
-            column_defs = [f"`{col}` TEXT" for col in df.columns]
-            column_defs += ["`provider` TEXT", "`energy_type` TEXT", "`uploaded_by` TEXT"]
+            # ---------- Iterate through sheets ----------
+            for sheet_name, df in sheets.items():
+                # skip empty sheets
+                if df.empty:
+                    continue
 
-            create_sql = f"""
-                CREATE TABLE IF NOT EXISTS `{table_name}` (
-                    `id` INT AUTO_INCREMENT PRIMARY KEY,
-                    {", ".join(column_defs)}
-                );
-            """
+                sheet_clean = sheet_name.strip().lower()
 
-            with connection.cursor() as cursor:
-                cursor.execute(create_sql)
+                # ✅ Identify generation vs breakdown
+                if "breakdown" in sheet_clean:
+                    table_name = f"{selected_username.lower()}_{provider_name}_{energy_type_name}_breakdowndata"
+                else:
+                    table_name = f"{selected_username.lower()}_{provider_name}_{energy_type_name}"
 
-            messages.success(
-                request,
-                f"✅ Table '{table_name}' created successfully for provider '{provider_name}' and user '{selected_username}'."
-            )
+                # ✅ Clean column names
+                df.columns = [
+                    re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
+                    for col in df.columns
+                ]
+
+                # ✅ Build SQL table
+                column_defs = [f"`{col}` TEXT" for col in df.columns]
+                column_defs += ["`provider` TEXT", "`energy_type` TEXT", "`uploaded_by` TEXT"]
+
+                create_sql = f"""
+                    CREATE TABLE IF NOT EXISTS `{table_name}` (
+                        `id` INT AUTO_INCREMENT PRIMARY KEY,
+                        {", ".join(column_defs)}
+                    );
+                """
+
+                with connection.cursor() as cursor:
+                    cursor.execute(create_sql)
+
+                created_tables.append(table_name)
+
+            if created_tables:
+                messages.success(
+                    request,
+                    f"✅ Created table(s): {', '.join(created_tables)} for provider '{provider_name}'."
+                )
+            else:
+                messages.warning(request, "No valid sheets found to create tables.")
 
         except Exception as e:
             messages.error(request, f"❌ Error creating table: {str(e)}")
@@ -398,15 +439,13 @@ def add_provider_with_structure(request):
 
         return redirect("add_provider")
 
-    # ✅ GET request — display form
+    # ------------------ GET logic ------------------
     providers = Provider.objects.all()
 
-    # Fetch all DB tables
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         all_tables = [row[0] for row in cursor.fetchall()]
 
-    # Map each provider to its tables
     provider_table_map = {}
     for provider in providers:
         key = provider.name.strip().lower().replace(' ', '_')

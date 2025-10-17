@@ -219,7 +219,7 @@ padding: 5px;
             </a>
         </li>
         <li>
-            <a class="dropdown-item" href="#">
+            <a class="dropdown-item" href="{% url 'open_access_calculator' %}">
                 <i class="fa-solid fa-calculator me-2"></i> Open Access Calculator
             </a>
         </li>
@@ -246,6 +246,13 @@ padding: 5px;
  
             <a class="nav-link navcontent {% if request.path == '/breakdown-2/' %}active{% endif %}" href="{% url 'wind_breakdown_log' %}">BREAKDOWN
               ANALYSIS</a>
+
+
+               
+            <a class="nav-link navcontent {% if request.path == '/breakdown-2/' %}active{% endif %}" href="{% url 'dashboard_breakdown' %}"> OVERALL BREAKDOWN ANALYSIS</a>
+
+
+
             <a class="nav-link navcontent {% if request.path == '/avg-machine-availability/' %}active{% endif %}"
               href="{% url 'wind_Avg_Machine_Availability' %}">AVERAGE MACHINE AVAILABILITY</a>
             <a class="nav-link navcontent {% if request.path == '/avg-grid-availability/' %}active{% endif %}"

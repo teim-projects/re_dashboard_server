@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Upload Files{% endblock %}
+{% block title %}Generation & Breakdown Upload{% endblock %}
 
 {% block style_css %}
 <style>
@@ -12,7 +12,7 @@
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
   }
   .form-heading {
-    background: linear-gradient(to right, #7b2cbf, #9d4edd);
+    background: linear-gradient(to right, #0c8599, #38a3a5);
     color: #fff;
     padding: 15px 25px;
     border-top-left-radius: 15px;
@@ -22,35 +22,10 @@
     margin-bottom: 20px;
     text-align: center;
   }
-
-  .form-label {
-    font-weight: 500;
-    margin-top: 12px;
-  }
-
-  .form-control {
-    border-radius: 10px;
-    padding: 10px 14px;
-  }
-
-  .btn-custom {
-    width: 160px;
-    font-weight: 500;
-    font-size: 16px;
-  }
-
-  .action-buttons {
-    display: flex;
-    justify-content: center;
-    gap: 15px;
-    margin-top: 20px;
-  }
-
-  @media (max-width: 576px) {
-    .form-heading { font-size: 18px; }
-    .btn-custom { width: 100%; font-size: 14px; }
-    .form-control { font-size: 14px; }
-  }
+  .form-label { font-weight: 500; margin-top: 12px; }
+  .form-control { border-radius: 10px; padding: 10px 14px; }
+  .btn-custom { width: 160px; font-weight: 500; font-size: 16px; }
+  .action-buttons { display: flex; justify-content: center; gap: 15px; margin-top: 20px; }
 </style>
 {% endblock style_css %}
 
@@ -60,19 +35,27 @@
     <div class="row justify-content-center mt-4">
       <div class="col-md-8 mt-5">
         <div class="form-wrapper">
-          <div class="form-heading">📁 Upload Your Energy Data</div>
+          <div class="form-heading">📊 Upload Generation & Breakdown Data</div>
 
+          <!-- ✅ Messages -->
           {% if messages %}
-            {% for message in messages %}
-              <div class="alert alert-{{ message.tags }}">{{ message }}</div>
-            {% endfor %}
+            <div class="mt-2 mb-3">
+              {% for message in messages %}
+                <div class="alert 
+                  {% if message.tags %}alert-{{ message.tags }}{% else %}alert-info{% endif %}
+                  alert-dismissible fade show" 
+                  style="white-space: pre-line; font-size: 15px;">
+                  {{ message|safe }}
+                  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+              {% endfor %}
+            </div>
           {% endif %}
 
           <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <div class="row">
 
-              <!-- ✅ Select Provider -->
               <div class="col-md-6 mb-3">
                 <label class="form-label">Select Provider</label>
                 <select class="form-control" id="providerSelect" name="provider_name" required>
@@ -83,7 +66,6 @@
                 </select>
               </div>
 
-              <!-- ✅ Select Energy Type -->
               <div class="col-md-6 mb-3">
                 <label class="form-label">Select Energy Type</label>
                 <select class="form-control" id="energySelect" name="energy_type" required>
@@ -94,7 +76,6 @@
                 </select>
               </div>
 
-              <!-- ✅ Auto-Matched Table -->
               <div class="col-md-12 mb-3">
                 <label class="form-label">Auto-Matched Provider Table</label>
                 <select class="form-control" name="table_name" id="tableSelect" required>
@@ -105,14 +86,13 @@
                 </select>
               </div>
 
-              <!-- ✅ File Input -->
               <div class="col-md-12 mb-3">
-                <label class="form-label">Choose Excel or CSV File <span class="text-danger">*</span></label>
-                <input type="file" class="form-control" name="data_file" required>
+                <label class="form-label">Choose Excel File (multi-sheet)</label>
+                <input type="file" class="form-control" name="data_file" accept=".xls,.xlsx" required>
               </div>
             </div>
 
-            <div class="action-buttons mt-4">
+            <div class="action-buttons">
               <button type="submit" class="btn btn-success btn-custom">📤 Upload File</button>
             </div>
           </form>
@@ -122,36 +102,34 @@
   </div>
 </div>
 
-<!-- ✅ JavaScript for auto-matching -->
 <script>
-  function normalize(text) {
-    return text.trim().toLowerCase();
-  }
+  function normalize(text) { return text.trim().toLowerCase(); }
 
   function autoSelectTable() {
     const username = "{{ request.user.username|lower }}";
     const provider = normalize(document.getElementById("providerSelect").value);
     const energy = normalize(document.getElementById("energySelect").value);
-
     const targetTable = `${username}_${provider}_${energy}`;
     const tableDropdown = document.getElementById("tableSelect");
-
     for (let i = 0; i < tableDropdown.options.length; i++) {
       const option = tableDropdown.options[i];
       if (option.value.toLowerCase() === targetTable) {
-        tableDropdown.selectedIndex = i;
-        return;
+        tableDropdown.selectedIndex = i; return;
       }
     }
-
-    tableDropdown.selectedIndex = 0; // reset if not found
+    tableDropdown.selectedIndex = 0;
   }
 
   document.getElementById("providerSelect").addEventListener("change", autoSelectTable);
   document.getElementById("energySelect").addEventListener("change", autoSelectTable);
+
+  setTimeout(() => {
+    document.querySelectorAll('.alert').forEach(a => {
+      const bsAlert = new bootstrap.Alert(a);
+      bsAlert.close();
+    });
+  }, 6000);
 </script>
 
-
-   {% include 'fotter.html' %}
-
+{% include 'fotter.html' %}
 {% endblock content %}

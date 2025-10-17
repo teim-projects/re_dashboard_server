@@ -1,111 +1,100 @@
 {% extends "basewind.html" %}
 {% load static %}
-{% load humanize %}
-
 {% block content %}
-<div class="container my-4"  >
- 
 
-  <!-- ===== Filter Buttons ===== --><div class="row mb-4">
-    <div class="d-flex justify-content-end mb-1" style="margin-top: 55px;">
+<div class="container-fluid px-3" style="margin-top: 80px;">
+ <!-- FILTER BAR -->
+ <div class="d-flex justify-content-end mb-1" style="margin-top: 35px;">
   <button id="toggleFilters" class="btn btn-primary">
     <i class="fas fa-sliders-h"></i> filters 
   </button>
 </div>
-  <div id="filterSection" class="d-flex flex-wrap gap-2  mb-3 hidden" >
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+  <div id="filterSection" class="d-flex flex-wrap gap-2 hidden" >
+ <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
       <i class="fas fa-filter"></i> DATE RANGE
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
-      Provider
+      <i class="fas fa-filter"></i> OEM PROVIDER
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
-      Customer
+      <i class="fas fa-filter"></i> CUSTOMER
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
-      State
+      <i class="fas fa-filter"></i> STATE NAME
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
-      Site
+      <i class="fas fa-filter"></i> SITE NAME
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
-      WTG
+      <i class="fas fa-filter"></i> WTG NUMBER
     </button>
+
 
     {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
       <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
     {% endif %}
   </div>
 
-  <!-- ===== Overall Cards ===== -->
-  
-    <div class="col-md-6">
-        <!-- ===== Toggle Filter Button ===== -->
-
-      <div class="card text-center shadow">
+  <!-- SUMMARY CARDS -->
+  <div class="row text-center mt-1 g-3 mb-3">
+    <div class="col-md-3 col-6">
+      <div class="card shadow  border-0 bg-light">
         <div class="card-body">
-          <h5 class="card-title">Overall External Grid Availability</h5>
-          <h2 class="text-success">{{ overall_ext }} %</h2>
+          <h6 class="text-muted mb-1">Force Majeure</h6>
+          <h5 class="fw-bold text-primary">{{ summary.total_fm|floatformat:2 }}</h5>
         </div>
       </div>
     </div>
-    <div class="col-md-6">
-      <div class="card text-center shadow">
+    <div class="col-md-3 col-6">
+      <div class="card shadow border-0 bg-light">
         <div class="card-body">
-          <h5 class="card-title">Overall Internal Grid Availability</h5>
-          <h2 class="text-primary">{{ overall_int }} %</h2>
+          <h6 class="text-muted mb-1">Grid Failure</h6>
+          <h5 class="fw-bold text-danger">{{ summary.total_gf|floatformat:2 }}</h5>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-6">
+      <div class="card shadow border-0 bg-light">
+        <div class="card-body">
+          <h6 class="text-muted mb-1">Scheduled Services</h6>
+          <h5 class="fw-bold text-success">{{ summary.total_s|floatformat:2 }}</h5>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-6">
+      <div class="card shadow border-0 bg-light">
+        <div class="card-body">
+          <h6 class="text-muted mb-1">Unscheduled Services</h6>
+          <h5 class="fw-bold text-warning">{{ summary.total_u|floatformat:2 }}</h5>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ===== Charts & Tables ===== -->
-  <div class="row">
-    <!-- External Grid Availability -->
-    <div class="col-md-6">
-       <div id="extTreemap" style="height:400px;"></div>
-   <table id="extTable" class="table table-sm mt-3 table-bordered table-hover">
-  <thead class="table-dark">
-    <tr><th class="text-center">WTG</th><th class="text-center">External Grid Availability (%)</th></tr>
-  </thead>
-  <tbody>
-    {% for d in ext_data %}
-      <tr>
-        <td class="text-center">{{ d.wtg }}</td>
-        <td class="text-center">{{ d.value|floatformat:2 }}</td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="2">No data available</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-<div id="extPagination" class="mt-2"></div>
+  <!-- CHARTS -->
+  <div class="row g-3">
+    <div class=" " style="box-shadow: 0px 0px 1px black;">
+      <div class="">
+        <h6 class="mb-0 form-heading text-center">OEM-Wise Breakdown</h6>
+      </div>
+      <div class="card-body">
+        <div id="treemapChart" style="margin-top: -30px;"></div>
+        <div id="treemapLegend" style="text-align:center; margin-top:10px;"></div>
+      </div>
     </div>
 
-    <!-- Internal Grid Availability -->
-    <div class="col-md-6">
-       <div id="intTreemap" style="height:400px;"></div>
-
-<table id="intTable" class="table table-sm mt-3 table-bordered table-hover">
-  <thead class="table-dark">
-    <tr><th class="text-center">WTG</th><th class="text-center">Internal Grid Availability (%)</th></tr>
-  </thead>
-  <tbody>
-    {% for d in int_data %}
-      <tr>
-        <td class="text-center">{{ d.wtg }}</td>
-        <td class="text-center">{{ d.value|floatformat:2 }}</td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="2">No data available</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
-<div id="intPagination" class="mt-2"></div>
+    <div class="card my-3">
+      <div class="  text-center">
+        <h6 class="form-heading">WTG Wise Grid Failure</h6>
+      </div>
+      <div class="card-body">
+        <div id="donutChart"></div>
+      </div>
     </div>
   </div>
-</div><!-- ===== SweetAlert2 ===== -->
+</div>
 
+ 
 
 <!-- ========== Modals ========== --> 
 <!-- Date Range Modal -->
@@ -271,55 +260,7 @@
   .hidden {
     display: none !important;
   }
-</style>
-<script>
-function paginateTable(tableId, paginationId, rowsPerPage = 10) {
-  const table = document.getElementById(tableId);
-  const tbody = table.querySelector("tbody");
-  const rows = Array.from(tbody.querySelectorAll("tr"));
-  const pagination = document.getElementById(paginationId);
-  const totalPages = Math.ceil(rows.length / rowsPerPage);
-  let currentPage = 1;
-
-  function renderTable() {
-    rows.forEach((row, i) => {
-      row.style.display =
-        i >= (currentPage - 1) * rowsPerPage && i < currentPage * rowsPerPage
-          ? ""
-          : "none";
-    });
-  }
-
-  function renderPagination() {
-    pagination.innerHTML = "";
-    if (totalPages <= 1) return;
-
-    for (let i = 1; i <= totalPages; i++) {
-      const btn = document.createElement("button");
-      btn.textContent = i;
-      btn.className = "btn btn-sm " + (i === currentPage ? "btn-primary" : "btn-outline-primary") + " me-1";
-      btn.addEventListener("click", () => {
-        currentPage = i;
-        renderTable();
-        renderPagination();
-      });
-      pagination.appendChild(btn);
-    }
-  }
-
-  renderTable();
-  renderPagination();
-}
-
-// Apply to both tables
-document.addEventListener("DOMContentLoaded", function () {
-  paginateTable("extTable", "extPagination", 10);
-  paginateTable("intTable", "intPagination", 10);
-});
-</script>
-  {% include 'fotter.html' %}
-
-<script>
+</style><script>
   document.addEventListener("DOMContentLoaded", function () {
     const toggleBtn = document.getElementById("toggleFilters");
     const filterSection = document.getElementById("filterSection");
@@ -335,65 +276,153 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 </script>
+<style>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script>
-  document.addEventListener("DOMContentLoaded", function () {
-    Swal.fire({
-      title: 'Overall Grid Availability',
-      html: `
-        <div style="font-size:18px; line-height:1.8;">
-          <b style="color:green;">External:</b> {{ overall_ext }} % <br>
-          <b style="color:blue;">Internal:</b> {{ overall_int }} %
-        </div>
-      `,
-      icon: 'success',
-      showConfirmButton: false,
-      timer: 3000,   // auto close after 4 sec
-      timerProgressBar: true,
-      position: 'center',
-      customClass: {
-        popup: 'rounded-4 shadow'
-      }
-    });
-  });
-</script>
+.form-heading {
+    background: linear-gradient(to right, #7b2cbf, #9d4edd);
+    color: #fff;
+    padding: 15px 25px;
+    border-top-left-radius: 15px;
+    border-top-right-radius: 15px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+</style>
 
-
-<!-- ===== ApexCharts ===== -->
-<!-- ===== ApexCharts ===== -->
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
-  const extData = JSON.parse(`{{ ext_json|escapejs }}`);
-  const intData = JSON.parse(`{{ int_json|escapejs }}`);
+const treemapData = JSON.parse('{{ treemap_data|safe|escapejs }}');
+const donutData = JSON.parse('{{ donut_data|safe|escapejs }}');
+// -------- TREEMAP (OEM + WTG interactive legend) --------
+if (treemapData.length > 0) {
+  const grouped = {};
+  treemapData.forEach(item => {
+    const total = item.gf + item.fm + item.s + item.u;
+    if (!grouped[item.oem]) grouped[item.oem] = [];
+    grouped[item.oem].push({ x: item.wtg, y: total });
+  });
 
-  // External Treemap
-  new ApexCharts(document.querySelector("#extTreemap"), {
-    series: [{ data: extData.map(d => ({ x: d.wtg, y: d.value })) }],
-    chart: { type: "treemap", height: 400 },
-    title: { text: "External Grid Availability", align: "center" },
-    plotOptions: {
-      treemap: {
-        distributed: true,
-        enableShades: false
+  const colors = [
+    '#008FFB', '#00E396', '#FEB019', '#FF4560',
+    '#775DD0', '#26A69A', '#D7263D', '#1B998B'
+  ];
+
+  const oems = Object.keys(grouped);
+  const series = oems.map((oem, idx) => ({
+    name: oem,
+    data: grouped[oem],
+    color: colors[idx % colors.length]
+  }));
+
+  const treemapChart = new ApexCharts(document.querySelector("#treemapChart"), {
+    chart: { type: 'treemap', height: 400, toolbar: { show: false } },
+    dataLabels: {
+      enabled: true,
+      style: { fontSize: '12px', fontWeight: 'bold' }
+    },
+    tooltip: {
+      y: { formatter: val => val.toFixed(2) + ' hrs' }
+    },
+    legend: { show: false },
+    series: series
+  });
+
+  treemapChart.render().then(() => {
+    const legendContainer = document.querySelector("#treemapLegend");
+    legendContainer.innerHTML = '';
+    oems.forEach((oem, i) => {
+      const color = colors[i % colors.length];
+      const legendItem = document.createElement("div");
+      legendItem.style.display = "inline-flex";
+      legendItem.style.alignItems = "center";
+      legendItem.style.margin = "6px 12px";
+      legendItem.style.cursor = "pointer";
+      legendItem.innerHTML = `
+        <span style="width:15px;height:15px;background:${color};border-radius:3px;
+          display:inline-block;margin-right:6px;"></span>
+        <span style="font-size:14px;">${oem}</span>
+      `;
+      legendContainer.appendChild(legendItem);
+
+      legendItem.addEventListener("mouseenter", () => {
+        treemapChart.updateSeries(series.filter(s => s.name === oem));
+      });
+      legendItem.addEventListener("mouseleave", () => {
+        treemapChart.updateSeries(series);
+      });
+    });
+  });
+}
+
+// -------- GRADIENT LINE CHART (Rounded 2 decimals) --------
+if (donutData.length > 0) {
+  const labels = donutData.map(d => d.wtg);
+  const values = donutData.map(d => parseFloat(d.gf.toFixed(2))); // round before chart
+
+  const lineChart = new ApexCharts(document.querySelector("#donutChart"), {
+    chart: {
+      type: 'line',
+      height: 400,
+      zoom: { enabled: false },
+      toolbar: { show: false }
+    },
+    series: [{
+      name: 'Grid Failure (hrs)',
+      data: values
+    }],
+    stroke: {
+      curve: 'smooth',
+      width: 4
+    },
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shade: 'dark',
+        gradientToColors: ['#00E396'],
+        shadeIntensity: 1,
+        type: 'horizontal',
+        opacityFrom: 1,
+        opacityTo: 1,
+        stops: [0, 100]
       }
     },
-    colors: ["#008FFB", "#00E396", "#FEB019", "#FF4560", "#775DD0", "#3F51B5", "#546E7A", "#D4526E", "#8D5B4C", "#F86624"]
-  }).render();
-
-  // Internal Treemap
-  new ApexCharts(document.querySelector("#intTreemap"), {
-    series: [{ data: intData.map(d => ({ x: d.wtg, y: d.value })) }],
-    chart: { type: "treemap", height: 400 },
-    title: { text: "Internal Grid Availability", align: "center" },
-    plotOptions: {
-      treemap: {
-        distributed: true,
-        enableShades: false
+    markers: {
+      size: 5,
+      colors: ['#fff'],
+      strokeColors: '#00E396',
+      strokeWidth: 2
+    },
+    dataLabels: {
+      enabled: true,
+      formatter: val => val.toFixed(2), // show 2 decimal places on points
+      style: { fontSize: '10px' }
+    },
+    xaxis: {
+      categories: labels,
+      title: { text: 'WTG Numbers' },
+      labels: {
+        rotate: -45,
+        style: { fontSize: '10px' }
       }
     },
-    colors: ["#00E396", "#FEB019", "#FF4560", "#775DD0", "#008FFB", "#3F51B5", "#546E7A", "#D4526E", "#8D5B4C", "#F86624"]
-  }).render();
+    yaxis: {
+      title: { text: 'Grid Failure (hrs)' },
+      labels: {
+        formatter: val => val.toFixed(2)
+      }
+    },
+    tooltip: {
+      y: { formatter: val => val.toFixed(2) + ' hrs' }
+    },
+    grid: {
+      borderColor: '#e0e0e0'
+    }
+  });
+
+  lineChart.render();
+}
 </script>
+
+  {% include 'fotter.html' %}
 
 {% endblock %}

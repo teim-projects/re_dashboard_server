@@ -563,11 +563,8 @@ import os
 import re
 import traceback
 import pandas as pd
-import os
-import re
-import traceback
-import pandas as pd
 import numpy as np
+from datetime import datetime
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -578,46 +575,30 @@ from django.utils.timezone import now
 from accounts.models import Provider, EnergyType
 from .models import UploadMetadata
 
-# --- Column cleaner
+
+# --- Helpers ---
 def clean_col(col: str) -> str:
     return re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
 
-# --- Detect meta-info row & robust Excel/HTML detection
-def read_file_with_meta_check(file_path, ext):
-    def looks_like_meta(row_values):
-        text = " ".join(str(v) for v in row_values if pd.notnull(v)).lower()
-        return "wec wise report" in text or "date :" in text
 
-    # Check for HTML content
-    with open(file_path, "rb") as f:
-        header = f.read(8)
-        is_html = header.startswith(b'<!DOCTYPE') or header.startswith(b'<html')
-
+def read_excel_multi(file_path, ext):
+    """Return dict of sheet_name: DataFrame (handles CSV, XLSX, XLS, ODS, HTML fallback)."""
     try:
-        skip_rows = 0
-
         if ext == ".csv":
-            preview = pd.read_csv(file_path, nrows=1, header=None)
-            skip_rows = 1 if looks_like_meta(preview.iloc[0].tolist()) else 0
-            df = pd.read_csv(file_path, header=0, skiprows=skip_rows)
-
-        elif ext == ".xls":
-            # Try old Excel binary first
-            try:
-                df = pd.read_excel(file_path, header=0, engine="xlrd")
-            except Exception:
-                # fallback to HTML table parsing
-                df = pd.read_html(file_path)[0]
+            return {"main": pd.read_csv(file_path)}
 
         elif ext in [".xlsx", ".xlsm"]:
-            preview = pd.read_excel(file_path, nrows=1, header=None, engine="openpyxl")
-            skip_rows = 1 if looks_like_meta(preview.iloc[0].tolist()) else 0
-            df = pd.read_excel(file_path, header=0, skiprows=skip_rows, engine="openpyxl")
+            return pd.read_excel(file_path, sheet_name=None, engine="openpyxl")
+
+        elif ext == ".xls":
+            try:
+                return pd.read_excel(file_path, sheet_name=None, engine="xlrd")
+            except Exception:
+                df_list = pd.read_html(file_path)
+                return {"main": df_list[0]}
 
         elif ext in [".ods", ".odt"]:
-            preview = pd.read_excel(file_path, nrows=1, header=None, engine="odf")
-            skip_rows = 1 if looks_like_meta(preview.iloc[0].tolist()) else 0
-            df = pd.read_excel(file_path, header=0, skiprows=skip_rows, engine="odf")
+            return pd.read_excel(file_path, sheet_name=None, engine="odf")
 
         else:
             raise Exception(f"Unsupported file format: {ext}")
@@ -625,15 +606,9 @@ def read_file_with_meta_check(file_path, ext):
     except Exception as e:
         raise Exception(f"Unsupported format or corrupt file: {str(e)}")
 
-    return df
 
-import pandas as pd
-from datetime import datetime, date
-# --- Normalize date values
 def normalize_date(val):
-    """
-    Convert Excel/CSV date into YYYY-MM-DD string.
-    """
+    """Convert date-like values to YYYY-MM-DD."""
     if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
         return None
     try:
@@ -642,11 +617,8 @@ def normalize_date(val):
         return None
 
 
-# --- Normalize hours values
 def normalize_hours(val):
-    """
-    Convert values like '1 days 00:00:00', '21:30:00', or 24 into float hours.
-    """
+    """Convert time strings or day-hour formats into float hours."""
     if val is None or val == "" or str(val).lower() == "nan":
         return None
     try:
@@ -654,25 +626,21 @@ def normalize_hours(val):
             return float(val)
 
         s = str(val).strip()
-
-        # Case: '1 days 00:00:00'
         if "day" in s:
             parts = s.split()
             days = float(parts[0])
             h, m, sec = [float(x) for x in parts[-1].split(":")]
             return days * 24 + h + m/60 + sec/3600
 
-        # Case: '21:30:00'
         if ":" in s:
             h, m, sec = [float(x) for x in s.split(":")]
             return h + m/60 + sec/3600
 
-        # Otherwise, plain number string
         return float(s)
     except:
         return None
 
-# --- Helper: sanitize values for DB ---
+
 def sanitize_value(val):
     """Convert invalid DB values into None (MySQL NULL)."""
     if val is None:
@@ -689,12 +657,15 @@ def sanitize_value(val):
     return val
 
 
+# -------------------------------------------------------------------
+#                          MAIN VIEW
+# -------------------------------------------------------------------
 @login_required
 def upload_files(request):
     energy_types = EnergyType.objects.all()
     providers = Provider.objects.all()
 
-    # --- Fetch existing DB tables
+    # Fetch all DB tables
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
@@ -713,12 +684,13 @@ def upload_files(request):
                     "label": f"{username} - {provider_slug.replace('_',' ').title()} - {energy_type_slug.title()}"
                 })
 
+    # ------------------ POST ------------------
     if request.method == "POST":
-        table_name = request.POST.get("provider", "").strip()
+        base_table_name = request.POST.get("provider", "").strip()
         provider_name = request.POST.get("provider_name", "").strip()
         data_file = request.FILES.get("data_file")
 
-        if not table_name or not data_file or not provider_name:
+        if not base_table_name or not data_file or not provider_name:
             messages.error(request, "❌ Table, file, and provider are required.")
             return redirect("upload_files")
 
@@ -728,73 +700,89 @@ def upload_files(request):
 
         try:
             ext = os.path.splitext(filename)[1].lower()
-            df = read_file_with_meta_check(file_path, ext)
+            sheets = read_excel_multi(file_path, ext)
 
-            # --- Clean column names
-            df.columns = [clean_col(c) for c in df.columns]
+            uploaded_sheets = []
 
-            # --- Replace invalid values early
-            df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
-            df = df.astype(object).where(pd.notnull(df), None)
-            df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+            for sheet_name, df in sheets.items():
+                if df.empty:
+                    continue
 
-            # --- Fetch DB columns
-            with connection.cursor() as cursor:
-                cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
-                table_columns = [col[0].lower() for col in cursor.fetchall()]
+                sheet_clean = sheet_name.strip().lower()
+                if "breakdown" in sheet_clean:
+                    table_name = f"{base_table_name}_breakdowndata"
+                else:
+                    table_name = base_table_name  # generation sheet
 
-            # --- Keep only matching columns
-            valid_columns = [col for col in df.columns if col in table_columns]
-            df = df[valid_columns]
+                if table_name not in db_tables:
+                    messages.warning(request, f"⚠️ Table '{table_name}' does not exist. Skipping '{sheet_name}' sheet.")
+                    continue
 
-            if df.shape[1] == 0:
-                messages.error(request, "❌ Upload failed: No matching columns between file and table.")
-                return redirect("upload_files")
+                # Clean columns
+                df.columns = [clean_col(c) for c in df.columns]
 
-            # --- Normalize date columns
-            date_cols = [c for c in df.columns if "date" in c]
-            for dc in date_cols:
-                df[dc] = df[dc].apply(normalize_date)
+                # Replace bad values
+                df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
+                df = df.astype(object).where(pd.notnull(df), None)
+                df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
 
-            # --- Normalize hours columns
-            if "o_hrs" in df.columns:
-                df["o_hrs"] = df["o_hrs"].apply(normalize_hours)
-            if "l_hrs" in df.columns:
-                df["l_hrs"] = df["l_hrs"].apply(normalize_hours)
+                # Fetch DB columns
+                with connection.cursor() as cursor:
+                    cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
+                    table_columns = [col[0].lower() for col in cursor.fetchall()]
 
-            # --- Add mandatory fields
-            parts = table_name.split("_")
-            uploaded_by = parts[0]
-            energy_type = parts[-1].replace("_", " ").title()
+                valid_columns = [col for col in df.columns if col in table_columns]
+                df = df[valid_columns]
 
-            if "energy_type" in table_columns:
-                df["energy_type"] = energy_type
-            if "uploaded_by" in table_columns:
-                df["uploaded_by"] = uploaded_by
-            if "provider" in table_columns:
-                df["provider"] = provider_name
+                if df.shape[1] == 0:
+                    messages.error(request, f"❌ No matching columns for sheet '{sheet_name}'.")
+                    continue
 
-            # --- Prepare SQL insert
-            columns = ", ".join(f"`{col}`" for col in df.columns)
-            placeholders = ", ".join(["%s"] * len(df.columns))
-            insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
+                # Normalize date columns
+                date_cols = [c for c in df.columns if "date" in c]
+                for dc in date_cols:
+                    df[dc] = df[dc].apply(normalize_date)
 
-            # --- Sanitize all values before insert
-            values = [tuple(sanitize_value(v) for v in row) for row in df.values]
+                # Normalize hours columns
+                if "o_hrs" in df.columns:
+                    df["o_hrs"] = df["o_hrs"].apply(normalize_hours)
+                if "l_hrs" in df.columns:
+                    df["l_hrs"] = df["l_hrs"].apply(normalize_hours)
 
-            # --- Bulk insert
-            with connection.cursor() as cursor:
-                cursor.executemany(insert_sql, values)
-                rows_inserted = cursor.rowcount
+                # Add mandatory columns
+                parts = base_table_name.split("_")
+                uploaded_by = parts[0]
+                energy_type = parts[-1].replace("_", " ").title()
 
-            if rows_inserted > 0:
-                UploadMetadata.objects.update_or_create(
-                    table_name=table_name,
-                    defaults={"last_modified": now()}
-                )
-                messages.success(request, f"✅ Uploaded {rows_inserted} rows to '{table_name}'.")
+                if "energy_type" in table_columns:
+                    df["energy_type"] = energy_type
+                if "uploaded_by" in table_columns:
+                    df["uploaded_by"] = uploaded_by
+                if "provider" in table_columns:
+                    df["provider"] = provider_name
+
+                # Insert
+                columns = ", ".join(f"`{col}`" for col in df.columns)
+                placeholders = ", ".join(["%s"] * len(df.columns))
+                insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
+
+                values = [tuple(sanitize_value(v) for v in row) for row in df.values]
+
+                with connection.cursor() as cursor:
+                    cursor.executemany(insert_sql, values)
+                    rows_inserted = cursor.rowcount
+
+                if rows_inserted > 0:
+                    UploadMetadata.objects.update_or_create(
+                        table_name=table_name,
+                        defaults={"last_modified": now()}
+                    )
+                    uploaded_sheets.append(f"{sheet_name} → {rows_inserted} rows")
+
+            if uploaded_sheets:
+                messages.success(request, f"✅ Successfully uploaded data: {', '.join(uploaded_sheets)}")
             else:
-                messages.error(request, "❌ Upload failed: No rows inserted. Check file structure.")
+                messages.error(request, "❌ No data uploaded from any sheet.")
 
         except Exception as e:
             print("🔥 Upload failed:\n", traceback.format_exc())
@@ -804,6 +792,7 @@ def upload_files(request):
 
         return redirect("upload_files")
 
+    # ------------------ GET ------------------
     return render(request, "upload_files.html", {
         "expected_tables": expected_tables,
         "providers": providers,
