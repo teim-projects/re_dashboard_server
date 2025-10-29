@@ -1853,13 +1853,34 @@ def detect_header_row(df):
 
 
 def read_excel_multi(file_path, ext):
-    """Read multi-sheet Excel or CSV, skipping meta rows."""
+    """Read multi-sheet Excel, CSV, or HTML-based XLS and skip meta header rows."""
+    def find_data_start(df):
+        """Return the index where data header starts (e.g. contains DATE/WEC)."""
+        for i, row in df.iterrows():
+            joined = " ".join(str(x).lower() for x in row if pd.notna(x))
+            if "date" in joined and "wec" in joined:
+                return i
+        return 0
+
     if ext == ".csv":
         df_preview = pd.read_csv(file_path, header=None)
-        header_row = detect_header_row(df_preview)
-        df = pd.read_csv(file_path, header=header_row)
+        start_row = find_data_start(df_preview)
+        df = pd.read_csv(file_path, header=start_row)
         return {"main": df}
-    elif ext in [".xlsx", ".xlsm"]:
+
+    # --- Detect HTML disguised as .xls ---
+    with open(file_path, "rb") as f:
+        start_bytes = f.read(100).lower()
+        if b"<html" in start_bytes or b"<table" in start_bytes:
+            df_all = pd.read_html(file_path)[0]
+            start_row = find_data_start(df_all)
+            df = df_all.iloc[start_row:].reset_index(drop=True)
+            df.columns = [clean_col(c) for c in df.iloc[0]]
+            df = df[1:]  # drop header row from data
+            return {"main": df}
+
+    # --- Regular Excel / XLSX ---
+    if ext in [".xlsx", ".xlsm"]:
         sheets = pd.read_excel(file_path, sheet_name=None, engine="openpyxl", header=None)
     elif ext == ".xls":
         sheets = pd.read_excel(file_path, sheet_name=None, engine="xlrd", header=None)
@@ -1868,13 +1889,15 @@ def read_excel_multi(file_path, ext):
 
     cleaned_sheets = {}
     for sheet_name, df in sheets.items():
-        header_row = detect_header_row(df)
-        df = pd.read_excel(file_path, sheet_name=sheet_name,
-                           engine="openpyxl" if ext != ".xls" else "xlrd",
-                           header=header_row)
+        start_row = find_data_start(df)
+        df = pd.read_excel(
+            file_path,
+            sheet_name=sheet_name,
+            engine="openpyxl" if ext != ".xls" else "xlrd",
+            header=start_row,
+        )
         cleaned_sheets[sheet_name] = df
     return cleaned_sheets
-
 
 # ---------------- VIEW ---------------- #
 
@@ -3563,6 +3586,12 @@ import re
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.db import connection
+import json
+import re
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.db import connection
+
 
 @login_required
 def dashboard_breakdown(request):
@@ -3609,14 +3638,12 @@ def dashboard_breakdown(request):
     col_s = _pick(col_map, "s", "schedule", "scheduled services", "gs", "grid shutdown")
     col_u = _pick(col_map, "u", "unscheduled services", "unscheduled", "uptime", "avail")
 
-    # If WindWorld format — no GF/FM/S/U → fallback to dummy 0 values
     if not any([col_gf, col_fm, col_s, col_u]):
-        col_gf = col_fm = col_s = col_u = None
         has_breakdown = False
     else:
         has_breakdown = True
 
-    # --- Read filters
+    # --- Filters
     f_provider = request.GET.get("provider")
     f_customer = request.GET.get("customer")
     f_state = request.GET.get("state")
@@ -3625,7 +3652,6 @@ def dashboard_breakdown(request):
     f_date_from = request.GET.get("date_from")
     f_date_to = request.GET.get("date_to")
 
-    # --- WHERE conditions
     filters = []
     params = []
     if f_provider and col_oem:
@@ -3649,7 +3675,7 @@ def dashboard_breakdown(request):
 
     where_clause = "WHERE " + " AND ".join(filters) if filters else ""
 
-    # --- Distincts for filters
+    # --- Distincts for dropdown filters
     with connection.cursor() as cursor:
         distincts = {}
         for name, col in [
@@ -3676,7 +3702,8 @@ def dashboard_breakdown(request):
                 GROUP BY `{col_oem}`, `{col_wtg}`;
             """, params)
             treemap_data = [
-                {"oem": r[0] or "Unknown", "wtg": r[1], "gf": r[2] or 0, "fm": r[3] or 0, "s": r[4] or 0, "u": r[5] or 0}
+                {"oem": r[0] or "Unknown", "wtg": r[1],
+                 "gf": r[2] or 0, "fm": r[3] or 0, "s": r[4] or 0, "u": r[5] or 0}
                 for r in cursor.fetchall()
             ]
 
@@ -3693,8 +3720,10 @@ def dashboard_breakdown(request):
             }
 
         else:
-            # --- WindWorld style with remarks ---
+            # --- WindWorld-style data with remarks ---
             col_remarks = _pick(col_map, "remarks", "remark", "observation", "comments", "remark(s)")
+            treemap_data = []
+            summary = {"total_gf": 0, "total_fm": 0, "total_s": 0, "total_u": 0}
 
             if col_remarks:
                 def extract_hours(text):
@@ -3718,37 +3747,35 @@ def dashboard_breakdown(request):
                 """, params)
                 rows = cursor.fetchall()
 
-                treemap_data = []
-                summary = {"total_gf": 0, "total_fm": 0, "total_s": 0, "total_u": 0}
-
+                # --- Build raw list
                 for label, wtg_val, remarks in rows:
                     gf = fm = s = u = 0.0
                     if remarks:
                         rtext = str(remarks).lower()
 
-                        # Breakdown / Grid Failure
-                        if "bd" in rtext or "breakdown" in rtext or "grid feeding error" in rtext or "gf" in rtext:
+                        # Grid Failure / Breakdown
+                        if any(k in rtext for k in ["bd", "breakdown", "grid feeding error", "gf"]):
                             hrs = extract_hours(rtext)
                             gf += hrs if hrs else 1
                             summary["total_gf"] += hrs if hrs else 1
 
-                        # Planned Maintenance
-                        if "pm" in rtext or "maintenance" in rtext or "visual maintenance" in rtext or "preventive maintenance" in rtext:
+                        # Force Majeure
+                        if any(k in rtext for k in ["fm", "force majeure"]):
                             hrs = extract_hours(rtext)
-                            u += hrs if hrs else 1
-                            summary["total_u"] += hrs if hrs else 1
+                            fm += hrs if hrs else 1
+                            summary["total_fm"] += hrs if hrs else 1
 
-                        # Grid Shutdown / Scheduled
-                        if "gs" in rtext or "shutdown" in rtext or "grid shutdown" in rtext or "s"  in rtext or "schedule" in rtext:
+                        # Scheduled / Grid Shutdown
+                        if any(k in rtext for k in ["gs", "shutdown", "grid shutdown", "schedule", "s"]):
                             hrs = extract_hours(rtext)
                             s += hrs if hrs else 1
                             summary["total_s"] += hrs if hrs else 1
 
-                        # Force Majeure
-                        if "fm" in rtext or "force majeure" in rtext:
+                        # Unscheduled / Maintenance
+                        if any(k in rtext for k in ["pm", "maintenance", "visual maintenance", "preventive maintenance"]):
                             hrs = extract_hours(rtext)
-                            fm += hrs if hrs else 1
-                            summary["total_fm"] += hrs if hrs else 1
+                            u += hrs if hrs else 1
+                            summary["total_u"] += hrs if hrs else 1
 
                     treemap_data.append({
                         "oem": label or "Unknown",
@@ -3759,19 +3786,35 @@ def dashboard_breakdown(request):
                         "u": round(u, 2),
                     })
 
+                # ✅ Aggregate by WTG to avoid duplicate treemap blocks
+                agg_map = {}
+                for entry in treemap_data:
+                    key = (entry["oem"], entry["wtg"])
+                    if key not in agg_map:
+                        agg_map[key] = entry
+                    else:
+                        agg_map[key]["gf"] += entry["gf"]
+                        agg_map[key]["fm"] += entry["fm"]
+                        agg_map[key]["s"] += entry["s"]
+                        agg_map[key]["u"] += entry["u"]
+
+                treemap_data = list(agg_map.values())
+
             else:
-                # --- Original fallback ---
+                # --- Simple fallback (if no remarks)
                 cursor.execute(f"""
                     SELECT `{col_customer}`, `{col_wtg}`, SUM(`generation`)
                     FROM `{table_name}` {where_clause}
                     GROUP BY `{col_customer}`, `{col_wtg}`;
                 """, params)
                 treemap_data = [
-                    {"oem": r[0] or "Unknown", "wtg": r[1], "gf": 0, "fm": 0, "s": 0, "u": 0, "generation": r[2] or 0}
+                    {"oem": r[0] or "Unknown", "wtg": r[1],
+                     "gf": 0, "fm": 0, "s": 0, "u": 0, "generation": r[2] or 0}
                     for r in cursor.fetchall()
                 ]
                 summary = {"total_gf": 0, "total_fm": 0, "total_s": 0, "total_u": 0}
 
+    # --- Context for template
     context = {
         "table_name": table_name,
         "treemap_data": json.dumps(treemap_data),
