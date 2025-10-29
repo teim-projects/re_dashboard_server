@@ -3478,15 +3478,20 @@ def charge_master_add(request):
         value = request.POST.get("value")
         unit = request.POST.get("unit")
         year = request.POST.get("year")
-        # Optional fields that may exist in your model
-        # energy_type = request.POST.get("energy_type")
-        # state = request.POST.get("state")
-        if name and value:
-            ChargeMaster.objects.create(name=name, value=value, unit=unit, year=year or 2025)
-            messages.success(request, f"Charge '{name}' added successfully!")
-            return redirect("charge_master_list")
-        else:
-            messages.error(request, "Name and value are required!")
+        energy_type = request.POST.get("energy_type")
+        state = request.POST.get("state")
+
+        ChargeMaster.objects.create(
+            name=name,
+            value=value,
+            unit=unit,
+            year=year,
+            energy_type=energy_type,
+            state=state
+        )
+        messages.success(request, f"Charge '{name}' added successfully!")
+        return redirect("charge_master_list")
+
     return render(request, "charge_master_form.html", {"title": "Add Charge"})
 
 def charge_master_edit(request, pk):
@@ -3496,6 +3501,8 @@ def charge_master_edit(request, pk):
         charge.value = request.POST.get("value")
         charge.unit = request.POST.get("unit")
         charge.year = request.POST.get("year")
+        charge.energy_type = request.POST.get("energy_type")
+        charge.state = request.POST.get("state")  # ✅ Add this
         charge.save()
         messages.success(request, f"Charge '{charge.name}' updated successfully!")
         return redirect("charge_master_list")
@@ -3551,62 +3558,11 @@ def delete_calculation(request, calc_id):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # views.py (add to your views file)
 import json
-from collections import defaultdict
+import re
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.db import connection
-from django.contrib.auth.decorators import login_required
-
-def _pick(col_map, *candidates):
-    def normalize(s):
-        return s.lower().replace(" ", "").replace(".", "").replace("(", "").replace(")", "").replace("_", "")
-    norm_map = {normalize(k): v for k, v in col_map.items()}
-    for c in candidates:
-        nc = normalize(c)
-        if nc in norm_map:
-            return norm_map[nc]
-    return None
-
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-from datetime import datetime
-import json
-
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-from datetime import datetime
-import json
-
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-import json
-
-from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-import json
 
 @login_required
 def dashboard_breakdown(request):
@@ -3644,17 +3600,23 @@ def dashboard_breakdown(request):
     col_customer = _pick(col_map, "customer name", "customer", "client")
     col_state = _pick(col_map, "state")
     col_site = _pick(col_map, "site", "location")
-    col_wtg = _pick(col_map, "wtg", "loc_no", "turbine")
+    col_wtg = _pick(col_map, "wtg", "loc no", "loc_no", "turbine", "wec")
+    col_date = _pick(col_map, "date", "reading date", "entry date", "gen date", "generation date")
+
+    # --- Handle breakdown columns (Suzlon vs WindWorld)
     col_gf = _pick(col_map, "gf", "grid failure")
     col_fm = _pick(col_map, "fm", "force majeure")
-    col_s = _pick(col_map, "s", "scheduled services")
-    col_u = _pick(col_map, "u", "unscheduled services")
-    col_date = _pick(col_map, "date", "reading date", "entry date")
+    col_s = _pick(col_map, "s", "schedule", "scheduled services", "gs", "grid shutdown")
+    col_u = _pick(col_map, "u", "unscheduled services", "unscheduled", "uptime", "avail")
 
-    if not all([col_oem, col_wtg, col_gf, col_fm, col_s, col_u]):
-        return render(request, "dashboard_breakdown.html", {"error": "Missing required columns."})
+    # If WindWorld format — no GF/FM/S/U → fallback to dummy 0 values
+    if not any([col_gf, col_fm, col_s, col_u]):
+        col_gf = col_fm = col_s = col_u = None
+        has_breakdown = False
+    else:
+        has_breakdown = True
 
-    # --- Read filter params
+    # --- Read filters
     f_provider = request.GET.get("provider")
     f_customer = request.GET.get("customer")
     f_state = request.GET.get("state")
@@ -3663,22 +3625,22 @@ def dashboard_breakdown(request):
     f_date_from = request.GET.get("date_from")
     f_date_to = request.GET.get("date_to")
 
-    # --- Build WHERE conditions dynamically
+    # --- WHERE conditions
     filters = []
     params = []
-    if f_provider:
+    if f_provider and col_oem:
         filters.append(f"`{col_oem}` = %s")
         params.append(f_provider)
-    if f_customer:
+    if f_customer and col_customer:
         filters.append(f"`{col_customer}` = %s")
         params.append(f_customer)
-    if f_state:
+    if f_state and col_state:
         filters.append(f"`{col_state}` = %s")
         params.append(f_state)
-    if f_site:
+    if f_site and col_site:
         filters.append(f"`{col_site}` = %s")
         params.append(f_site)
-    if f_wtg:
+    if f_wtg and col_wtg:
         filters.append(f"`{col_wtg}` = %s")
         params.append(f_wtg)
     if f_date_from and f_date_to and col_date:
@@ -3687,7 +3649,7 @@ def dashboard_breakdown(request):
 
     where_clause = "WHERE " + " AND ".join(filters) if filters else ""
 
-    # --- Fetch distinct filters
+    # --- Distincts for filters
     with connection.cursor() as cursor:
         distincts = {}
         for name, col in [
@@ -3703,46 +3665,119 @@ def dashboard_breakdown(request):
             else:
                 distincts[name] = []
 
-    # --- Charts + Summary with filters applied
+    # --- Data aggregation
     with connection.cursor() as cursor:
-        # ✅ Treemap Data
-        cursor.execute(f"""
-            SELECT `{col_oem}`, `{col_wtg}`,
-                   SUM(`{col_gf}`), SUM(`{col_fm}`), SUM(`{col_s}`), SUM(`{col_u}`)
-            FROM `{table_name}` {where_clause}
-            GROUP BY `{col_oem}`, `{col_wtg}`;
-        """, params)
-        treemap_data = [
-            {"oem": r[0] or "Unknown", "wtg": r[1], "gf": r[2] or 0, "fm": r[3] or 0, "s": r[4] or 0, "u": r[5] or 0}
-            for r in cursor.fetchall()
-        ]
+        if has_breakdown:
+            # ✅ Suzlon-style data
+            cursor.execute(f"""
+                SELECT `{col_oem}`, `{col_wtg}`,
+                       SUM(`{col_gf}`), SUM(`{col_fm}`), SUM(`{col_s}`), SUM(`{col_u}`)
+                FROM `{table_name}` {where_clause}
+                GROUP BY `{col_oem}`, `{col_wtg}`;
+            """, params)
+            treemap_data = [
+                {"oem": r[0] or "Unknown", "wtg": r[1], "gf": r[2] or 0, "fm": r[3] or 0, "s": r[4] or 0, "u": r[5] or 0}
+                for r in cursor.fetchall()
+            ]
 
-        # ✅ Donut/Line Data
-        cursor.execute(f"""
-            SELECT `{col_wtg}`, SUM(`{col_gf}`)
-            FROM `{table_name}` {where_clause}
-            GROUP BY `{col_wtg}`;
-        """, params)
-        donut_data = [{"wtg": r[0], "gf": r[1] or 0} for r in cursor.fetchall()]
+            cursor.execute(f"""
+                SELECT SUM(`{col_gf}`), SUM(`{col_fm}`), SUM(`{col_s}`), SUM(`{col_u}`)
+                FROM `{table_name}` {where_clause};
+            """, params)
+            totals = cursor.fetchone()
+            summary = {
+                "total_gf": totals[0] or 0,
+                "total_fm": totals[1] or 0,
+                "total_s": totals[2] or 0,
+                "total_u": totals[3] or 0,
+            }
 
-        # ✅ Summary Totals
-        cursor.execute(f"""
-            SELECT SUM(`{col_gf}`), SUM(`{col_fm}`), SUM(`{col_s}`), SUM(`{col_u}`)
-            FROM `{table_name}` {where_clause};
-        """, params)
-        totals = cursor.fetchone()
-        summary = {
-            "total_gf": totals[0] or 0,
-            "total_fm": totals[1] or 0,
-            "total_s": totals[2] or 0,
-            "total_u": totals[3] or 0,
-        }
+        else:
+            # --- WindWorld style with remarks ---
+            col_remarks = _pick(col_map, "remarks", "remark", "observation", "comments", "remark(s)")
+
+            if col_remarks:
+                def extract_hours(text):
+                    if not text:
+                        return 0
+                    text = str(text).lower()
+                    total = 0.0
+                    for h, m in re.findall(r'(\d{1,2})[:](\d{1,2})\s*hrs?', text):
+                        total += int(h) + int(m) / 60.0
+                    if total == 0:
+                        for h in re.findall(r'(\d{1,3})\s*hrs?\b', text):
+                            total += int(h)
+                    return round(total, 2)
+
+                read_oem_col = col_oem or col_customer or list(col_map.keys())[0]
+                select_col_for_label = col_customer if col_customer else read_oem_col
+
+                cursor.execute(f"""
+                    SELECT `{select_col_for_label}`, `{col_wtg}`, `{col_remarks}`
+                    FROM `{table_name}` {where_clause};
+                """, params)
+                rows = cursor.fetchall()
+
+                treemap_data = []
+                summary = {"total_gf": 0, "total_fm": 0, "total_s": 0, "total_u": 0}
+
+                for label, wtg_val, remarks in rows:
+                    gf = fm = s = u = 0.0
+                    if remarks:
+                        rtext = str(remarks).lower()
+
+                        # Breakdown / Grid Failure
+                        if "bd" in rtext or "breakdown" in rtext or "grid feeding error" in rtext or "gf" in rtext:
+                            hrs = extract_hours(rtext)
+                            gf += hrs if hrs else 1
+                            summary["total_gf"] += hrs if hrs else 1
+
+                        # Planned Maintenance
+                        if "pm" in rtext or "maintenance" in rtext or "visual maintenance" in rtext or "preventive maintenance" in rtext:
+                            hrs = extract_hours(rtext)
+                            u += hrs if hrs else 1
+                            summary["total_u"] += hrs if hrs else 1
+
+                        # Grid Shutdown / Scheduled
+                        if "gs" in rtext or "shutdown" in rtext or "grid shutdown" in rtext or "s"  in rtext or "schedule" in rtext:
+                            hrs = extract_hours(rtext)
+                            s += hrs if hrs else 1
+                            summary["total_s"] += hrs if hrs else 1
+
+                        # Force Majeure
+                        if "fm" in rtext or "force majeure" in rtext:
+                            hrs = extract_hours(rtext)
+                            fm += hrs if hrs else 1
+                            summary["total_fm"] += hrs if hrs else 1
+
+                    treemap_data.append({
+                        "oem": label or "Unknown",
+                        "wtg": wtg_val,
+                        "gf": round(gf, 2),
+                        "fm": round(fm, 2),
+                        "s": round(s, 2),
+                        "u": round(u, 2),
+                    })
+
+            else:
+                # --- Original fallback ---
+                cursor.execute(f"""
+                    SELECT `{col_customer}`, `{col_wtg}`, SUM(`generation`)
+                    FROM `{table_name}` {where_clause}
+                    GROUP BY `{col_customer}`, `{col_wtg}`;
+                """, params)
+                treemap_data = [
+                    {"oem": r[0] or "Unknown", "wtg": r[1], "gf": 0, "fm": 0, "s": 0, "u": 0, "generation": r[2] or 0}
+                    for r in cursor.fetchall()
+                ]
+                summary = {"total_gf": 0, "total_fm": 0, "total_s": 0, "total_u": 0}
 
     context = {
         "table_name": table_name,
         "treemap_data": json.dumps(treemap_data),
-        "donut_data": json.dumps(donut_data),
+        "donut_data": json.dumps(treemap_data),
         "summary": summary,
+        **distincts,
         "filters": {
             "provider": f_provider,
             "customer": f_customer,
@@ -3752,7 +3787,6 @@ def dashboard_breakdown(request):
             "date_from": f_date_from,
             "date_to": f_date_to,
         },
-        **distincts,
     }
 
     return render(request, "dashboard_breakdown.html", context)

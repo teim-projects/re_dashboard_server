@@ -29,12 +29,13 @@
           <!-- Optional metadata (only used if your model has these fields) -->
           <div class="col-md-6">
             <label class="form-label">Energy Type (optional)</label>
-            <select name="energy_type" class="form-select">
-              <option value="">-- Any --</option>
-              <option value="wind">Wind</option>
-              <option value="solar">Solar</option>
-              <option value="other">Other</option>
-            </select>
+<select name="energy_type" class="form-select">
+  <option value="">-- Any --</option>
+  <option value="wind" {% if charge.energy_type == "wind" %}selected{% endif %}>Wind</option>
+  <option value="solar" {% if charge.energy_type == "solar" %}selected{% endif %}>Solar</option>
+  <option value="other" {% if charge.energy_type == "other" %}selected{% endif %}>Other</option>
+</select>
+
           </div>
           <div class="col-md-6">
             <label class="form-label">State (optional)</label>

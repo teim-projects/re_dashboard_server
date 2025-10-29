@@ -524,7 +524,28 @@ body.dark-mode .nav-link.active {
         </ul>
       </div>
     </li>
-
+<!-- Masters -->
+    <li class="nav-item">
+      <a class="nav-link" data-toggle="collapse" href="#mastersSubmenuopen" role="button" aria-expanded="false" aria-controls="mastersSubmenu">
+        <i class="fas fa-layer-group"></i>&nbsp; Manage Open Access  <i class="fas fa-caret-down float-right"></i>
+      </a>
+      <div class="collapse ml-3" id="mastersSubmenuopen">
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'charge_master_list' %}">
+              <i class="fas fa-bolt"></i> Manage Charges
+            </a>
+          </li>
+                    <li class="nav-item">
+            <a class="nav-link" href="{% url 'open_access_history' %}">
+              <i class="fas fa-bolt"></i> View History
+            </a>
+          </li>
+ 
+ 
+        </ul>
+      </div>
+    </li>
 
 
  <li class="nav-item">

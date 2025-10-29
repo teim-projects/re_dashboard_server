@@ -9,14 +9,16 @@ class ChargeMaster(models.Model):
     value = models.FloatField()
     unit = models.CharField(max_length=50, blank=True, null=True)
     year = models.IntegerField(default=2025)
+    energy_type = models.CharField(max_length=50, blank=True, null=True)  # ✅ NEW FIELD
     updated_at = models.DateTimeField(auto_now=True)
+    state = models.CharField(max_length=50, blank=True, null=True)  # ✅ Ensure this exists
+
 
     class Meta:
         ordering = ['name']
 
     def __str__(self):
         return f"{self.name} - {self.value} {self.unit or ''}"
-
 
 # models.py
 
