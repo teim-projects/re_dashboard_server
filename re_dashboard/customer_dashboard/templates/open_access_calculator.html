@@ -44,13 +44,14 @@
         <div class="section-title"><i class="bi bi-info-circle-fill me-1"></i>Basic Information</div>
         <div class="row g-3 align-items-end mt-1">
           <div class="col-md-3">
-            <label class="form-label">Energy Type</label>
-            <select name="energy_type" class="form-select">
-              <option value="">-- Select --</option>
-              <option value="wind">Wind</option>
-              <option value="solar">Solar</option>
-              <option value="other">Other</option>
-            </select>
+    <label for="energyTypeSelect" class="form-label">Energy Type</label>
+    <select name="energy_type" id="energyTypeSelect" class="form-select" onchange="this.form.submit()">
+      <option value="">Select Energy Type</option>
+      <option value="Wind" {% if selected_energy_type == 'Wind' %}selected{% endif %}>Wind</option>
+      <option value="Solar" {% if selected_energy_type == 'Solar' %}selected{% endif %}>Solar</option>
+      <option value="Hydro" {% if selected_energy_type == 'Hydro' %}selected{% endif %}>Hydro</option>
+      <option value="Biomass" {% if selected_energy_type == 'Biomass' %}selected{% endif %}>Biomass</option>
+    </select>
           </div>
 
           <div class="col-md-3">
@@ -255,4 +256,7 @@
     form.submit();
   });
 </script>
+
+
+
 {% endblock %}

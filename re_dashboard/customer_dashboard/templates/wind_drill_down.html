@@ -22,10 +22,11 @@
       <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
     {% endif %}
   </div>
-
-  <!-- Filter Buttons -->
-  <div class="d-flex flex-wrap gap-2 mb-4">
-    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+ <div class="d-flex justify-content-end mb-1"  >
+ 
+</div>
+  <div id="filterSection" class="d-flex flex-wrap gap-2 hidden mb-3" >
+ <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
       <i class="fas fa-filter"></i> DATE RANGE
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
@@ -43,10 +44,42 @@
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
       <i class="fas fa-filter"></i> WTG NUMBER
     </button>
+
+
+    {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
+      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
+    {% endif %}
   </div>
+
 
   <!-- Row for Charts -->
   <div class="row">
+
+
+<!-- ⏱ Operating Hours -->
+<div class=" col-12 col-md-12  border-0 h-100 chart-card mb-5">
+  <div class="card-header form-heading d-flex justify-content-between align-items-center">
+    <strong>Total Operating Hours (WTG)</strong>
+    <div class="dropdown">
+      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="ohMenu" data-bs-toggle="dropdown" aria-expanded="false">
+        ☰
+      </button>
+       <button id="toggleFilters" class="btn btn-primary">
+    <i class="fas fa-sliders-h"></i> filters 
+  </button>
+      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="ohMenu">
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('ohChart','png')">Download PNG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadChart('ohChart','svg')">Download SVG</a></li>
+        <li><a class="dropdown-item" href="#" onclick="downloadCSV('ohChart')">Download CSV</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card-body"  >
+    <div  >
+      <canvas id="ohChart"></canvas>
+    </div>
+  </div>
+</div>
 
    <!-- 🌍 Location-wise Generation -->
 <div class="  col-12 col-md-6  border-0   chart-card mb-5">
@@ -63,7 +96,7 @@
       </ul>
     </div>
   </div>
-  <div class="card-body d-flex justify-content-center">
+  <div class="card-body    ">
     <div  >
       <canvas id="generationChart" ></canvas>
     </div>
@@ -114,27 +147,6 @@
   </div>
 </div>
 
-<!-- ⏱ Operating Hours -->
-<div class=" col-12 col-md-12  border-0 h-100 chart-card mb-5">
-  <div class="card-header form-heading d-flex justify-content-between align-items-center">
-    <strong>Total Operating Hours (WTG)</strong>
-    <div class="dropdown">
-      <button class="btn btn-sm btn-light dropdown-toggle" type="button" id="ohMenu" data-bs-toggle="dropdown" aria-expanded="false">
-        ☰
-      </button>
-      <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="ohMenu">
-        <li><a class="dropdown-item" href="#" onclick="downloadChart('ohChart','png')">Download PNG</a></li>
-        <li><a class="dropdown-item" href="#" onclick="downloadChart('ohChart','svg')">Download SVG</a></li>
-        <li><a class="dropdown-item" href="#" onclick="downloadCSV('ohChart')">Download CSV</a></li>
-      </ul>
-    </div>
-  </div>
-  <div class="card-body"  >
-    <div style="height: auto;">
-      <canvas id="ohChart"></canvas>
-    </div>
-  </div>
-</div>
 
 
   </div>
@@ -301,7 +313,29 @@
     </form>
   </div>
 </div>
+<style>
+  /* hidden state */
+  .hidden {
+    display: none !important;
+  }
+</style>
 
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const toggleBtn = document.getElementById("toggleFilters");
+    const filterSection = document.getElementById("filterSection");
+
+    toggleBtn.addEventListener("click", function () {
+      filterSection.classList.toggle("hidden");  // add/remove .hidden
+
+      if (filterSection.classList.contains("hidden")) {
+        toggleBtn.innerHTML = '<i class="fas fa-sliders-h"></i>  ';
+      } else {
+        toggleBtn.innerHTML = '<i class="fas fa-sliders-h"></i> ';
+      }
+    });
+  });
+</script>
 <!-- ==================== Styles ==================== -->
 <style>
 .hover-card { transition: transform 0.2s, box-shadow 0.2s; }
@@ -437,54 +471,72 @@ const palette = [
 
   // ------------------- Charts -------------------
 
-  // 1️⃣ Location-wise Generation (Pie with rotation + shadow effect)
-  new Chart(document.getElementById('generationChart'), {
-    type: 'pie',
-    data: {
-      labels: siteGenData.map(d => d.site),
-      datasets: [{
-        label: "Generation (kWh)",
-        data: siteGenData.map(d => d.generation),
-        backgroundColor: siteGenData.map((_, i) => palette[i % palette.length]),
-        borderColor: "#fff",
-        borderWidth: 3,
-        hoverOffset: 15
-      }]
-    },
-    options: {
-      ...commonOptions,
-      animation: {
-        animateRotate: true,
-        animateScale: true,
-        easing: 'easeOutBounce',
-        duration: 1800
+ // 1️⃣ Location-wise Generation (Pie with rotation + shadow effect)
+new Chart(document.getElementById('generationChart'), {
+  type: 'pie',
+  data: {
+    labels: siteGenData.map(d => d.site),
+    datasets: [{
+      label: "Generation (kWh)",
+      data: siteGenData.map(d => d.generation),
+      backgroundColor: siteGenData.map((_, i) => palette[i % palette.length]),
+      borderColor: "#fff",
+      borderWidth: 3,
+      hoverOffset: 15
+    }]
+  },
+  options: {
+    ...commonOptions,
+    plugins: {
+      legend: {
+        position: 'bottom', // ✅ Move legend to bottom
+        labels: {
+          boxWidth: 15,
+          padding: 15
+        }
       }
+    },
+    animation: {
+      animateRotate: true,
+      animateScale: true,
+      easing: 'easeOutBounce',
+      duration: 1800
     }
-  });
+  }
+});
 
   // 2️⃣ Machine Availability (Horizontal Gradient Bars)
-  const maCtx = document.getElementById('maChart').getContext("2d");
-  new Chart(maCtx, {
-    type: 'bar',
-    data: {
-      labels: maData.map(d => d.wec),
-      datasets: [{
-        label: "Machine Availability (%)",
-        data: maData.map(d => d.ma),
-        backgroundColor: maData.map((_, i) =>
-          createGradient(maCtx, palette[i % palette.length], "#ffffff")
-        ),
-        borderRadius: 10
-      }]
+ // 🎨 2️⃣ Machine Availability (Multi-Series Pie Chart)
+const maCtx = document.getElementById('maChart').getContext("2d");
+
+ new Chart(maCtx, {
+  type: "polarArea",
+  data: {
+    labels: maData.map(d => d.wec),
+    datasets: [{
+      data: maData.map(d => d.ma),
+      backgroundColor: maData.map((_, i) => `hsl(${i * 45}, 80%, 60%)`),
+      borderColor: "#fff",
+      borderWidth: 2
+    }]
+  },
+  options: {
+    scales: {
+      r: { angleLines: { color: "#e5e7eb" }, ticks: { display: false }, max: 100 }
     },
-    options: {
-      ...commonOptions,
-      indexAxis: 'y',
-      scales: { x: { beginAtZero: true, max: 100 } }
-    }
-  });
+    plugins: {
+      legend: { position: "right" },
+      tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed.r}%` } }
+    },
+    animation: { animateRotate: true, animateScale: true }
+  }
+});
+
  
-  // 3️⃣ Grid Availability (Vertical Bars with gradient + rounded)
+
+
+
+// 3️⃣ Grid Availability (Vertical Bars with gradient + rounded)
   const gaCtx = document.getElementById('gaChart').getContext("2d");
   new Chart(gaCtx, {
     type: 'bar',

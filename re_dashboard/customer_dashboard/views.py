@@ -2036,116 +2036,6 @@ from django.contrib.auth.decorators import login_required
 from django.db import connection
 from datetime import datetime
 
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-from datetime import datetime
-
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-from datetime import datetime
-
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-from datetime import datetime
-
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-  # ✅ safer import
-
-
-@login_required
-def Modifydata(request):
-    user = request.user
-
-    # --- Fetch all tables belonging to this user ---
-    with connection.cursor() as cursor:
-        cursor.execute("""
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = DATABASE()
-              AND table_name LIKE %s
-        """, [f"{user.username}_%"])
-        tables = [row[0] for row in cursor.fetchall()]
-
-    expected_tables = [{'name': t, 'label': t.replace('_', ' - ')} for t in tables]
-
-    if request.method == "POST":
-        table_name = request.POST.get('table_name')
-        start_date = request.POST.get('start_date')
-        end_date = request.POST.get('end_date')
-
-        # --- Validation checks ---
-        if not all([table_name, start_date, end_date]):
-            messages.error(request, "⚠️ All fields are required.")
-            return redirect('Modifydata')
-
-        if table_name not in tables:
-            messages.error(request, "❌ Invalid table selected.")
-            return redirect('Modifydata')
-
-        try:
-            # --- Convert date strings to datetime.date objects ---
-            start_dt = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
-            end_dt = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
-
-            if start_dt > end_dt:
-                messages.error(request, "⚠️ Start date cannot be after end date.")
-                return redirect('Modifydata')
-
-            # --- Detect date column name dynamically ---
-            with connection.cursor() as cursor:
-                cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
-                columns = [row[0].lower() for row in cursor.fetchall()]
-
-            date_col = None
-            for candidate in ["tdate", "gen_date", "date"]:
-                if candidate.lower() in columns:
-                    date_col = candidate
-                    break
-
-            if not date_col:
-                messages.error(request, "❌ No valid date column found in the selected table.")
-                return redirect('Modifydata')
-
-            # --- Perform delete operation ---
-            with connection.cursor() as cursor:
-                query = f"""
-                    DELETE FROM `{table_name}`
-                    WHERE `{date_col}` BETWEEN %s AND %s
-                """
-                cursor.execute(query, [start_date, end_date])
-                rows_deleted = cursor.rowcount
-
-            # --- Feedback message ---
-            if rows_deleted > 0:
-                messages.success(
-                    request,
-                    f"✅ Deleted {rows_deleted} rows from {table_name} "
-                    f"between {start_date} and {end_date}."
-                )
-            else:
-                messages.warning(
-                    request,
-                    f"⚠️ No rows found in {table_name} between {start_date} and {end_date}."
-                )
-
-            return redirect('Modifydata')
-
-        except Exception as e:
-            messages.error(request, f"❌ Error occurred: {str(e)}")
-            return redirect('Modifydata')
-
-    return render(request, 'Modifydata.html', {
-        'expected_tables': expected_tables,
-    })
 
 
 @login_required
@@ -3227,22 +3117,20 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import math
 
-# ---------- Helpers ----------
 def get_default_charges(energy_type=None, state=None, year=None):
     """
-    Load ChargeMaster records and build a defaults dict.
-    If your ChargeMaster has fields like energy_type/state/year, you can
-    extend the filtering here. This function is defensive and will
-    fall back to returning whatever is present in DB.
+    Fetch charges filtered by energy type, state, and year if provided.
     """
     qs = ChargeMaster.objects.all()
-    # If your ChargeMaster model actually has energy_type/state/year fields,
-    # you can filter here like:
-    # if energy_type: qs = qs.filter(energy_type__iexact=energy_type)
-    # if state: qs = qs.filter(state__iexact=state)
-    # if year: qs = qs.filter(year=year)
-    charges = qs
-    return {c.name.lower().replace(" ", "_"): float(c.value) for c in charges}
+
+    if energy_type:
+        qs = qs.filter(energy_type__iexact=str(energy_type).strip())
+    if state:
+        qs = qs.filter(state__iexact=str(state).strip())
+    if year:
+        qs = qs.filter(year=str(year).strip())
+
+    return qs
 
 def _safe_float(v, d=0.0):
     try:
@@ -3395,33 +3283,28 @@ from .models import OpenAccessCalculation
 
 @login_required
 def open_access_calculator(request):
-    """
-    Renders calculator, handles calculation, saves final result to DB, and optionally to session.
-    """
     energy_type = request.POST.get("energy_type") if request.method == "POST" else request.GET.get("energy_type")
     state = request.POST.get("state") if request.method == "POST" else request.GET.get("state")
     year = request.POST.get("year") if request.method == "POST" else request.GET.get("year")
 
-    defaults = get_default_charges(energy_type=energy_type, state=state, year=year)
+    # ✅ Fetch only default charges filtered by selected energy type, state, and year
+    qs = get_default_charges(energy_type=energy_type, state=state, year=year)
+    defaults = {c.name.lower().replace(" ", "_"): float(c.value or 0) for c in qs}
+
     result = None
     saved_list = request.session.get("oa_saved", [])
 
     if request.method == "POST":
         try:
-            # --- Compute the result ---
             result = compute_open_access_result(request.POST, defaults)
-
-            # --- Save final result in database for logged-in user ---
             OpenAccessCalculation.objects.create(
-            user=request.user,
-            energy_type=request.POST.get("energy_type", ""),  # ✅ save selected energy type
-            msedcl_total=result["msedcl_total"],
-            oa_total=result["oa_total"],
-            blended_rate=result["blended_rate"],
-            savings=result["savings_rs"]
+                user=request.user,
+                energy_type=request.POST.get("energy_type", ""),
+                msedcl_total=result["msedcl_total"],
+                oa_total=result["oa_total"],
+                blended_rate=result["blended_rate"],
+                savings=result["savings_rs"]
             )
-
-            # --- Optional: save to session (temporary) if user clicked "Save Calculation" ---
             if request.POST.get("save_result", "") == "1":
                 saved_entry = {
                     "timestamp": str(request.POST.get("save_label", "") or "saved"),
@@ -3438,7 +3321,6 @@ def open_access_calculator(request):
                 saved_list.append(saved_entry)
                 request.session["oa_saved"] = saved_list
                 messages.success(request, "Calculation saved to session (temporary).")
-
         except Exception as e:
             result = {"error": str(e)}
 
@@ -3448,7 +3330,6 @@ def open_access_calculator(request):
         "saved_list": saved_list,
     }
     return render(request, "open_access_calculator.html", context)
-
 
 def open_access_pdf(request):
     """
@@ -3833,3 +3714,127 @@ def dashboard_breakdown(request):
     }
 
     return render(request, "dashboard_breakdown.html", context)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+  # ✅ safer import
+
+
+@login_required
+def Modifydata(request):
+    user = request.user
+
+    # --- Fetch all tables belonging to this user ---
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+              AND table_name LIKE %s
+        """, [f"{user.username}_%"])
+        tables = [row[0] for row in cursor.fetchall()]
+
+    expected_tables = [{'name': t, 'label': t.replace('_', ' - ')} for t in tables]
+
+    if request.method == "POST":
+        table_name = request.POST.get('table_name')
+        start_date = request.POST.get('start_date')
+        end_date = request.POST.get('end_date')
+
+        # --- Validation checks ---
+        if not all([table_name, start_date, end_date]):
+            messages.error(request, "⚠️ All fields are required.")
+            return redirect('Modifydata')
+
+        if table_name not in tables:
+            messages.error(request, "❌ Invalid table selected.")
+            return redirect('Modifydata')
+
+        try:
+            # --- Convert date strings to datetime.date objects ---
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+            if start_dt > end_dt:
+                messages.error(request, "⚠️ Start date cannot be after end date.")
+                return redirect('Modifydata')
+
+            # --- Detect date column name dynamically ---
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{table_name}`;")
+                columns = [row[0].lower() for row in cursor.fetchall()]
+
+            date_col = None
+            for candidate in ["tdate", "gen_date", "date"]:
+                if candidate.lower() in columns:
+                    date_col = candidate
+                    break
+
+            if not date_col:
+                messages.error(request, "❌ No valid date column found in the selected table.")
+                return redirect('Modifydata')
+
+            # --- Perform delete operation ---
+            with connection.cursor() as cursor:
+                query = f"""
+                    DELETE FROM `{table_name}`
+                    WHERE `{date_col}` BETWEEN %s AND %s
+                """
+                cursor.execute(query, [start_date, end_date])
+                rows_deleted = cursor.rowcount
+
+            # --- Feedback message ---
+            if rows_deleted > 0:
+                messages.success(
+                    request,
+                    f"✅ Deleted {rows_deleted} rows from {table_name} "
+                    f"between {start_date} and {end_date}."
+                )
+            else:
+                messages.warning(
+                    request,
+                    f"⚠️ No rows found in {table_name} between {start_date} and {end_date}."
+                )
+
+            return redirect('Modifydata')
+
+        except Exception as e:
+            messages.error(request, f"❌ Error occurred: {str(e)}")
+            return redirect('Modifydata')
+
+    return render(request, 'Modifydata.html', {
+        'expected_tables': expected_tables,
+    })
