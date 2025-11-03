@@ -2,6 +2,526 @@ from django.shortcuts import render,redirect
 from django.contrib.auth.decorators import login_required
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import os, re, traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+import os
+import re
+import traceback
+import pandas as pd
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+from accounts.models import Provider, EnergyType
+from .models import UploadMetadata
+
+# =================== HELPERS =================== #
+
+import pandas as pd, numpy as np, os, re, traceback
+from datetime import datetime, date
+from django.core.files.storage import FileSystemStorage
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from django.utils.timezone import now
+ 
+
+
+
+ 
+
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
+
+import os, re, traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+
+import os, re, traceback
+import pandas as pd
+import numpy as np
+from datetime import datetime, date
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.utils.timezone import now
+from accounts.models import Provider, EnergyType
+from core.models import UploadMetadata
+
+
+# ---------------- HELPERS ---------------- #
+
+def clean_col(col: str) -> str:
+    return re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
+
+
+def normalize_date(val):
+    """Convert any date-like value to proper YYYY-MM-DD date."""
+    if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
+        return None
+    try:
+        if isinstance(val, (datetime, pd.Timestamp)):
+            return val.date()
+        if isinstance(val, date):  # ✅ handle pure date
+            return val
+        if isinstance(val, (int, float)):
+            return (datetime(1899, 12, 30) + pd.to_timedelta(val, unit='D')).date()
+        parsed = pd.to_datetime(str(val), errors='coerce')
+        if pd.notna(parsed):
+            return parsed.date()
+        return None
+    except Exception:
+        return None
+
+
+def normalize_hours(val):
+    """Convert time strings or day-hour formats into float hours."""
+    if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
+        return 0.0
+    try:
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val).strip().replace(".", ":")
+        if "day" in s:
+            parts = s.split()
+            days = float(parts[0])
+            h, m, sec = [float(x) for x in parts[-1].split(":")]
+            return days * 24 + h + m / 60 + sec / 3600
+        if ":" in s:
+            parts = s.split(":")
+            h, m = float(parts[0]), float(parts[1]) if len(parts) > 1 else 0
+            sec = float(parts[2]) if len(parts) > 2 else 0
+            return h + m / 60 + sec / 3600
+        return float(s)
+    except Exception:
+        return 0.0
+
+
+def sanitize_value(val):
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except Exception:
+        pass
+    if isinstance(val, (np.floating, float)) and (np.isnan(val) or np.isinf(val)):
+        return None
+    if str(val).strip().lower() in ["nan", "nat", "none", ""]:
+        return None
+    return val
+
+
+def detect_header_row(df):
+    """Detect first row that looks like a real header, skip meta rows like 'WEC Wise Report'."""
+    for i, row in df.iterrows():
+        row_values = [str(x).strip().lower() for x in row.values if pd.notna(x)]
+        if not row_values:
+            continue
+        if any("wec wise report" in val for val in row_values):
+            continue
+        keywords = ["date", "wec", "generation"]
+        if any(kw in val for val in row_values for kw in keywords):
+            return i
+    return 0
+
+
+def read_excel_multi(file_path, ext):
+    """Read multi-sheet Excel, CSV, or HTML-based XLS and skip meta header rows."""
+    def find_data_start(df):
+        """Return the index where data header starts (e.g. contains DATE/WEC)."""
+        for i, row in df.iterrows():
+            joined = " ".join(str(x).lower() for x in row if pd.notna(x))
+            if "date" in joined and "wec" in joined:
+                return i
+        return 0
+
+    if ext == ".csv":
+        df_preview = pd.read_csv(file_path, header=None)
+        start_row = find_data_start(df_preview)
+        df = pd.read_csv(file_path, header=start_row)
+        return {"main": df}
+
+    # --- Detect HTML disguised as .xls ---
+    with open(file_path, "rb") as f:
+        start_bytes = f.read(100).lower()
+        if b"<html" in start_bytes or b"<table" in start_bytes:
+            df_all = pd.read_html(file_path)[0]
+            start_row = find_data_start(df_all)
+            df = df_all.iloc[start_row:].reset_index(drop=True)
+            df.columns = [clean_col(c) for c in df.iloc[0]]
+            df = df[1:]  # drop header row from data
+            return {"main": df}
+
+    # --- Regular Excel / XLSX ---
+    if ext in [".xlsx", ".xlsm"]:
+        sheets = pd.read_excel(file_path, sheet_name=None, engine="openpyxl", header=None)
+    elif ext == ".xls":
+        sheets = pd.read_excel(file_path, sheet_name=None, engine="xlrd", header=None)
+    else:
+        raise Exception("Unsupported format")
+
+    cleaned_sheets = {}
+    for sheet_name, df in sheets.items():
+        start_row = find_data_start(df)
+        df = pd.read_excel(
+            file_path,
+            sheet_name=sheet_name,
+            engine="openpyxl" if ext != ".xls" else "xlrd",
+            header=start_row,
+        )
+        cleaned_sheets[sheet_name] = df
+    return cleaned_sheets
+
+# =================== MAIN VIEW =================== #
+
+
+
+
+@login_required
+def upload_files(request):
+    energy_types = EnergyType.objects.all()
+    providers = Provider.objects.all()
+
+    # --- All DB tables --- #
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [r[0] for r in cursor.fetchall()]
+
+    # --- Expected table listing --- #
+    expected_tables = []
+    for tbl in db_tables:
+        parts = tbl.split("_")
+        if len(parts) >= 3:
+            username = parts[0]
+            provider_slug = "_".join(parts[1:-1])
+            energy_slug = parts[-1]
+            if Provider.objects.filter(name__iexact=provider_slug.replace("_", " ")).exists() and \
+               EnergyType.objects.filter(name__iexact=energy_slug.replace("_", " ")).exists():
+                expected_tables.append({
+                    "name": tbl,
+                    "label": f"{username} - {provider_slug.replace('_',' ').title()} - {energy_slug.title()}"
+                })
+
+    if request.method == "POST":
+        table_name = request.POST.get("provider", "").strip()
+        provider_name = request.POST.get("provider_name", "").strip()
+        data_file = request.FILES.get("data_file")
+
+        if not table_name or not data_file or not provider_name:
+            messages.error(request, "❌ Table, file, and provider are required.")
+            return redirect("upload_files")
+
+        fs = FileSystemStorage()
+        filename = fs.save(data_file.name, data_file)
+        file_path = fs.path(filename)
+
+        try:
+            ext = os.path.splitext(filename)[1].lower()
+            sheets = read_excel_multi(file_path, ext)
+            uploaded_sheets = []
+
+            for sheet_name, df in sheets.items():
+                if df.empty:
+                    continue
+
+                # --- Clean column names first --- #
+                df.columns = [clean_col(c) for c in df.columns]
+
+                # ✅ Normalize date and hours FIRST before replacing invalids
+                for col in df.columns:
+                    col_l = col.lower().strip()
+
+                    # --- Date columns ---
+                    if any(k in col_l for k in ["date", "gen_date", "dt"]):
+                        df[col] = df[col].apply(normalize_date)
+                        # convert to string for SQL insert
+                        df[col] = df[col].apply(lambda x: x.strftime("%Y-%m-%d") if isinstance(x, (datetime, date)) else x)
+
+                    # --- Hour / Duration columns ---
+                    elif any(k in col_l for k in ["hrs", "hour", "time", "duration"]):
+                        df[col] = df[col].apply(normalize_hours)
+
+                # ✅ Now clean invalids safely
+                df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
+                df = df.astype(object).where(pd.notnull(df), None)
+                df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+
+                # --- Determine correct target table --- #
+                if "breakdown" in sheet_name.lower():
+                    target_table = f"{table_name}_breakdowndata"
+                else:
+                    target_table = table_name
+
+                if target_table not in db_tables:
+                    continue
+
+                # --- Match table columns --- #
+                with connection.cursor() as cursor:
+                    cursor.execute(f"SHOW COLUMNS FROM `{target_table}`")
+                    table_columns = [c[0].lower() for c in cursor.fetchall()]
+
+                valid_cols = [c for c in df.columns if c in table_columns]
+                if not valid_cols:
+                    continue
+                df = df[valid_cols]
+
+                # --- Add metadata fields --- #
+                parts = table_name.split("_")
+                uploaded_by = parts[0]
+                energy_type = parts[-1].replace("_", " ").title()
+
+                if "uploaded_by" in table_columns:
+                    df["uploaded_by"] = uploaded_by
+                if "provider" in table_columns:
+                    df["provider"] = provider_name
+                if "energy_type" in table_columns:
+                    df["energy_type"] = energy_type
+
+                # --- Bulk insert --- #
+                columns = ", ".join(f"`{c}`" for c in df.columns)
+                placeholders = ", ".join(["%s"] * len(df.columns))
+                sql = f"INSERT INTO `{target_table}` ({columns}) VALUES ({placeholders})"
+                values = [tuple(sanitize_value(v) for v in row) for row in df.values]
+
+                with connection.cursor() as cursor:
+                    cursor.executemany(sql, values)
+                    inserted = cursor.rowcount
+
+                if inserted > 0:
+                    UploadMetadata.objects.update_or_create(
+                        table_name=target_table,
+                        defaults={"last_modified": now()},
+                    )
+                    uploaded_sheets.append(f"{sheet_name} → {inserted} rows")
+
+            # --- Final feedback --- #
+            if uploaded_sheets:
+                messages.success(request, f"✅ Uploaded Successfully: {', '.join(uploaded_sheets)}")
+            else:
+                messages.error(request, "❌ No valid sheets uploaded. Check file headers or structure.")
+
+        except Exception as e:
+            print("🔥 Upload failed:\n", traceback.format_exc())
+            messages.error(request, f"❌ Upload failed: {str(e)}")
+
+        finally:
+            fs.delete(filename)
+
+        return redirect("upload_files")
+
+    # --- GET --- #
+    return render(request, "upload_files.html", {
+        "expected_tables": expected_tables,
+        "providers": providers,
+        "energy_types": energy_types,
+        "staff_users": User.objects.filter(is_superuser=False),
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def index_page(request):
   return render(request, 'index.html')
 
@@ -118,8 +638,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import connection
 from django.contrib.auth.models import User
 from accounts.models import Provider, EnergyType
-import datetime
-
+ 
 from django.contrib import messages
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
@@ -549,257 +1068,29 @@ import traceback
 import pandas as pd
 import numpy as np
 
-import os, re, traceback
-import pandas as pd
-import numpy as np
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-from django.contrib.auth.models import User
-from django.utils.timezone import now
-import os
-import re
-import traceback
-import pandas as pd
-import numpy as np
-from datetime import datetime
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-from django.contrib.auth.models import User
-from django.utils.timezone import now
-from accounts.models import Provider, EnergyType
-from .models import UploadMetadata
 
 
-# --- Helpers ---
-def clean_col(col: str) -> str:
-    return re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
 
 
-def read_excel_multi(file_path, ext):
-    """Return dict of sheet_name: DataFrame (handles CSV, XLSX, XLS, ODS, HTML fallback)."""
-    try:
-        if ext == ".csv":
-            return {"main": pd.read_csv(file_path)}
-
-        elif ext in [".xlsx", ".xlsm"]:
-            return pd.read_excel(file_path, sheet_name=None, engine="openpyxl")
-
-        elif ext == ".xls":
-            try:
-                return pd.read_excel(file_path, sheet_name=None, engine="xlrd")
-            except Exception:
-                df_list = pd.read_html(file_path)
-                return {"main": df_list[0]}
-
-        elif ext in [".ods", ".odt"]:
-            return pd.read_excel(file_path, sheet_name=None, engine="odf")
-
-        else:
-            raise Exception(f"Unsupported file format: {ext}")
-
-    except Exception as e:
-        raise Exception(f"Unsupported format or corrupt file: {str(e)}")
 
 
-def normalize_date(val):
-    """Convert date-like values to YYYY-MM-DD."""
-    if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
-        return None
-    try:
-        return pd.to_datetime(val).date()
-    except Exception:
-        return None
 
 
-def normalize_hours(val):
-    """Convert time strings or day-hour formats into float hours."""
-    if val is None or val == "" or str(val).lower() == "nan":
-        return None
-    try:
-        if isinstance(val, (int, float)):
-            return float(val)
-
-        s = str(val).strip()
-        if "day" in s:
-            parts = s.split()
-            days = float(parts[0])
-            h, m, sec = [float(x) for x in parts[-1].split(":")]
-            return days * 24 + h + m/60 + sec/3600
-
-        if ":" in s:
-            h, m, sec = [float(x) for x in s.split(":")]
-            return h + m/60 + sec/3600
-
-        return float(s)
-    except:
-        return None
 
 
-def sanitize_value(val):
-    """Convert invalid DB values into None (MySQL NULL)."""
-    if val is None:
-        return None
-    try:
-        if pd.isna(val):
-            return None
-    except Exception:
-        pass
-    if isinstance(val, (np.floating, float)) and (np.isnan(val) or np.isinf(val)):
-        return None
-    if str(val).strip().lower() in ["nan", "nat", "none", ""]:
-        return None
-    return val
 
 
-# -------------------------------------------------------------------
-#                          MAIN VIEW
-# -------------------------------------------------------------------
-@login_required
-def upload_files(request):
-    energy_types = EnergyType.objects.all()
-    providers = Provider.objects.all()
 
-    # Fetch all DB tables
-    with connection.cursor() as cursor:
-        cursor.execute("SHOW TABLES;")
-        db_tables = [row[0] for row in cursor.fetchall()]
 
-    expected_tables = []
-    for table in db_tables:
-        parts = table.split("_")
-        if len(parts) >= 3:
-            username = parts[0]
-            provider_slug = "_".join(parts[1:-1])
-            energy_type_slug = parts[-1]
-            if Provider.objects.filter(name__iexact=provider_slug.replace("_", " ")).exists() and \
-               EnergyType.objects.filter(name__iexact=energy_type_slug.replace("_", " ")).exists():
-                expected_tables.append({
-                    "name": table,
-                    "label": f"{username} - {provider_slug.replace('_',' ').title()} - {energy_type_slug.title()}"
-                })
 
-    # ------------------ POST ------------------
-    if request.method == "POST":
-        base_table_name = request.POST.get("provider", "").strip()
-        provider_name = request.POST.get("provider_name", "").strip()
-        data_file = request.FILES.get("data_file")
 
-        if not base_table_name or not data_file or not provider_name:
-            messages.error(request, "❌ Table, file, and provider are required.")
-            return redirect("upload_files")
 
-        fs = FileSystemStorage()
-        filename = fs.save(data_file.name, data_file)
-        file_path = fs.path(filename)
 
-        try:
-            ext = os.path.splitext(filename)[1].lower()
-            sheets = read_excel_multi(file_path, ext)
 
-            uploaded_sheets = []
 
-            for sheet_name, df in sheets.items():
-                if df.empty:
-                    continue
 
-                sheet_clean = sheet_name.strip().lower()
-                if "breakdown" in sheet_clean:
-                    table_name = f"{base_table_name}_breakdowndata"
-                else:
-                    table_name = base_table_name  # generation sheet
 
-                if table_name not in db_tables:
-                    messages.warning(request, f"⚠️ Table '{table_name}' does not exist. Skipping '{sheet_name}' sheet.")
-                    continue
-
-                # Clean columns
-                df.columns = [clean_col(c) for c in df.columns]
-
-                # Replace bad values
-                df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
-                df = df.astype(object).where(pd.notnull(df), None)
-                df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
-
-                # Fetch DB columns
-                with connection.cursor() as cursor:
-                    cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
-                    table_columns = [col[0].lower() for col in cursor.fetchall()]
-
-                valid_columns = [col for col in df.columns if col in table_columns]
-                df = df[valid_columns]
-
-                if df.shape[1] == 0:
-                    messages.error(request, f"❌ No matching columns for sheet '{sheet_name}'.")
-                    continue
-
-                # Normalize date columns
-                date_cols = [c for c in df.columns if "date" in c]
-                for dc in date_cols:
-                    df[dc] = df[dc].apply(normalize_date)
-
-                # Normalize hours columns
-                if "o_hrs" in df.columns:
-                    df["o_hrs"] = df["o_hrs"].apply(normalize_hours)
-                if "l_hrs" in df.columns:
-                    df["l_hrs"] = df["l_hrs"].apply(normalize_hours)
-
-                # Add mandatory columns
-                parts = base_table_name.split("_")
-                uploaded_by = parts[0]
-                energy_type = parts[-1].replace("_", " ").title()
-
-                if "energy_type" in table_columns:
-                    df["energy_type"] = energy_type
-                if "uploaded_by" in table_columns:
-                    df["uploaded_by"] = uploaded_by
-                if "provider" in table_columns:
-                    df["provider"] = provider_name
-
-                # Insert
-                columns = ", ".join(f"`{col}`" for col in df.columns)
-                placeholders = ", ".join(["%s"] * len(df.columns))
-                insert_sql = f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})"
-
-                values = [tuple(sanitize_value(v) for v in row) for row in df.values]
-
-                with connection.cursor() as cursor:
-                    cursor.executemany(insert_sql, values)
-                    rows_inserted = cursor.rowcount
-
-                if rows_inserted > 0:
-                    UploadMetadata.objects.update_or_create(
-                        table_name=table_name,
-                        defaults={"last_modified": now()}
-                    )
-                    uploaded_sheets.append(f"{sheet_name} → {rows_inserted} rows")
-
-            if uploaded_sheets:
-                messages.success(request, f"✅ Successfully uploaded data: {', '.join(uploaded_sheets)}")
-            else:
-                messages.error(request, "❌ No data uploaded from any sheet.")
-
-        except Exception as e:
-            print("🔥 Upload failed:\n", traceback.format_exc())
-            messages.error(request, f"❌ Upload failed: {str(e)}")
-        finally:
-            fs.delete(filename)
-
-        return redirect("upload_files")
-
-    # ------------------ GET ------------------
-    return render(request, "upload_files.html", {
-        "expected_tables": expected_tables,
-        "providers": providers,
-        "energy_types": energy_types,
-        "staff_users": User.objects.filter(is_superuser=False),
-    })
-
+ 
 from django.db import connection, DatabaseError
 
 from django.db import connection, DatabaseError
@@ -967,119 +1258,131 @@ def user_generation_info(request):
     })
 
 
-from django.contrib.admin.views.decorators import staff_member_required
-from django.shortcuts import render
-from django.db.models import Count, Sum
+# ------------------------------------------------------------
+# tracking_dashboard view (Fixed timedelta issue + clean logic)
+# ------------------------------------------------------------
 
-
-from django.contrib.admin.views.decorators import staff_member_required
-from django.shortcuts import render
-from django.db.models import Count
-from django.contrib.auth.models import User
-from accounts.models import UserProfile, EnergyType, Provider
-import json
-
-import json
-from django.contrib.admin.views.decorators import staff_member_required
-from django.shortcuts import render
-from django.db.models import Count, DateField
-from django.db.models.functions import TruncMonth
-from django.contrib.auth.models import User
-from accounts.models import UserProfile, EnergyType, Provider
-
-
-from django.shortcuts import render
-from django.contrib.auth.models import User
-from django.db.models import Count
-from django.utils.timezone import now
-import json
-import datetime
-from collections import Counter
+from datetime import datetime, timedelta   # ✅ Correct import
+from collections import Counter, defaultdict
 from calendar import month_abbr
 
+from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render
 from django.contrib.auth.models import User
-from django.db.models import Count
 from django.utils.timezone import now
-import datetime
+
+from accounts.models import UserProfile, EnergyType, Provider  # ✅ ensure these exist
 import json
-from collections import Counter
 
-from accounts.models import UserProfile, EnergyType, Provider  # make sure imports are correct
+# ------------------------------------------------------------
+# tracking_dashboard view (final fixed version)
+# ------------------------------------------------------------
 
+from datetime import datetime, timedelta
+from collections import Counter, defaultdict
+from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render
 from django.contrib.auth.models import User
-from django.db.models import Count
 from django.utils.timezone import now
-import datetime
+from accounts.models import UserProfile, EnergyType, Provider
 import json
-from collections import defaultdict, Counter
 
-from accounts.models import UserProfile, EnergyType, Provider  # ✅ correct imports
+# ------------------------------------------------------------
+# tracking_dashboard view (Final version for your current models)
+# ------------------------------------------------------------
+
+from datetime import datetime, timedelta
+from collections import defaultdict
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+from accounts.models import UserProfile, EnergyType, Provider
+import json
+
+from datetime import timedelta
+from collections import defaultdict
+from django.utils.timezone import now
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from django.contrib.auth.models import User
+from accounts.models import UserProfile, EnergyType, Provider
+import json
 
 
+from datetime import timedelta
+from django.utils.timezone import now
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from django.contrib.auth.models import User
+from accounts.models import UserProfile, EnergyType, Provider
+import json
+
+
+from datetime import timedelta
+from django.utils.timezone import now
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from django.contrib.auth.models import User
+from accounts.models import UserProfile, EnergyType, Provider
+from django.db.models import Count
+import json
+from datetime import timedelta
+from django.utils.timezone import now
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from django.contrib.auth.models import User
+from accounts.models import UserProfile, EnergyType, Provider
+from django.db.models import Count
+import json
+from django.utils.timezone import now
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from django.contrib.auth.models import User
+from accounts.models import UserProfile, EnergyType, Provider
+import json
+
+
+@staff_member_required
 def tracking_dashboard(request):
-    # --- Customer stats ---
-    total_customers = UserProfile.objects.count()
-    active_customers = User.objects.filter(is_active=True).count()
-    inactive_customers = User.objects.filter(is_active=False).count()
-
-    # --- Energy stats ---
-    total_energy = EnergyType.objects.count()   # ✅ only count energy types
-    energy_data = (
-        EnergyType.objects.annotate(total=Count("userprofile"))
-        .values("name", "total")
-    )
-    energy_labels = [e["name"] for e in energy_data]
-    energy_values = [e["total"] for e in energy_data]
-
-    # --- Provider stats ---
-    total_providers = Provider.objects.count()
-
-    # --- User Registrations (last 6 months, grouped by username) ---
+    """Admin dashboard showing customers, providers, and energy statistics."""
     today = now().date()
-    six_months_ago = today - datetime.timedelta(days=180)
-    users = User.objects.filter(date_joined__gte=six_months_ago)
+    start_date = today - timedelta(days=180)
 
-    # labels: last 6 months
-    months = [(today - datetime.timedelta(days=i * 30)).strftime("%b %Y") for i in range(6, -1, -1)]
+    # --- Total counts ---
+    total_customers = User.objects.filter(is_staff=False, is_superuser=False).count()
+    total_providers = Provider.objects.count()
+    total_energy = EnergyType.objects.count()
 
-    # dict to hold {username: [0,0,0...]}
-    user_data = defaultdict(lambda: [0] * len(months))
+    # --- Active / Inactive customers ---
+    # Since your UserProfile doesn’t have 'is_active', use User model
+    active_customers = User.objects.filter(is_active=True, is_staff=False, is_superuser=False).count()
+    inactive_customers = total_customers - active_customers if total_customers > 0 else 0
 
-    for user in users:
-        month_label = user.date_joined.strftime("%b %Y")
-        if month_label in months:
-            idx = months.index(month_label)
-            user_data[user.username][idx] += 1
+    # --- Energy distribution (Donut chart) ---
+    energy_labels = []
+    energy_values = []
 
-    # build datasets (one per user)
-    colors = [
-        "#36A2EB", "#FF6384", "#4BC0C0", "#9966FF", "#FF9F40",
-        "#28a745", "#e83e8c", "#20c997", "#6f42c1", "#fd7e14"
-    ]
-    datasets = []
-    for i, (username, values) in enumerate(user_data.items()):
-        datasets.append({
-            "label": username,
-            "data": values,
-            "borderColor": colors[i % len(colors)],
-            "backgroundColor": colors[i % len(colors)] + "33",  # semi-transparent
-            "fill": True,
-            "tension": 0.3,
-            "pointRadius": 5,
-            "pointHoverRadius": 8
-        })
+    for et in EnergyType.objects.all():
+        # Count how many UserProfiles are linked to this energy type
+        count = UserProfile.objects.filter(energy_types=et).count()
+        if count > 0:
+            energy_labels.append(et.name)
+            energy_values.append(count)
+
+    # Handle no data case
+    if not energy_labels:
+        energy_labels = ["No Data"]
+        energy_values = [1]
 
     context = {
         "total_customers": total_customers,
         "active_customers": active_customers,
         "inactive_customers": inactive_customers,
+        "total_providers": total_providers,
         "total_energy": total_energy,
         "energy_labels": json.dumps(energy_labels),
         "energy_values": json.dumps(energy_values),
-        "total_providers": total_providers,
-        "registration_labels": json.dumps(months),
-        "registration_datasets": json.dumps(datasets),  # ✅ send multiple datasets
     }
+
     return render(request, "tracking_dashboard.html", context)

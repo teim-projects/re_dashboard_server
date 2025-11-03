@@ -26,3 +26,17 @@ class Provider(models.Model):
 
     def __str__(self):
         return self.name
+
+
+
+
+class UserProvider(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    provider = models.ForeignKey(Provider, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'provider')
+
+    def __str__(self):
+        return f"{self.user.username} ↔ {self.provider.name}"

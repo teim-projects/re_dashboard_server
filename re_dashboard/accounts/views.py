@@ -268,7 +268,7 @@ import os
 import re
 import xlrd
 from openpyxl import Workbook
-
+from accounts.models import UserProvider 
 from accounts.models import Provider, EnergyType
 
 
@@ -352,6 +352,8 @@ def add_provider_with_structure(request):
             return redirect("add_provider")
 
         provider_obj, created = Provider.objects.get_or_create(name=provider_name)
+        UserProvider.objects.get_or_create(user=user_obj, provider=provider_obj)
+
 
         # ✅ Save uploaded file temporarily
         fs = FileSystemStorage()
