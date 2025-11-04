@@ -526,12 +526,13 @@ def index_page(request):
   return render(request, 'index.html')
 
 
+from datetime import timedelta
+from django.utils.timezone import now
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.contrib.auth.models import User
 from django.db.models import Count
-from django.utils.timezone import now
-import datetime, json
+import json
 from collections import defaultdict
 from accounts.models import UserProfile, EnergyType, Provider
 
@@ -560,11 +561,11 @@ def dashboard(request):
 
         # --- User Registrations (last 6 months, grouped by username) ---
         today = now().date()
-        six_months_ago = today - datetime.timedelta(days=180)
+        six_months_ago = today - timedelta(days=180)
         users = User.objects.filter(date_joined__gte=six_months_ago)
 
         months = [
-            (today - datetime.timedelta(days=i * 30)).strftime("%b %Y")
+            (today - timedelta(days=i * 30)).strftime("%b %Y")
             for i in range(6, -1, -1)
         ]
 
@@ -607,7 +608,6 @@ def dashboard(request):
 
     # Normal user dashboard
     return render(request, "wind_dashboard.html")
-
 
 
 @login_required
