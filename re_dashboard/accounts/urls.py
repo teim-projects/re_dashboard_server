@@ -17,5 +17,6 @@ urlpatterns = [
     path('add-provider/', add_provider_with_structure, name='add_provider'),
 
     path('existing-providers/',view_existing_providers, name='existing_providers'),
+    path('add_dsm_structure/',add_dsm_structure, name='add_dsm_structure'),
 
 ]
