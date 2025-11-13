@@ -570,6 +570,14 @@ margin: 0 10px;
               <i class="fas fa-file-circle-plus"></i> Add Installation Summary
             </a>
           </li>
+
+
+
+                    <li class="nav-item">
+            <a class="nav-link" href="{% url 'add_pm_structure' %}">
+              <i class="fas fa-file-circle-plus"></i> P M  Setup
+            </a>
+          </li>
         </ul>
       </div>
     </li>
@@ -616,6 +624,15 @@ margin: 0 10px;
         <i class="fas fa-upload"></i>&nbsp; Upload Data
       </a>
     </li>
+
+
+        <li class="nav-item">
+      <a class="nav-link" href="{% url 'upload_preventive_maintenance' %}">
+        <i class="fas fa-upload"></i>&nbsp; Upload P M Checkpoints
+      </a>
+    </li>
+
+
     <li class="nav-item">
       <a class="nav-link" href="{% url 'upload_installation_data' %}">
         <i class="fas fa-file-upload"></i> &nbsp; Installation Summary
@@ -669,11 +686,11 @@ margin: 0 10px;
         </ul>
       </div>
     </li>
- <li class="nav-item">
+ <!-- <li class="nav-item">
       <a class="nav-link" href="{% url 'charge_master_list' %}">
         <i class="fas fa-user"></i>&nbsp; Manage Open Access
       </a>
-    </li>
+    </li> -->
     {% endif %}
 
     <!-- Logout -->

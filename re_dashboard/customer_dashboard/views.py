@@ -3838,3 +3838,538 @@ def Modifydata(request):
     return render(request, 'Modifydata.html', {
         'expected_tables': expected_tables,
     })
+
+
+
+
+
+from datetime import date, timedelta, datetime
+from django.utils.timezone import now
+
+def auto_reset_completed_tasks(username=None):
+    """
+    Automatically reset completed monthly/quarterly/yearly checkpoints 
+    when a new period starts.
+    """
+    from datetime import date
+    today = date.today()
+
+    with connection.cursor() as cursor:
+        # Example: reset Monthly checkpoints older than 30 days
+        cursor.execute(f"""
+            UPDATE preventive_maintenance_with_wtg
+            SET status='Pending', completed_on=NULL
+            WHERE checkpoints_period='Monthly'
+            AND status='Completed'
+            AND completed_on IS NOT NULL
+            AND completed_on <= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            {f"AND username='{username}'" if username else ""}
+        """)
+
+        # Quarterly reset example (older than 90 days)
+        cursor.execute(f"""
+            UPDATE preventive_maintenance_with_wtg
+            SET status='Pending', completed_on=NULL
+            WHERE checkpoints_period='Quarterly'
+            AND status='Completed'
+            AND completed_on IS NOT NULL
+            AND completed_on <= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+            {f"AND username='{username}'" if username else ""}
+        """)
+
+        # Yearly reset example (older than 365 days)
+        cursor.execute(f"""
+            UPDATE preventive_maintenance_with_wtg
+            SET status='Pending', completed_on=NULL
+            WHERE checkpoints_period='Yearly'
+            AND status='Completed'
+            AND completed_on IS NOT NULL
+            AND completed_on <= DATE_SUB(CURDATE(), INTERVAL 365 DAY)
+            {f"AND username='{username}'" if username else ""}
+        """)
+
+    print(f"🔁 Auto-reset executed for {username or 'all users'} ✅")
+
+
+
+
+PM_TABLE_NAME = "preventive_maintenance_data"
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
+
+def ensure_wtg_table():
+    """Ensure WTG table exists and unique constraint is correctly applied."""
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+        if PM_WTG_TABLE not in tables:
+            cursor.execute(f"""
+                CREATE TABLE `{PM_WTG_TABLE}` (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    username TEXT,
+                    wtg_no TEXT,
+                    site TEXT,
+                    state TEXT,
+                    energy_type TEXT,
+                    mw TEXT,
+                    checkpoints_period TEXT,
+                    category TEXT,
+                    sub_category TEXT,
+                    duration TEXT,
+                    status TEXT DEFAULT 'Pending',
+                    remarks TEXT,
+                    completed_on DATE,
+                    FOREIGN KEY (user_id) REFERENCES auth_user(id) ON DELETE CASCADE
+                );
+            """)
+
+        # 🧹 Drop any old conflicting constraints
+        for idx in ["unique_wtg_checkpoint", "unique_wtg_checkpoint_per_unit", "unique_wtg_checkpoint_final"]:
+            try:
+                cursor.execute(f"ALTER TABLE `{PM_WTG_TABLE}` DROP INDEX {idx};")
+            except Exception:
+                pass
+
+        # 🔍 Remove internal duplicates automatically (same WTG + same checkpoint)
+        try:
+            cursor.execute(f"""
+                DELETE t1 FROM `{PM_WTG_TABLE}` t1
+                JOIN `{PM_WTG_TABLE}` t2
+                ON t1.id > t2.id
+                AND t1.username = t2.username
+                AND t1.wtg_no = t2.wtg_no
+                AND t1.category = t2.category
+                AND t1.sub_category = t2.sub_category
+                AND t1.duration = t2.duration
+                AND t1.checkpoints_period = t2.checkpoints_period
+                AND t1.mw = t2.mw;
+            """)
+        except Exception:
+            pass
+
+        # ✅ Add the final unique key
+        try:
+            cursor.execute(f"""
+                ALTER TABLE `{PM_WTG_TABLE}`
+                ADD UNIQUE KEY unique_wtg_checkpoint_final
+                (`username`(50), `wtg_no`(50), `category`(100),
+                 `sub_category`(100), `duration`(50),
+                 `checkpoints_period`(50), `mw`(50));
+            """)
+        except Exception:
+            pass
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.db import connection
+
+PM_TABLE_NAME = "preventive_maintenance_data"
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
+
+
+@login_required
+def my_preventive_maintenance(request):
+    """
+    User-side page: view, upload, and manage user's own preventive maintenance records.
+    Also allows registering WTGs to create per-WTG checklists.
+    """
+    user = request.user
+    username = user.username
+    ensure_wtg_table()
+    auto_reset_completed_tasks(request.user.username)
+
+    # ------------------ REGISTER WTG ------------------ #
+    if request.method == "POST" and request.POST.get("register_wtg") == "1":
+        wtg_no = request.POST.get("wtg_no", "").strip()
+        site = request.POST.get("site", "").strip()
+        state = request.POST.get("state", "").strip()
+
+        if not wtg_no or not site or not state:
+            messages.error(request, "Please fill all WTG details.")
+            return redirect("my_preventive_maintenance")
+
+        try:
+            # Fetch all user checkpoints from PM table
+            with connection.cursor() as cursor:
+                cursor.execute(f"""
+                    SELECT energy_type, mw, checkpoints_period, category, sub_category, duration
+                    FROM `{PM_TABLE_NAME}`
+                    WHERE username = %s
+                """, [username])
+                rows = cursor.fetchall()
+
+            if not rows:
+                messages.warning(request, "No maintenance checkpoints found to copy.")
+                return redirect("my_preventive_maintenance")
+
+            # Insert each checkpoint — silently ignore duplicates
+            with connection.cursor() as cursor:
+                for r in rows:
+                    energy_type, mw, period, category, sub_category, duration = r
+                    cursor.execute(f"""
+                        INSERT IGNORE INTO `{PM_WTG_TABLE}`
+                        (user_id, username, wtg_no, site, state, energy_type, mw, checkpoints_period,
+                         category, sub_category, duration, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pending')
+                    """, [user.id, username, wtg_no, site, state,
+                          energy_type, mw, period, category, sub_category, duration])
+
+            messages.success(request, f"✅ WTG '{wtg_no}' registered successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Error registering WTG: {e}")
+
+        return redirect("my_preventive_maintenance")
+
+    # ------------------ FETCH USER RECORDS ------------------ #
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT id, category, sub_category, duration, checkpoints_period, mw, description, energy_type
+            FROM `{PM_TABLE_NAME}`
+            WHERE username = %s
+            ORDER BY id DESC
+        """, [username])
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+    records = [dict(zip(columns, r)) for r in rows]
+
+    # ------------------ DELETE RECORD ------------------ #
+    if request.method == "POST" and request.POST.get("delete_id"):
+        delete_id = request.POST.get("delete_id")
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"DELETE FROM `{PM_TABLE_NAME}` WHERE id=%s AND username=%s", [delete_id, username])
+            messages.success(request, f"🗑️ Record {delete_id} deleted successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Delete failed: {e}")
+        return redirect("my_preventive_maintenance")
+
+    # ------------------ EDIT RECORD ------------------ #
+    if request.method == "POST" and request.POST.get("edit_id"):
+        edit_id = request.POST.get("edit_id")
+        cat = request.POST.get("edit_category")
+        subcat = request.POST.get("edit_sub_category")
+        dur = request.POST.get("edit_duration")
+        desc = request.POST.get("edit_description")
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"""
+                    UPDATE `{PM_TABLE_NAME}`
+                    SET category=%s, sub_category=%s, duration=%s, description=%s
+                    WHERE id=%s AND username=%s
+                """, [cat, subcat, dur, desc, edit_id, username])
+            messages.success(request, f"✅ Record {edit_id} updated successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Update failed: {e}")
+        return redirect("my_preventive_maintenance")
+
+    return render(request, "my_preventive_maintenance.html", {"records": records})
+
+
+
+
+
+
+
+
+
+
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.db import connection
+from datetime import date
+
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.db import connection
+from datetime import date
+
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
+
+def ensure_wtg_table():
+    """Ensure the preventive_maintenance_with_wtg table exists and has required columns."""
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+        if PM_WTG_TABLE not in tables:
+            cursor.execute(f"""
+                CREATE TABLE `{PM_WTG_TABLE}` (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    username TEXT,
+                    wtg_no TEXT,
+                    site TEXT,
+                    state TEXT,
+                    energy_type TEXT,
+                    mw TEXT,
+                    checkpoints_period TEXT,
+                    category TEXT,
+                    sub_category TEXT,
+                    duration TEXT,
+                    status TEXT DEFAULT 'Pending',
+                    remarks TEXT,
+                    completed_on DATE,
+                    FOREIGN KEY (user_id) REFERENCES auth_user(id) ON DELETE CASCADE
+                );
+            """)
+
+        # 🧹 Drop any old constraints that might conflict
+        for idx in ["unique_wtg_checkpoint", "unique_wtg_checkpoint_per_unit"]:
+            try:
+                cursor.execute(f"ALTER TABLE `{PM_WTG_TABLE}` DROP INDEX {idx};")
+            except Exception:
+                pass
+
+        # ✅ Add final unique key per WTG + period + MW
+        try:
+            cursor.execute(f"""
+                ALTER TABLE `{PM_WTG_TABLE}`
+                ADD UNIQUE KEY unique_wtg_checkpoint_final
+                (`username`(50), `wtg_no`(50), `category`(100), 
+                 `sub_category`(100), `duration`(50),
+                 `checkpoints_period`(50), `mw`(50));
+            """)
+        except Exception:
+            pass
+
+@login_required
+def user_completed_maintenance(request):
+    """User dashboard — view and complete WTG-wise preventive maintenance."""
+    ensure_wtg_table()
+    user = request.user
+    username = user.username
+
+    # ---------- Filters ----------
+    energy_types, mw_list, periods, sites, wtgs = [], [], [], [], []
+    selected_energy = request.GET.get("energy_type")
+    selected_mw = request.GET.get("mw")
+    selected_period = request.GET.get("period")
+    selected_site = request.GET.get("site")
+    selected_wtg = request.GET.get("wtg_no")
+
+    with connection.cursor() as cursor:
+        # 1️⃣ Energy Type
+        cursor.execute(f"SELECT DISTINCT energy_type FROM `{PM_WTG_TABLE}` WHERE username=%s", [username])
+        energy_types = [r[0] for r in cursor.fetchall() if r[0]]
+
+        # 2️⃣ MW
+        if selected_energy:
+            cursor.execute(f"""
+                SELECT DISTINCT mw FROM `{PM_WTG_TABLE}` WHERE username=%s AND energy_type=%s
+            """, [username, selected_energy])
+            mw_list = [r[0] for r in cursor.fetchall() if r[0]]
+
+        # 3️⃣ Period
+        if selected_mw:
+            cursor.execute(f"""
+                SELECT DISTINCT checkpoints_period FROM `{PM_WTG_TABLE}`
+                WHERE username=%s AND energy_type=%s AND mw=%s
+            """, [username, selected_energy, selected_mw])
+            periods = [r[0] for r in cursor.fetchall() if r[0]]
+
+        # 4️⃣ Site (after selecting Period)
+        if selected_period:
+            cursor.execute(f"""
+                SELECT DISTINCT site FROM `{PM_WTG_TABLE}`
+                WHERE username=%s AND energy_type=%s AND mw=%s AND checkpoints_period=%s
+            """, [username, selected_energy, selected_mw, selected_period])
+            sites = [r[0] for r in cursor.fetchall() if r[0]]
+
+        # 5️⃣ WTG (after selecting Site)
+        if selected_site:
+            cursor.execute(f"""
+                SELECT DISTINCT wtg_no FROM `{PM_WTG_TABLE}`
+                WHERE username=%s AND energy_type=%s AND mw=%s AND checkpoints_period=%s AND site=%s
+            """, [username, selected_energy, selected_mw, selected_period, selected_site])
+            wtgs = [r[0] for r in cursor.fetchall() if r[0]]
+
+    # ---------- Fetch filtered tasks ----------
+    records = []
+    if selected_energy and selected_mw and selected_period and selected_site and selected_wtg:
+        query = f"""
+            SELECT id, category, sub_category, duration, site, wtg_no, status, remarks, completed_on
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s AND energy_type=%s AND mw=%s 
+            AND checkpoints_period=%s AND site=%s AND wtg_no=%s
+        """
+        params = [username, selected_energy, selected_mw, selected_period, selected_site, selected_wtg]
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            records = [dict(zip(columns, r)) for r in rows]
+
+    # ---------- Handle task completion ----------
+    if request.method == "POST" and request.POST.get("complete_id"):
+        complete_id = request.POST.get("complete_id")
+        remarks = request.POST.get("remarks", "").strip()
+
+        ensure_wtg_table()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"""
+                    UPDATE `{PM_WTG_TABLE}`
+                    SET status='Completed', remarks=%s, completed_on=%s
+                    WHERE id=%s AND username=%s
+                """, [remarks, date.today(), complete_id, username])
+            messages.success(request, "✅ Task marked as completed successfully.")
+        except Exception as e:
+            if "Unknown column" in str(e):
+                ensure_wtg_table()
+                with connection.cursor() as cursor:
+                    cursor.execute(f"""
+                        UPDATE `{PM_WTG_TABLE}`
+                        SET status='Completed', remarks=%s, completed_on=%s
+                        WHERE id=%s AND username=%s
+                    """, [remarks, date.today(), complete_id, username])
+                messages.success(request, "✅ Task marked as completed successfully (after schema fix).")
+            else:
+                messages.error(request, f"❌ Error updating task: {e}")
+
+        return redirect("user_completed_maintenance")
+
+    # ---------- Render ----------
+    return render(request, "user_completed_maintenance.html", {
+        "energy_types": energy_types,
+        "mw_list": mw_list,
+        "periods": periods,
+        "sites": sites,
+        "wtgs": wtgs,
+        "records": records,
+        "selected_energy": selected_energy,
+        "selected_mw": selected_mw,
+        "selected_period": selected_period,
+        "selected_site": selected_site,
+        "selected_wtg": selected_wtg,
+    })
+
+
+
+
+
+
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.db import connection
+from datetime import date
+
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"  # 🔧 replace with your actual table name
+
+
+@login_required
+def user_pm_report_dashboard(request):
+    """User Preventive Maintenance Dashboard with ApexCharts and exportable reports."""
+    user = request.user
+    username = user.username
+
+    # ✅ Ensure preventive maintenance table exists
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+    if PM_WTG_TABLE not in tables:
+        return render(request, "user_pm_report_dashboard.html", {
+            "error": "No preventive maintenance data found."
+        })
+
+    # ✅ Fetch overall completed / pending counts
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT 
+                SUM(CASE WHEN status='Completed' THEN 1 ELSE 0 END) AS completed,
+                SUM(CASE WHEN status!='Completed' THEN 1 ELSE 0 END) AS pending
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s
+        """, [username])
+        row = cursor.fetchone()
+        completed = row[0] or 0
+        pending = row[1] or 0
+
+    total = completed + pending
+    completion_rate = round((completed / total) * 100, 1) if total > 0 else 0
+
+    # ✅ WTG-wise completion stats
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT wtg_no,
+                   SUM(CASE WHEN status='Completed' THEN 1 ELSE 0 END) AS completed,
+                   SUM(CASE WHEN status!='Completed' THEN 1 ELSE 0 END) AS pending
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s
+            GROUP BY wtg_no
+        """, [username])
+        wtg_stats = cursor.fetchall()
+
+    wtg_labels = [r[0] for r in wtg_stats]
+    wtg_completed = [r[1] for r in wtg_stats]
+    wtg_pending = [r[2] for r in wtg_stats]
+
+    # ✅ Time trend (by date)
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT DATE(completed_on), COUNT(*)
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s AND status='Completed' AND completed_on IS NOT NULL
+            GROUP BY DATE(completed_on)
+            ORDER BY DATE(completed_on)
+        """, [username])
+        trend_rows = cursor.fetchall()
+
+    trend_dates = [str(r[0]) for r in trend_rows]
+    trend_counts = [r[1] for r in trend_rows]
+
+    # ✅ Fetch records for tabs (explicit columns)
+    with connection.cursor() as cursor:
+        # --- Completed ---
+        cursor.execute(f"""
+            SELECT wtg_no, site, category, status, completed_on, remarks
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s AND status='Completed'
+            ORDER BY completed_on DESC
+        """, [username])
+        completed_records = [
+            dict(zip([c[0] for c in cursor.description], r)) for r in cursor.fetchall()
+        ]
+
+        # --- Pending ---
+        cursor.execute(f"""
+            SELECT wtg_no, site, category, status
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s AND (status!='Completed' OR status IS NULL)
+        """, [username])
+        pending_records = [
+            dict(zip([c[0] for c in cursor.description], r)) for r in cursor.fetchall()
+        ]
+
+        # --- All Records ---
+        cursor.execute(f"""
+            SELECT wtg_no, site, category, status, completed_on
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s
+        """, [username])
+        all_records = [
+            dict(zip([c[0] for c in cursor.description], r)) for r in cursor.fetchall()
+        ]
+
+    # ✅ Render final dashboard
+    return render(request, "user_pm_report_dashboard.html", {
+        "completed": completed,
+        "pending": pending,
+        "completion_rate": completion_rate,
+        "wtg_labels": wtg_labels,
+        "wtg_completed": wtg_completed,
+        "wtg_pending": wtg_pending,
+        "trend_dates": trend_dates,
+        "trend_counts": trend_counts,
+        "completed_records": completed_records,
+        "pending_records": pending_records,
+        "all_records": all_records,
+    })

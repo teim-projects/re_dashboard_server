@@ -39,5 +39,12 @@ urlpatterns = [
     path('dashboard_breakdown', cd_views.dashboard_breakdown, name='dashboard_breakdown'),
     path("open-access/delete/<int:calc_id>/", cd_views.delete_calculation, name="delete_calculation"),
 
+
+
+
+    path('my_preventive_maintenance', cd_views.my_preventive_maintenance, name='my_preventive_maintenance'),
+    path('user_completed_maintenance', cd_views.user_completed_maintenance, name='user_completed_maintenance'),
+    path('user_pm_report_dashboard', cd_views.user_pm_report_dashboard, name='user_pm_report_dashboard'),
+
 ]
  

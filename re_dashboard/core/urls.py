@@ -31,4 +31,7 @@ urlpatterns = [
     path('accounts/', include('accounts.urls')),
     path('manage-installation/', manage_installation_data, name='manage_installation_data'),
     path('tracking_dashboard', tracking_dashboard, name='tracking_dashboard'),
+    path('upload_preventive_maintenance', upload_preventive_maintenance, name='upload_preventive_maintenance'),
+    path('manage_preventive_maintenance', manage_preventive_maintenance, name='manage_preventive_maintenance'),
+    
 ]

@@ -708,3 +708,199 @@ def add_dsm_structure(request):
         'users': staff_users,
         'dsm_tables': dsm_tables,
     })
+
+
+
+
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+import pandas as pd
+import os
+import re
+import xlrd
+from openpyxl import Workbook
+
+# ---------- constants ----------
+PM_TABLE_NAME = "preventive_maintenance_data"
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+import pandas as pd
+import os, re, xlrd
+from openpyxl import Workbook
+
+PM_TABLE_NAME = "preventive_maintenance_data"
+
+# --- helper: convert old .xls to .xlsx ---
+def convert_xls_to_xlsx(xls_path, xlsx_path):
+    book = xlrd.open_workbook(xls_path)
+    sheet = book.sheet_by_index(0)
+    wb = Workbook()
+    ws = wb.active
+    for row in range(sheet.nrows):
+        ws.append(sheet.row_values(row))
+    wb.save(xlsx_path)
+    return xlsx_path
+
+
+@login_required
+def add_pm_structure(request):
+    """
+    Upload or modify preventive maintenance table structure.
+    - Upload file → drop & recreate structure.
+    - Manual form → add a new column without replacing table.
+    """
+
+    # --- Delete Table ---
+    if request.method == "POST" and "delete_pm_table" in request.POST:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"DROP TABLE IF EXISTS `{PM_TABLE_NAME}`")
+            messages.success(request, f"✅ Table '{PM_TABLE_NAME}' deleted successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Error deleting table: {str(e)}")
+        return redirect("add_pm_structure")
+
+    # --- Add Single Column Manually ---
+    if request.method == "POST" and "add_column" in request.POST:
+        col_name = request.POST.get("column_name", "").strip()
+        col_type = request.POST.get("column_type", "TEXT").strip().upper()
+
+        if not col_name:
+            messages.error(request, "Please provide a column name.")
+            return redirect("add_pm_structure")
+
+        # clean column name
+        col_name = re.sub(r"\W+", "_", col_name.lower()).strip("_")
+        if not col_name:
+            messages.error(request, "Invalid column name.")
+            return redirect("add_pm_structure")
+
+        # validate type
+        valid_types = ["TEXT", "INT", "FLOAT", "DATE"]
+        if col_type not in valid_types:
+            col_type = "TEXT"
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW TABLES;")
+                tables = [r[0] for r in cursor.fetchall()]
+                if PM_TABLE_NAME not in tables:
+                    messages.error(request, "⚠️ Table does not exist yet. Create structure first.")
+                    return redirect("add_pm_structure")
+
+                # check if already exists
+                cursor.execute(f"SHOW COLUMNS FROM `{PM_TABLE_NAME}`;")
+                existing = [r[0].lower() for r in cursor.fetchall()]
+                if col_name.lower() in existing:
+                    messages.warning(request, f"Column '{col_name}' already exists.")
+                    return redirect("add_pm_structure")
+
+                cursor.execute(f"ALTER TABLE `{PM_TABLE_NAME}` ADD COLUMN `{col_name}` {col_type};")
+            messages.success(request, f"✅ Column '{col_name}' ({col_type}) added successfully!")
+        except Exception as e:
+            messages.error(request, f"❌ Failed to add column: {e}")
+        return redirect("add_pm_structure")
+
+    # --- Upload structure file (replace table) ---
+    if request.method == "POST" and "structure_file" in request.FILES:
+        structure_file = request.FILES.get("structure_file")
+        if not structure_file:
+            messages.error(request, "Please choose a structure file.")
+            return redirect("add_pm_structure")
+
+        fs = FileSystemStorage()
+        filename = fs.save(structure_file.name, structure_file)
+        file_path = fs.path(filename)
+
+        try:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext == ".csv":
+                df = pd.read_csv(file_path)
+            elif ext == ".xls":
+                xlsx_path = file_path + "x"
+                convert_xls_to_xlsx(file_path, xlsx_path)
+                df = pd.read_excel(xlsx_path, engine="openpyxl", sheet_name=0)
+                os.remove(xlsx_path)
+            elif ext in [".xlsx", ".xlsm", ".xlsb"]:
+                df = pd.read_excel(file_path, engine="openpyxl", sheet_name=0)
+            elif ext == ".ods":
+                df = pd.read_excel(file_path, engine="odf", sheet_name=0)
+            else:
+                messages.error(request, f"Unsupported file type: {ext}")
+                return redirect("add_pm_structure")
+
+            if df.empty:
+                messages.warning(request, "Uploaded file has no data.")
+                return redirect("add_pm_structure")
+
+            # clean column names
+            cleaned = []
+            seen = {}
+            for col in df.columns:
+                c = re.sub(r"\W+", "_", str(col).strip()).lower().strip("_") or "col"
+                if c not in seen:
+                    seen[c] = 0
+                    cleaned.append(c)
+                else:
+                    seen[c] += 1
+                    cleaned.append(f"{c}_{seen[c]}")
+
+            # build SQL
+            extra_cols = [
+                "`username` TEXT",
+                "`energy_type` TEXT",
+                "`checkpoints_period` TEXT",
+                "`mw` TEXT",
+                "`description` TEXT",
+            ]
+            dynamic = [f"`{c}` TEXT" for c in cleaned]
+            create_sql = f"""
+                CREATE TABLE IF NOT EXISTS `{PM_TABLE_NAME}` (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    {', '.join(dynamic + extra_cols)}
+                );
+            """
+
+            with connection.cursor() as cursor:
+                cursor.execute(f"DROP TABLE IF EXISTS `{PM_TABLE_NAME}`")
+                cursor.execute(create_sql)
+
+            messages.success(request, f"✅ Created '{PM_TABLE_NAME}' with {len(cleaned)} columns.")
+        except Exception as e:
+            messages.error(request, f"❌ Error creating table: {e}")
+        finally:
+            fs.delete(filename)
+        return redirect("add_pm_structure")
+
+    # --- Check table existence ---
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+    table_exists = PM_TABLE_NAME in tables
+
+    return render(request, "add_pm_structure.html", {
+        "pm_table_name": PM_TABLE_NAME,
+        "table_exists": table_exists,
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+

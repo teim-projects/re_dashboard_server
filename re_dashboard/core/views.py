@@ -510,16 +510,418 @@ def upload_files(request):
 
 
 
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from accounts.models import EnergyType
+import os, re, pandas as pd, numpy as np
+from datetime import datetime, date
 
 
+# -------------------- TABLE NAMES --------------------
+PM_TABLE_NAME = "preventive_maintenance_data"
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
 
 
+# -------------------- HELPERS --------------------
+def clean_col(col: str) -> str:
+    return re.sub(r"\W+", "_", str(col).strip()).lower().strip("_")
+
+def normalize_date(val):
+    if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
+        return None
+    try:
+        if isinstance(val, (datetime, pd.Timestamp)):
+            return val.date()
+        if isinstance(val, date):
+            return val
+        if isinstance(val, (int, float)):
+            return (datetime(1899, 12, 30) + pd.to_timedelta(val, unit='D')).date()
+        parsed = pd.to_datetime(str(val), errors='coerce')
+        if pd.notna(parsed):
+            return parsed.date()
+        return None
+    except Exception:
+        return None
+
+def normalize_hours(val):
+    if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
+        return 0.0
+    try:
+        if isinstance(val, (int, float)):
+            return float(val)
+        s = str(val).strip().replace(".", ":")
+        if "day" in s:
+            parts = s.split()
+            days = float(parts[0])
+            h, m, sec = [float(x) for x in parts[-1].split(":")]
+            return days * 24 + h + m / 60 + sec / 3600
+        if ":" in s:
+            parts = s.split(":")
+            h = float(parts[0]) if parts[0] else 0
+            m = float(parts[1]) if len(parts) > 1 and parts[1] else 0
+            sec = float(parts[2]) if len(parts) > 2 and parts[2] else 0
+            return h + m/60 + sec/3600
+        return float(s)
+    except Exception:
+        return 0.0
+
+def sanitize_value(val):
+    if val is None:
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except Exception:
+        pass
+    if isinstance(val, (np.floating, float)) and (np.isnan(val) or np.isinf(val)):
+        return None
+    if str(val).strip().lower() in ["nan", "nat", "none", ""]:
+        return None
+    return val
 
 
+# -------------------- TABLE CREATION --------------------
+def _ensure_pm_table_and_columns(dynamic_cols, use_user_id=True):
+    """Ensure preventive_maintenance_data exists with all necessary columns"""
+    fixed_cols = ["energy_type", "checkpoints_period", "mw", "description"]
+    if use_user_id:
+        fixed_cols.insert(0, "user_id")
+        fixed_cols.insert(1, "username")
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+        if PM_TABLE_NAME not in tables:
+            all_cols = []
+            for c in dynamic_cols:
+                all_cols.append(f"`{c}` TEXT")
+
+            for col in fixed_cols:
+                if col == "user_id":
+                    all_cols.append("`user_id` INT")
+                elif col == "username":
+                    all_cols.append("`username` TEXT")
+                else:
+                    all_cols.append(f"`{col}` TEXT")
+
+            create_sql = f"""
+                CREATE TABLE `{PM_TABLE_NAME}` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    {", ".join(all_cols)},
+                    CONSTRAINT fk_pm_user FOREIGN KEY (`user_id`) 
+                        REFERENCES `auth_user`(`id`) 
+                        ON DELETE CASCADE
+                );
+            """
+            cursor.execute(create_sql)
+            return
+
+        cursor.execute(f"SHOW COLUMNS FROM `{PM_TABLE_NAME}`;")
+        existing = {r[0].lower() for r in cursor.fetchall()}
+
+        for c in dynamic_cols:
+            if c.lower() not in existing:
+                cursor.execute(f"ALTER TABLE `{PM_TABLE_NAME}` ADD COLUMN `{c}` TEXT;")
+
+        for col in fixed_cols:
+            if col.lower() not in existing:
+                if col == "user_id":
+                    cursor.execute(f"ALTER TABLE `{PM_TABLE_NAME}` ADD COLUMN `user_id` INT;")
+                    try:
+                        cursor.execute(f"""
+                            ALTER TABLE `{PM_TABLE_NAME}`
+                            ADD CONSTRAINT fk_pm_user FOREIGN KEY (`user_id`)
+                            REFERENCES `auth_user`(`id`)
+                            ON DELETE CASCADE;
+                        """)
+                    except Exception:
+                        pass
+                elif col == "username":
+                    cursor.execute(f"ALTER TABLE `{PM_TABLE_NAME}` ADD COLUMN `username` TEXT;")
+                else:
+                    cursor.execute(f"ALTER TABLE `{PM_TABLE_NAME}` ADD COLUMN `{col}` TEXT;")
+
+def ensure_wtg_table():
+    """Ensure the preventive_maintenance_with_wtg table exists and has required columns."""
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+        if PM_WTG_TABLE not in tables:
+            cursor.execute(f"""
+                CREATE TABLE `{PM_WTG_TABLE}` (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    username TEXT,
+                    wtg_no TEXT,
+                    site TEXT,
+                    state TEXT,
+                    energy_type TEXT,
+                    mw TEXT,
+                    checkpoints_period TEXT,
+                    category TEXT,
+                    sub_category TEXT,
+                    duration TEXT,
+                    status TEXT DEFAULT 'Pending',
+                    remarks TEXT,
+                    completed_on DATE,
+                    FOREIGN KEY (user_id) REFERENCES auth_user(id) ON DELETE CASCADE
+                );
+            """)
+
+        # 🧹 Drop any old constraints that might conflict
+        for idx in ["unique_wtg_checkpoint", "unique_wtg_checkpoint_per_unit"]:
+            try:
+                cursor.execute(f"ALTER TABLE `{PM_WTG_TABLE}` DROP INDEX {idx};")
+            except Exception:
+                pass
+
+        # ✅ Add final unique key per WTG + period + MW
+        try:
+            cursor.execute(f"""
+                ALTER TABLE `{PM_WTG_TABLE}`
+                ADD UNIQUE KEY unique_wtg_checkpoint_final
+                (`username`(50), `wtg_no`(50), `category`(100), 
+                 `sub_category`(100), `duration`(50),
+                 `checkpoints_period`(50), `mw`(50));
+            """)
+        except Exception:
+            pass
 
 
+# -------------------- SYNC HELPERS --------------------
+def sync_new_checkpoints_to_wtgs(user):
+    """Sync new checkpoints to all existing WTGs for this user"""
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT DISTINCT wtg_no, site, state, energy_type, mw
+            FROM `{PM_WTG_TABLE}` WHERE username = %s
+        """, [user.username])
+        wtgs = cursor.fetchall()
+
+        if not wtgs:
+            return
+
+        cursor.execute(f"""
+            SELECT energy_type, mw, checkpoints_period, category, sub_category, duration
+            FROM `{PM_TABLE_NAME}` WHERE username = %s
+        """, [user.username])
+        checkpoints = cursor.fetchall()
+
+        if not checkpoints:
+            return
+
+        inserted = 0
+        for wtg_no, site, state, energy_type, mw in wtgs:
+            for energy_type_b, mw_b, period, category, sub_category, duration in checkpoints:
+                try:
+                    cursor.execute(f"""
+                        INSERT IGNORE INTO `{PM_WTG_TABLE}`
+                        (user_id, username, wtg_no, site, state, energy_type, mw,
+                         checkpoints_period, category, sub_category, duration, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pending')
+                    """, [user.id, user.username, wtg_no, site, state,
+                          energy_type_b, mw_b, period, category, sub_category, duration])
+                    inserted += cursor.rowcount
+                except Exception:
+                    continue
+
+        print(f"✅ Synced {inserted} new checkpoints for {user.username}")
 
 
+def sync_existing_checkpoints_to_new_wtg(user, wtg_no, site, state):
+    """When new WTG is registered, copy all existing checkpoints for that user."""
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT energy_type, mw, checkpoints_period, category, sub_category, duration
+            FROM `{PM_TABLE_NAME}` WHERE username = %s
+        """, [user.username])
+        checkpoints = cursor.fetchall()
+
+        if not checkpoints:
+            print(f"⚠️ No checkpoints found for {user.username}")
+            return
+
+        inserted = 0
+        for energy_type, mw, period, category, sub_category, duration in checkpoints:
+            try:
+                cursor.execute(f"""
+                    INSERT IGNORE INTO `{PM_WTG_TABLE}`
+                    (user_id, username, wtg_no, site, state, energy_type, mw,
+                     checkpoints_period, category, sub_category, duration, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Pending')
+                """, [user.id, user.username, wtg_no, site, state,
+                      energy_type, mw, period, category, sub_category, duration])
+                inserted += cursor.rowcount
+            except Exception:
+                continue
+
+        print(f"✅ {inserted} checkpoints synced for new WTG '{wtg_no}'")
+
+
+# -------------------- MAIN UPLOAD VIEW --------------------
+@login_required
+def upload_preventive_maintenance(request):
+    customers = User.objects.filter(is_superuser=False).order_by("username")
+    energy_types = EnergyType.objects.all().order_by("name")
+
+    # ------------------ MANUAL ENTRY ------------------ #
+    if request.method == "POST" and request.POST.get("manual_entry") == "1":
+        try:
+            form_user_id = int(request.POST.get("user_id"))
+            user_obj = User.objects.get(id=form_user_id)
+            username = user_obj.username
+            energy_type_id = request.POST.get("energy_type")
+            energy_type = EnergyType.objects.get(id=energy_type_id).name
+
+            checkpoints_period = request.POST.get("checkpoints_period")
+            mw = request.POST.get("mw")
+            description = request.POST.get("description")
+
+            # --- Get multiple row inputs ---
+            categories = request.POST.getlist("category[]")
+            sub_categories = request.POST.getlist("sub_category[]")
+            durations = request.POST.getlist("duration[]")
+
+            # --- Ensure table exists ---
+            _ensure_pm_table_and_columns(["category", "sub_category", "duration"], use_user_id=True)
+            ensure_wtg_table()
+
+            sql = f"""
+                INSERT INTO `{PM_TABLE_NAME}`
+                (user_id, username, energy_type, category, sub_category, duration, checkpoints_period, mw, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+
+            inserted = 0
+            with connection.cursor() as cursor:
+                for cat, sub, dur in zip(categories, sub_categories, durations):
+                    if not cat.strip():
+                        continue
+                    cursor.execute(sql, (
+                        form_user_id, username, energy_type,
+                        cat.strip(), sub.strip(), dur.strip() or "0",
+                        checkpoints_period, mw, description
+                    ))
+                    inserted += 1
+
+            # ✅ Auto-sync newly added checkpoints to WTG table
+            sync_new_checkpoints_to_wtgs(user_obj)
+
+            messages.success(request, f"✅ Added {inserted} manual records for {username} and synced to WTGs.")
+        except Exception as e:
+            messages.error(request, f"❌ Manual entry failed: {e}")
+        return redirect("upload_preventive_maintenance")
+
+    # ------------------ FILE UPLOAD ------------------ #
+    if request.method == "POST" and "data_file" in request.FILES:
+        form_user_id = request.POST.get("user_id")
+        form_energy_type_id = request.POST.get("energy_type")
+        form_checkpoints = request.POST.get("checkpoints_period", "").strip()
+        form_mw = request.POST.get("mw", "").strip()
+        form_description = request.POST.get("description", "").strip()
+
+        if not form_user_id or not form_energy_type_id:
+            messages.error(request, "Please select both user and energy type.")
+            return redirect("upload_preventive_maintenance")
+
+        try:
+            form_user_id = int(form_user_id)
+            user_obj = User.objects.get(id=form_user_id)
+            form_username = user_obj.username
+            form_energy_type = EnergyType.objects.get(id=form_energy_type_id).name
+        except Exception as e:
+            messages.error(request, f"Invalid user or energy type: {e}")
+            return redirect("upload_preventive_maintenance")
+
+        fs = FileSystemStorage()
+        uploaded = request.FILES["data_file"]
+        fname = fs.save(uploaded.name, uploaded)
+        fpath = fs.path(fname)
+
+        try:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext == ".csv":
+                df = pd.read_csv(fpath)
+            elif ext in [".xlsx", ".xlsm", ".xls"]:
+                engine = "openpyxl" if ext != ".xls" else "xlrd"
+                df = pd.read_excel(fpath, engine=engine, sheet_name=0)
+            elif ext == ".ods":
+                df = pd.read_excel(fpath, engine="odf", sheet_name=0)
+            else:
+                messages.error(request, f"Unsupported file type: {ext}")
+                return redirect("upload_preventive_maintenance")
+
+            if df is None or df.empty:
+                messages.error(request, "Uploaded file is empty.")
+                return redirect("upload_preventive_maintenance")
+
+            df.columns = [clean_col(c) for c in df.columns]
+            for col in df.columns:
+                lc = col.lower()
+                if any(k in lc for k in ["date", "gen_date", "dt"]):
+                    df[col] = df[col].apply(normalize_date)
+                    df[col] = df[col].apply(lambda x: x.strftime("%Y-%m-%d") if isinstance(x, (datetime, date)) else x)
+                elif any(k in lc for k in ["hrs", "hour", "time", "duration"]):
+                    df[col] = df[col].apply(normalize_hours)
+
+            df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
+            df = df.astype(object).where(pd.notnull(df), None)
+            df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+
+            _ensure_pm_table_and_columns(dynamic_cols=list(df.columns), use_user_id=True)
+            ensure_wtg_table()
+
+            df["user_id"] = form_user_id
+            df["username"] = form_username
+            df["energy_type"] = form_energy_type
+            df["checkpoints_period"] = form_checkpoints
+            df["mw"] = form_mw
+            df["description"] = form_description
+
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{PM_TABLE_NAME}`;")
+                table_columns = [r[0] for r in cursor.fetchall()]
+            valid_cols = [c for c in df.columns if c in table_columns]
+            df = df[valid_cols]
+
+            cols_sql = ", ".join(f"`{c}`" for c in df.columns)
+            placeholders = ", ".join(["%s"] * len(df.columns))
+            sql = f"INSERT INTO `{PM_TABLE_NAME}` ({cols_sql}) VALUES ({placeholders})"
+            values = [tuple(sanitize_value(v) for v in row) for row in df.values]
+
+            with connection.cursor() as cursor:
+                cursor.executemany(sql, values)
+                inserted = cursor.rowcount
+
+            # ✅ Sync new checkpoints to WTG
+            sync_new_checkpoints_to_wtgs(user_obj)
+
+            messages.success(request, f"✅ Inserted {inserted} rows and synced to WTGs.")
+        except Exception as e:
+            messages.error(request, f"❌ Upload failed: {e}")
+        finally:
+            fs.delete(fname)
+
+        return redirect("upload_preventive_maintenance")
+
+    # ------------------ GET PAGE ------------------ #
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+    table_exists = PM_TABLE_NAME in tables
+
+    return render(request, "upload_preventive_maintenance.html", {
+        "customers": customers,
+        "energy_types": energy_types,
+        "pm_table_name": PM_TABLE_NAME,
+        "table_exists": table_exists,
+    })
 
 
 def index_page(request):
@@ -1386,3 +1788,70 @@ def tracking_dashboard(request):
     }
 
     return render(request, "tracking_dashboard.html", context)
+
+
+
+
+
+    from django.core.paginator import Paginator
+from django.db.models import Q
+
+@login_required
+def manage_preventive_maintenance(request):
+    """Manage Preventive Maintenance Records"""
+    search = request.GET.get("search", "").strip()
+
+    # Fetch records
+    with connection.cursor() as cursor:
+        base_sql = f"SELECT id, username, energy_type, category, sub_category, duration, checkpoints_period, mw, description FROM `{PM_TABLE_NAME}`"
+        if search:
+            base_sql += f" WHERE username LIKE '%{search}%' OR category LIKE '%{search}%' OR sub_category LIKE '%{search}%' OR energy_type LIKE '%{search}%'"
+        base_sql += " ORDER BY id DESC;"
+        cursor.execute(base_sql)
+        rows = cursor.fetchall()
+        columns = [col[0] for col in cursor.description]
+
+    data = [dict(zip(columns, row)) for row in rows]
+
+    # Pagination
+    paginator = Paginator(data, 10)
+    page = request.GET.get("page")
+    records = paginator.get_page(page)
+
+    # ---------- DELETE ----------
+    if request.method == "POST" and request.POST.get("delete_id"):
+        delete_id = request.POST.get("delete_id")
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"DELETE FROM `{PM_TABLE_NAME}` WHERE id = %s", [delete_id])
+            messages.success(request, f"✅ Record ID {delete_id} deleted successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Failed to delete record: {e}")
+        return redirect("manage_preventive_maintenance")
+
+    # ---------- EDIT ----------
+    if request.method == "POST" and request.POST.get("edit_id"):
+        edit_id = request.POST.get("edit_id")
+        new_category = request.POST.get("edit_category")
+        new_sub_category = request.POST.get("edit_sub_category")
+        new_duration = request.POST.get("edit_duration")
+        new_description = request.POST.get("edit_description")
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"""
+                    UPDATE `{PM_TABLE_NAME}` 
+                    SET category=%s, sub_category=%s, duration=%s, description=%s 
+                    WHERE id=%s
+                """, [new_category, new_sub_category, new_duration, new_description, edit_id])
+            messages.success(request, f"✅ Record ID {edit_id} updated successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Failed to update record: {e}")
+        return redirect("manage_preventive_maintenance")
+
+    return render(request, "manage_preventive_maintenance.html", {
+        "records": records,
+        "search": search,
+    })
+
+
+
