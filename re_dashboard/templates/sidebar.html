@@ -664,10 +664,11 @@ margin: 0 10px;
       </a>
     </li>
 
-      <!-- Masters -->
+     
+  <!-- Masters -->
     <li class="nav-item">
       <a class="nav-link" data-toggle="collapse" href="#mastersSubmenu" role="button" aria-expanded="false" aria-controls="mastersSubmenu">
-        <i class="fas fa-layer-group"></i>&nbsp; Manage Data  <i class="fas fa-caret-down float-right"></i>
+        <i class="fas fa-layer-group"></i>&nbsp; Genration Data  <i class="fas fa-caret-down float-right"></i>
       </a>
       <div class="collapse ml-3" id="mastersSubmenu">
         <ul class="nav flex-column">
@@ -677,7 +678,30 @@ margin: 0 10px;
             </a>
           </li>
                     <li class="nav-item">
-            <a class="nav-link" href="{% url 'Modifydata' %}">
+            <a class="nav-link" href="{% url 'customer_upload' %}">
+              <i class="fas fa-bolt"></i> Modify Data
+            </a>
+          </li>
+ 
+ 
+        </ul>
+      </div>
+    </li>
+
+      <!-- Masters -->
+    <li class="nav-item">
+      <a class="nav-link" data-toggle="collapse" href="#mastersSubmenuue" role="button" aria-expanded="false" aria-controls="mastersSubmenu">
+        <i class="fas fa-layer-group"></i>&nbsp; PM Data  <i class="fas fa-caret-down float-right"></i>
+      </a>
+      <div class="collapse ml-3" id="mastersSubmenuue">
+        <ul class="nav flex-column">
+          <li class="nav-item">
+            <a class="nav-link" href="{% url 'my_preventive_maintenance' %}">
+              <i class="fas fa-bolt"></i> Manage PM Records
+            </a>
+          </li>
+                    <li class="nav-item">
+            <a class="nav-link" href="{% url 'customer_upload' %}">
               <i class="fas fa-bolt"></i> Modify Data
             </a>
           </li>

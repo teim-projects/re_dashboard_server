@@ -4373,3 +4373,186 @@ def user_pm_report_dashboard(request):
         "pending_records": pending_records,
         "all_records": all_records,
     })
+
+
+
+
+
+
+
+
+
+
+
+import pandas as pd
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from django.core.mail import send_mail
+from django.conf import settings
+from .ml_utils import BreakdownMLAnalyzer
+import pandas as pd
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from django.conf import settings
+from django.core.mail import send_mail
+from .ml_utils import BreakdownMLAnalyzer
+
+import pandas as pd
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from .ml_utils import BreakdownMLAnalyzer
+
+
+import pandas as pd
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from .ml_utils import BreakdownMLAnalyzer
+
+
+@login_required
+def breakdown_analysis(request):
+    table_name = "test_suzlon_wind_breakdowndata"
+
+    # Filters
+    severity_filter = request.GET.get("severity", "")
+    wtg_filter = request.GET.get("wtg", "")
+    date_from = request.GET.get("from", "")
+    date_to = request.GET.get("to", "")
+
+    alerts = []
+    chart_data = {}
+    error_msg = None
+
+    # Always initialize KPI defaults
+    total_alerts = 0
+    affected_wtgs = 0
+    repetition_rate = 0
+    most_repetitive_wtg = None
+    most_repetitions = 0
+
+    try:
+        # 1️⃣ Check table exists and fetch rows
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
+            if not cursor.fetchone():
+                error_msg = f"Table '{table_name}' not found."
+                return render(request, "breakdown_analysis.html", {
+                    "alerts": alerts,
+                    "chart_data": chart_data,
+                    "error_msg": error_msg,
+                })
+
+            cursor.execute(f"SELECT * FROM `{table_name}`")
+            rows = cursor.fetchall()
+            cols = [c[0] for c in cursor.description]
+
+        if not rows:
+            error_msg = "Table exists but contains no data."
+            return render(request, "breakdown_analysis.html", {
+                "alerts": alerts,
+                "chart_data": chart_data,
+                "error_msg": error_msg,
+            })
+
+        # 2️⃣ Convert DB → DataFrame
+        df = pd.DataFrame(rows, columns=cols)
+
+        # Normalize to clean predictable column names
+        df.columns = (
+            df.columns
+            .str.replace(".", "", regex=False)
+            .str.replace(" ", "_")
+            .str.lower()
+        )
+
+        # 3️⃣ Apply filters
+        if wtg_filter and "loc_no" in df.columns:
+            df = df[df["loc_no"] == wtg_filter]
+
+        if date_from:
+            df["gen_date"] = pd.to_datetime(df["gen_date"], errors="coerce")
+            df = df[df["gen_date"] >= date_from]
+
+        if date_to:
+            df["gen_date"] = pd.to_datetime(df["gen_date"], errors="coerce")
+            df = df[df["gen_date"] <= date_to]
+
+        if df.empty:
+            return render(request, "breakdown_analysis.html", {
+                "alerts": [],
+                "chart_data": {},
+                "error_msg": "No matching data for selected filters.",
+            })
+
+        # 4️⃣ Run ML Analyzer
+        analyzer = BreakdownMLAnalyzer(similarity_threshold=0.60, days_window=8)
+        analyzer.load_dataframe(df)
+        raw_alerts = analyzer.detect_repetitions()
+
+        # Apply severity filter
+        if severity_filter:
+            raw_alerts = [a for a in raw_alerts if a["severity"] == severity_filter]
+
+        alerts = raw_alerts
+
+        # 5️⃣ Prepare Chart Data
+        for a in alerts:
+            m = a["machine"]
+            # ensure key is string and consistent
+            key = str(m)
+            chart_data[key] = chart_data.get(key, 0) + 1
+
+        # 6️⃣ KPIs
+        total_alerts = len(alerts)
+        affected_wtgs = len(chart_data)
+
+        if affected_wtgs > 0:
+            repetition_rate = round((total_alerts / affected_wtgs) * 100, 2)
+
+        # 7️⃣ Compute most repetitive WTG (VIEW-side)
+        if chart_data:
+            # find key with max value
+            most_repetitive_wtg, most_repetitions = max(chart_data.items(), key=lambda x: x[1])
+        else:
+            most_repetitive_wtg, most_repetitions = None, 0
+
+    except Exception as e:
+        error_msg = f"Error: {str(e)}"
+        # Ensure safe defaults if exception occurs
+        alerts = []
+        chart_data = {}
+        total_alerts = 0
+        affected_wtgs = 0
+        repetition_rate = 0
+        most_repetitive_wtg = None
+        most_repetitions = 0
+
+    # Render
+    return render(
+        request,
+        "breakdown_analysis.html",
+        {
+            "alerts": alerts,
+            "chart_data": chart_data,
+            "error_msg": error_msg,
+
+            # Filters
+            "severity_filter": severity_filter,
+            "wtg_filter": wtg_filter,
+            "date_from": date_from,
+            "date_to": date_to,
+
+            # KPIs
+            "total_alerts": total_alerts,
+            "affected_wtgs": affected_wtgs,
+            "repetition_rate": repetition_rate,
+
+            # new simple values for template
+            "most_repetitive_wtg": most_repetitive_wtg,
+            "most_repetitions": most_repetitions,
+        }
+    )
