@@ -1900,6 +1900,7 @@ def read_excel_multi(file_path, ext):
     return cleaned_sheets
 
 # ---------------- VIEW ---------------- #
+# ---------------- VIEW ---------------- #
 
 @login_required
 def customer_upload(request):
@@ -1934,6 +1935,9 @@ def customer_upload(request):
         filename = fs.save(data_file.name, data_file)
         file_path = fs.path(filename)
 
+        # 🔥 NEW FLAG (Delete breakdown only once)
+        breakdown_cleared = False
+
         try:
             ext = os.path.splitext(filename)[1].lower()
             sheets = read_excel_multi(file_path, ext)
@@ -1951,7 +1955,7 @@ def customer_upload(request):
                 df = df.astype(object).where(pd.notnull(df), None)
                 df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
 
-                # ✅ Normalize all date columns globally (prevents later chart errors)
+                # Normalize date/hour columns
                 for col in df.columns:
                     if col in ["gen_date", "date", "generation_date"]:
                         df[col] = df[col].apply(normalize_date)
@@ -1961,12 +1965,20 @@ def customer_upload(request):
                 # Determine target table
                 if "breakdown" in sheet_name.lower():
                     target_table = f"{table_name}_breakdowndata"
+
+                    # 🔥 AUTO-DELETE OLD BREAKDOWN DATA
+                    if not breakdown_cleared and target_table in db_tables:
+                        with connection.cursor() as cursor:
+                            cursor.execute(f"DELETE FROM `{target_table}`")
+                        breakdown_cleared = True
+
                 else:
                     target_table = table_name
 
                 if target_table not in db_tables:
                     continue
 
+                # Match table columns
                 with connection.cursor() as cursor:
                     cursor.execute(f"SHOW COLUMNS FROM `{target_table}`")
                     table_columns = [col[0].lower() for col in cursor.fetchall()]
@@ -1994,12 +2006,16 @@ def customer_upload(request):
 
                 if rows_inserted > 0:
                     UploadMetadata.objects.update_or_create(
-                        table_name=target_table, defaults={"last_modified": now()}
+                        table_name=target_table,
+                        defaults={"last_modified": now()},
                     )
                     uploaded_sheets.append(f"{sheet_name} → {rows_inserted} rows")
 
             if uploaded_sheets:
-                messages.success(request, f"✅ Uploaded Successfully: {', '.join(uploaded_sheets)}")
+                messages.success(
+                    request,
+                    f"✅ Uploaded Successfully: {', '.join(uploaded_sheets)}"
+                )
             else:
                 messages.error(request, "❌ No sheets uploaded successfully.")
 
@@ -4378,12 +4394,6 @@ def user_pm_report_dashboard(request):
 
 
 
-
-
-
-
-
-
 import pandas as pd
 from django.shortcuts import render
 from django.db import connection
@@ -4410,149 +4420,196 @@ import pandas as pd
 from django.shortcuts import render
 from django.db import connection
 from django.contrib.auth.decorators import login_required
+from .ml_utils import BreakdownMLAnalyzer
+import pandas as pd
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from .ml_utils import BreakdownMLAnalyzer
+import pandas as pd
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from .ml_utils import BreakdownMLAnalyzer
+from core.models import UploadMetadata
+import pandas as pd
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from .ml_utils import BreakdownMLAnalyzer
+
+
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+import pandas as pd
 from .ml_utils import BreakdownMLAnalyzer
 
 
 @login_required
 def breakdown_analysis(request):
-    table_name = "test_suzlon_wind_breakdowndata"
 
-    # Filters
+    username = request.user.username.lower().strip()
+    table_name = None
+
+    # -----------------------------------------------
+    # 1️⃣ FETCH ALL TABLES
+    # -----------------------------------------------
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        all_rows = cursor.fetchall()
+
+    all_tables = [str(r[0]).strip().lower() for r in all_rows]
+
+    # Filter only this user's breakdown tables
+    user_break_tables = [
+        t for t in all_tables
+        if t.startswith(username + "_") and "breakdowndata" in t
+    ]
+
+    if not user_break_tables:
+        return render(request, "breakdown_analysis.html", {
+            "alerts": [],
+            "chart_data": {},
+            "error_msg": f"No breakdown table found for user '{username}'.",
+            "btype": "repetitive"
+        })
+
+    table_name = sorted(user_break_tables)[-1]  # Latest table
+
+    # -----------------------------------------------
+    # 2️⃣ LOAD TABLE DATA
+    # -----------------------------------------------
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT * FROM `{table_name}`")
+        rows = cursor.fetchall()
+        cols = [c[0] for c in cursor.description]
+
+    if not rows:
+        return render(request, "breakdown_analysis.html", {
+            "alerts": [],
+            "chart_data": {},
+            "error_msg": f"Table '{table_name}' has no data.",
+            "btype": "repetitive"
+        })
+
+    df = pd.DataFrame(rows, columns=cols)
+
+    # Normalize columns
+    df.columns = (
+        df.columns
+        .str.replace(".", "", regex=False)
+        .str.replace(" ", "_")
+        .str.lower()
+    )
+
+    # -----------------------------------------------
+    # 3️⃣ AUTO-DETECT DATE & WTG COLUMNS
+    # -----------------------------------------------
+    date_cols = [c for c in df.columns if "date" in c or "dt" in c]
+    date_col = date_cols[0] if date_cols else None
+
+    if date_col:
+        df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+
+    wtg_cols = [c for c in df.columns if "loc" in c or "wtg" in c or "wec" in c or "machine" in c]
+    wtg_col = wtg_cols[0] if wtg_cols else None
+
+    # -----------------------------------------------
+    # 4️⃣ GET FILTERS (Including NEW Breakdown Type)
+    # -----------------------------------------------
+    btype = request.GET.get("btype", "repetitive")  # NEW
     severity_filter = request.GET.get("severity", "")
     wtg_filter = request.GET.get("wtg", "")
     date_from = request.GET.get("from", "")
     date_to = request.GET.get("to", "")
 
-    alerts = []
-    chart_data = {}
-    error_msg = None
+    # -----------------------------------------------
+    # 5️⃣ APPLY FILTERS
+    # -----------------------------------------------
+    if wtg_filter and wtg_col:
+        df = df[df[wtg_col] == wtg_filter]
 
-    # Always initialize KPI defaults
-    total_alerts = 0
-    affected_wtgs = 0
-    repetition_rate = 0
-    most_repetitive_wtg = None
-    most_repetitions = 0
+    if date_from and date_col:
+        df = df[df[date_col] >= date_from]
 
-    try:
-        # 1️⃣ Check table exists and fetch rows
-        with connection.cursor() as cursor:
-            cursor.execute(f"SHOW TABLES LIKE '{table_name}'")
-            if not cursor.fetchone():
-                error_msg = f"Table '{table_name}' not found."
-                return render(request, "breakdown_analysis.html", {
-                    "alerts": alerts,
-                    "chart_data": chart_data,
-                    "error_msg": error_msg,
-                })
+    if date_to and date_col:
+        df = df[df[date_col] <= date_to]
 
-            cursor.execute(f"SELECT * FROM `{table_name}`")
-            rows = cursor.fetchall()
-            cols = [c[0] for c in cursor.description]
+    if df.empty:
+        return render(request, "breakdown_analysis.html", {
+            "alerts": [],
+            "chart_data": {},
+            "error_msg": "No data for selected filters.",
+            "btype": btype
+        })
 
-        if not rows:
-            error_msg = "Table exists but contains no data."
-            return render(request, "breakdown_analysis.html", {
-                "alerts": alerts,
-                "chart_data": chart_data,
-                "error_msg": error_msg,
-            })
-
-        # 2️⃣ Convert DB → DataFrame
-        df = pd.DataFrame(rows, columns=cols)
-
-        # Normalize to clean predictable column names
-        df.columns = (
-            df.columns
-            .str.replace(".", "", regex=False)
-            .str.replace(" ", "_")
-            .str.lower()
-        )
-
-        # 3️⃣ Apply filters
-        if wtg_filter and "loc_no" in df.columns:
-            df = df[df["loc_no"] == wtg_filter]
-
-        if date_from:
-            df["gen_date"] = pd.to_datetime(df["gen_date"], errors="coerce")
-            df = df[df["gen_date"] >= date_from]
-
-        if date_to:
-            df["gen_date"] = pd.to_datetime(df["gen_date"], errors="coerce")
-            df = df[df["gen_date"] <= date_to]
-
-        if df.empty:
-            return render(request, "breakdown_analysis.html", {
-                "alerts": [],
-                "chart_data": {},
-                "error_msg": "No matching data for selected filters.",
-            })
-
-        # 4️⃣ Run ML Analyzer
-        analyzer = BreakdownMLAnalyzer(similarity_threshold=0.60, days_window=8)
-        analyzer.load_dataframe(df)
-        raw_alerts = analyzer.detect_repetitions()
-
-        # Apply severity filter
-        if severity_filter:
-            raw_alerts = [a for a in raw_alerts if a["severity"] == severity_filter]
-
-        alerts = raw_alerts
-
-        # 5️⃣ Prepare Chart Data
-        for a in alerts:
-            m = a["machine"]
-            # ensure key is string and consistent
-            key = str(m)
-            chart_data[key] = chart_data.get(key, 0) + 1
-
-        # 6️⃣ KPIs
-        total_alerts = len(alerts)
-        affected_wtgs = len(chart_data)
-
-        if affected_wtgs > 0:
-            repetition_rate = round((total_alerts / affected_wtgs) * 100, 2)
-
-        # 7️⃣ Compute most repetitive WTG (VIEW-side)
-        if chart_data:
-            # find key with max value
-            most_repetitive_wtg, most_repetitions = max(chart_data.items(), key=lambda x: x[1])
-        else:
-            most_repetitive_wtg, most_repetitions = None, 0
-
-    except Exception as e:
-        error_msg = f"Error: {str(e)}"
-        # Ensure safe defaults if exception occurs
-        alerts = []
-        chart_data = {}
-        total_alerts = 0
-        affected_wtgs = 0
-        repetition_rate = 0
-        most_repetitive_wtg = None
-        most_repetitions = 0
-
-    # Render
-    return render(
-        request,
-        "breakdown_analysis.html",
-        {
-            "alerts": alerts,
-            "chart_data": chart_data,
-            "error_msg": error_msg,
-
-            # Filters
+    # -----------------------------------------------
+    # 6️⃣ EXTENDED BREAKDOWN MODE (EMPTY DASHBOARD)
+    # -----------------------------------------------
+    if btype == "extended":
+        return render(request, "breakdown_analysis.html", {
+            "alerts": [],
+            "chart_data": {},
+            "error_msg": None,
             "severity_filter": severity_filter,
             "wtg_filter": wtg_filter,
             "date_from": date_from,
             "date_to": date_to,
+            "total_alerts": 0,
+            "affected_wtgs": 0,
+            "repetition_rate": 0,
+            "most_repetitive_wtg": None,
+            "most_repetitions": 0,
+            "dynamic_table": table_name,
+            "btype": btype
+        })
 
-            # KPIs
-            "total_alerts": total_alerts,
-            "affected_wtgs": affected_wtgs,
-            "repetition_rate": repetition_rate,
+    # -----------------------------------------------
+    # 7️⃣ REPETITIVE BREAKDOWN MODE (NORMAL ML MODEL)
+    # -----------------------------------------------
+    analyzer = BreakdownMLAnalyzer(similarity_threshold=0.60, days_window=8)
+    analyzer.load_dataframe(df)
+    alerts = analyzer.detect_repetitions()
 
-            # new simple values for template
-            "most_repetitive_wtg": most_repetitive_wtg,
-            "most_repetitions": most_repetitions,
-        }
-    )
+    if severity_filter:
+        alerts = [a for a in alerts if a["severity"] == severity_filter]
+
+    # Chart + KPIs
+    chart_data = {}
+    for a in alerts:
+        machine = str(a.get("machine", "Unknown"))
+        chart_data[machine] = chart_data.get(machine, 0) + 1
+
+    total_alerts = len(alerts)
+    affected_wtgs = len(chart_data)
+    repetition_rate = round((total_alerts / affected_wtgs) * 100, 2) if affected_wtgs else 0
+
+    most_repetitive_wtg = None
+    most_repetitions = 0
+    if chart_data:
+        most_repetitive_wtg, most_repetitions = max(chart_data.items(), key=lambda x: x[1])
+
+    # -----------------------------------------------
+    # 8️⃣ RENDER REPETITIVE BREAKDOWN DASHBOARD
+    # -----------------------------------------------
+    return render(request, "breakdown_analysis.html", {
+        "alerts": alerts,
+        "chart_data": chart_data,
+        "error_msg": None,
+
+        "severity_filter": severity_filter,
+        "wtg_filter": wtg_filter,
+        "date_from": date_from,
+        "date_to": date_to,
+
+        "total_alerts": total_alerts,
+        "affected_wtgs": affected_wtgs,
+        "repetition_rate": repetition_rate,
+
+        "most_repetitive_wtg": most_repetitive_wtg,
+        "most_repetitions": most_repetitions,
+
+        "dynamic_table": table_name,
+        "btype": btype  # NEW
+    })

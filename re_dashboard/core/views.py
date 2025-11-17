@@ -48,19 +48,10 @@ from .models import UploadMetadata
 
 # =================== HELPERS =================== #
 
-import pandas as pd, numpy as np, os, re, traceback
+import os, re, traceback
+import pandas as pd
+import numpy as np
 from datetime import datetime, date
-from django.core.files.storage import FileSystemStorage
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.db import connection
-from django.utils.timezone import now
- 
-
-
-
- 
-
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
@@ -70,33 +61,6 @@ from django.db import connection
 from django.contrib.auth.models import User
 from django.utils.timezone import now
 
-import os
-import re
-import traceback
-import pandas as pd
-import numpy as np
-
-import os, re, traceback
-import pandas as pd
-import numpy as np
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-from django.contrib.auth.models import User
-from django.utils.timezone import now
-
-import os, re, traceback
-import pandas as pd
-import numpy as np
-from datetime import datetime, date
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.core.files.storage import FileSystemStorage
-from django.db import connection
-from django.utils.timezone import now
 from accounts.models import Provider, EnergyType
 from core.models import UploadMetadata
 
@@ -108,13 +72,12 @@ def clean_col(col: str) -> str:
 
 
 def normalize_date(val):
-    """Convert any date-like value to proper YYYY-MM-DD date."""
     if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
         return None
     try:
         if isinstance(val, (datetime, pd.Timestamp)):
             return val.date()
-        if isinstance(val, date):  # ✅ handle pure date
+        if isinstance(val, date):
             return val
         if isinstance(val, (int, float)):
             return (datetime(1899, 12, 30) + pd.to_timedelta(val, unit='D')).date()
@@ -127,23 +90,26 @@ def normalize_date(val):
 
 
 def normalize_hours(val):
-    """Convert time strings or day-hour formats into float hours."""
     if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
         return 0.0
     try:
         if isinstance(val, (int, float)):
             return float(val)
         s = str(val).strip().replace(".", ":")
+
         if "day" in s:
             parts = s.split()
             days = float(parts[0])
             h, m, sec = [float(x) for x in parts[-1].split(":")]
             return days * 24 + h + m / 60 + sec / 3600
+
         if ":" in s:
             parts = s.split(":")
-            h, m = float(parts[0]), float(parts[1]) if len(parts) > 1 else 0
+            h = float(parts[0])
+            m = float(parts[1]) if len(parts) > 1 else 0
             sec = float(parts[2]) if len(parts) > 2 else 0
             return h + m / 60 + sec / 3600
+
         return float(s)
     except Exception:
         return 0.0
@@ -164,24 +130,8 @@ def sanitize_value(val):
     return val
 
 
-def detect_header_row(df):
-    """Detect first row that looks like a real header, skip meta rows like 'WEC Wise Report'."""
-    for i, row in df.iterrows():
-        row_values = [str(x).strip().lower() for x in row.values if pd.notna(x)]
-        if not row_values:
-            continue
-        if any("wec wise report" in val for val in row_values):
-            continue
-        keywords = ["date", "wec", "generation"]
-        if any(kw in val for val in row_values for kw in keywords):
-            return i
-    return 0
-
-
 def read_excel_multi(file_path, ext):
-    """Read multi-sheet Excel, CSV, or HTML-based XLS and skip meta header rows."""
     def find_data_start(df):
-        """Return the index where data header starts (e.g. contains DATE/WEC)."""
         for i, row in df.iterrows():
             joined = " ".join(str(x).lower() for x in row if pd.notna(x))
             if "date" in joined and "wec" in joined:
@@ -194,7 +144,6 @@ def read_excel_multi(file_path, ext):
         df = pd.read_csv(file_path, header=start_row)
         return {"main": df}
 
-    # --- Detect HTML disguised as .xls ---
     with open(file_path, "rb") as f:
         start_bytes = f.read(100).lower()
         if b"<html" in start_bytes or b"<table" in start_bytes:
@@ -202,10 +151,9 @@ def read_excel_multi(file_path, ext):
             start_row = find_data_start(df_all)
             df = df_all.iloc[start_row:].reset_index(drop=True)
             df.columns = [clean_col(c) for c in df.iloc[0]]
-            df = df[1:]  # drop header row from data
+            df = df[1:]
             return {"main": df}
 
-    # --- Regular Excel / XLSX ---
     if ext in [".xlsx", ".xlsm"]:
         sheets = pd.read_excel(file_path, sheet_name=None, engine="openpyxl", header=None)
     elif ext == ".xls":
@@ -223,12 +171,12 @@ def read_excel_multi(file_path, ext):
             header=start_row,
         )
         cleaned_sheets[sheet_name] = df
+
     return cleaned_sheets
 
+
+
 # =================== MAIN VIEW =================== #
-
-
-
 
 @login_required
 def upload_files(request):
@@ -268,6 +216,9 @@ def upload_files(request):
         filename = fs.save(data_file.name, data_file)
         file_path = fs.path(filename)
 
+        # 🔥 NEW FLAG to avoid multiple deletions
+        breakdown_cleared = False
+
         try:
             ext = os.path.splitext(filename)[1].lower()
             sheets = read_excel_multi(file_path, ext)
@@ -277,24 +228,19 @@ def upload_files(request):
                 if df.empty:
                     continue
 
-                # --- Clean column names first --- #
                 df.columns = [clean_col(c) for c in df.columns]
 
-                # ✅ Normalize date and hours FIRST before replacing invalids
+                # --- Normalize columns --- #
                 for col in df.columns:
                     col_l = col.lower().strip()
 
-                    # --- Date columns ---
                     if any(k in col_l for k in ["date", "gen_date", "dt"]):
                         df[col] = df[col].apply(normalize_date)
-                        # convert to string for SQL insert
                         df[col] = df[col].apply(lambda x: x.strftime("%Y-%m-%d") if isinstance(x, (datetime, date)) else x)
 
-                    # --- Hour / Duration columns ---
                     elif any(k in col_l for k in ["hrs", "hour", "time", "duration"]):
                         df[col] = df[col].apply(normalize_hours)
 
-                # ✅ Now clean invalids safely
                 df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
                 df = df.astype(object).where(pd.notnull(df), None)
                 df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
@@ -302,6 +248,13 @@ def upload_files(request):
                 # --- Determine correct target table --- #
                 if "breakdown" in sheet_name.lower():
                     target_table = f"{table_name}_breakdowndata"
+
+                    # 🔥 DELETE OLD BREAKDOWN DATA ONLY ONCE
+                    if not breakdown_cleared and target_table in db_tables:
+                        with connection.cursor() as cursor:
+                            cursor.execute(f"DELETE FROM `{target_table}`")
+                        breakdown_cleared = True
+
                 else:
                     target_table = table_name
 
@@ -318,7 +271,6 @@ def upload_files(request):
                     continue
                 df = df[valid_cols]
 
-                # --- Add metadata fields --- #
                 parts = table_name.split("_")
                 uploaded_by = parts[0]
                 energy_type = parts[-1].replace("_", " ").title()
@@ -330,7 +282,7 @@ def upload_files(request):
                 if "energy_type" in table_columns:
                     df["energy_type"] = energy_type
 
-                # --- Bulk insert --- #
+                # --- Bulk Insert --- #
                 columns = ", ".join(f"`{c}`" for c in df.columns)
                 placeholders = ", ".join(["%s"] * len(df.columns))
                 sql = f"INSERT INTO `{target_table}` ({columns}) VALUES ({placeholders})"
@@ -347,7 +299,6 @@ def upload_files(request):
                     )
                     uploaded_sheets.append(f"{sheet_name} → {inserted} rows")
 
-            # --- Final feedback --- #
             if uploaded_sheets:
                 messages.success(request, f"✅ Uploaded Successfully: {', '.join(uploaded_sheets)}")
             else:
@@ -362,15 +313,12 @@ def upload_files(request):
 
         return redirect("upload_files")
 
-    # --- GET --- #
     return render(request, "upload_files.html", {
         "expected_tables": expected_tables,
         "providers": providers,
         "energy_types": energy_types,
         "staff_users": User.objects.filter(is_superuser=False),
     })
-
-
 
 
 

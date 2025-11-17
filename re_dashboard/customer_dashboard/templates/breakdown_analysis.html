@@ -8,7 +8,7 @@
 <!-- Load Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<div class="container-fluid py-4" style="font-family: 'Inter', sans-serif; margin-top: 100px;" >
+<div class="container-fluid py-4" style="font-family: 'Inter', sans-serif; margin-top: 60px;" >
 
     <!-- PAGE TITLE -->
     <!-- <h1 class="fw-bold text-center mb-2 page-title" style="color:#2c3e50;">Smart Breakdown Intelligence</h1>
@@ -16,35 +16,49 @@
         ML-powered repetitive breakdown detection & severity classification
     </p> -->
 
- <!-- FILTERS (Modern Glassmorphism Style) -->
-<div class="filter-wrapper mb-5">
-    <form method="GET" class="row g-4 justify-content-center align-items-end">
+<!-- ============================
+     MODERN FILTER SECTION
+============================= -->
+<div class="filter-wrapper mb-4">
 
+    <form method="GET" id="filtersForm" class="row gy-3 gx-4 align-items-end justify-content-center">
 
-         <div class="col-md-2">
-            <label class="form-label fw-semibold"><i class="fa-solid fa-calendar-day me-1"></i>From</label>
-            <input type="date" class="form-control filter-control" name="from" value="{{ date_from }}">
+        <!-- Breakdown Type -->
+        <div class="col-md-2">
+            <label class="filter-label">Type</label>
+            <select class="filter-field auto-submit" name="btype">
+                <option value="repetitive" {% if btype == "repetitive" %}selected{% endif %}>Repetitive Breakdown</option>
+                <option value="extended" {% if btype == "extended" %}selected{% endif %}>Extended Breakdown</option>
+            </select>
         </div>
 
+        <!-- From Date -->
         <div class="col-md-2">
-            <label class="form-label fw-semibold"><i class="fa-solid fa-calendar-check me-1"></i>To</label>
-            <input type="date" class="form-control filter-control" name="to" value="{{ date_to }}">
+            <label class="filter-label">From</label>
+            <input type="date" class="filter-field" name="from" value="{{ date_from }}">
         </div>
 
-
-
+        <!-- To Date -->
         <div class="col-md-2">
-            <label class="form-label fw-semibold"><i class="fa-solid fa-tower-broadcast me-1"></i>WTG</label>
-            <select class="form-select filter-control" name="wtg">
+            <label class="filter-label">To</label>
+            <input type="date" class="filter-field" name="to" value="{{ date_to }}">
+        </div>
+
+        <!-- WTG -->
+        <div class="col-md-2">
+            <label class="filter-label">WTG</label>
+            <select class="filter-field" name="wtg">
                 <option value="">All WTGs</option>
                 {% for m in chart_data.keys %}
                     <option value="{{ m }}" {% if wtg_filter == m %}selected{% endif %}>{{ m }}</option>
                 {% endfor %}
             </select>
         </div>
+
+        <!-- Severity -->
         <div class="col-md-2">
-            <label class="form-label fw-semibold"><i class="fa-solid fa-bolt me-1"></i>Severity</label>
-            <select class="form-select filter-control" name="severity">
+            <label class="filter-label">Severity</label>
+            <select class="filter-field" name="severity">
                 <option value="">All</option>
                 <option value="Critical" {% if severity_filter == "Critical" %}selected{% endif %}>Critical</option>
                 <option value="High" {% if severity_filter == "High" %}selected{% endif %}>High</option>
@@ -52,12 +66,14 @@
                 <option value="Low" {% if severity_filter == "Low" %}selected{% endif %}>Low</option>
             </select>
         </div>
-       
+
+        <!-- Apply + Reset Buttons -->
         <div class="col-md-2 text-center">
-            <button class="btn btn-primary w-100 filter-btn">
-                <i class="fa-solid fa-filter"></i> Apply Filters
+            <button class="btn btn-primary w-100 apply-btn">
+                <i class="fa-solid fa-filter"></i> Apply
             </button>
-            <a href="{% url 'breakdown_analysis' %}" class="btn btn-light mt-2 w-100 reset-btn">
+
+            <a href="{% url 'breakdown_analysis' %}" class="btn btn-light w-100 mt-2 reset-btn">
                 Reset
             </a>
         </div>
@@ -65,8 +81,26 @@
     </form>
 </div>
 
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll(".auto-submit").forEach(el => {
+        el.addEventListener("change", function () {
+            document.getElementById("filtersForm").submit();
+        });
+    });
+});
+</script>
+
+
+
+
+  
+
+
+
+
     <!-- KPI CARDS -->
-    <div class="row g-4 mb-5">
+    <div class="row g-4 mb-3">
 
         <div class="col-md-3">
             <div class="kpi-card">
@@ -123,7 +157,7 @@
                     <div class="icon-wrapper purple">
                         <i class="fa-solid fa-tower-broadcast"></i>
                     </div>
-                    <h3>–</h3>
+                    <h3>0</h3>
                     <p>No Repetitive Alerts</p>
                 </div>
             </div>
@@ -142,40 +176,71 @@
     </div>
 
     <!-- ALERTS -->
-    <h3 class="fw-bold mb-3 alerts-title">Recent Alerts</h3>
+ 
+   <!-- ALERTS -->
+<h3 class="fw-bold mb-3 alerts-title text-center">Recent Alerts</h3>
 
-    <div class="row g-4">
+<div class="row g-4" id="alertsContainer">
 
-        {% for a in alerts %}
-        <div class="col-md-4 alert-item">
-            <div class="alert-card shadow-sm sev-{{ a.severity|lower }}">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="fw-bold text-primary">WTG {{ a.machine }}</span>
+    {% for a in alerts %}
+    <div class="col-md-4 alert-item alert-box {% if forloop.counter > 6 %}hidden-alert{% endif %}">
+        <div class="alert-card shadow-sm sev-{{ a.severity|lower }}">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fw-bold text-primary">WTG {{ a.machine }}</span>
 
-                    {% if a.severity == "Critical" %}
-                        <span class="sev-badge sev-critical">Critical</span>
-                    {% elif a.severity == "High" %}
-                        <span class="sev-badge sev-high">High</span>
-                    {% elif a.severity == "Medium" %}
-                        <span class="sev-badge sev-medium">Medium</span>
-                    {% else %}
-                        <span class="sev-badge sev-low">Low</span>
-                    {% endif %}
-                </div>
+                {% if a.severity == "Critical" %}
+                    <span class="sev-badge sev-critical">Critical</span>
+                {% elif a.severity == "High" %}
+                    <span class="sev-badge sev-high">High</span>
+                {% elif a.severity == "Medium" %}
+                    <span class="sev-badge sev-medium">Medium</span>
+                {% else %}
+                    <span class="sev-badge sev-low">Low</span>
+                {% endif %}
+            </div>
 
-                <div class="alert-msg text-dark">{{ a.message }}</div>
+            <div class="alert-msg text-dark">{{ a.message }}</div>
 
-                <div class="alert-footer mt-3">
-                    <span><i class="fa-solid fa-calendar-day"></i> {{ a.date }}</span>
-                    <span class="text-muted">sim: {{ a.similarity|floatformat:2 }}</span>
-                </div>
+            <div class="alert-footer mt-3">
+                <span><i class="fa-solid fa-calendar-day"></i> {{ a.date }}</span>
+                <span class="text-muted">sim: {{ a.similarity|floatformat:2 }}</span>
             </div>
         </div>
-        {% empty %}
-        <p class="text-center text-muted">No alerts for selected filters.</p>
-        {% endfor %}
-
     </div>
+    {% empty %}
+    <p class="text-center text-muted">No alerts for selected filters.</p>
+    {% endfor %}
+
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const btn = document.getElementById("toggleAlertsBtn");
+    if (!btn) return;
+
+    let expanded = false;
+
+    btn.addEventListener("click", function () {
+        expanded = !expanded;
+
+        document.querySelectorAll(".hidden-alert").forEach(el => {
+            el.style.display = expanded ? "block" : "none";
+        });
+
+        btn.textContent = expanded ? "Show Less" : "View All";
+    });
+});
+</script>
+
+<!-- Toggle Button -->
+<div class="text-center mt-3">
+    {% if alerts|length > 6 %}
+    <button id="toggleAlertsBtn" class="btn btn-outline-primary px-4 py-2" style="border-radius:10px;">
+        View All
+    </button>
+    {% endif %}
+</div>
+
 
 </div>
 
@@ -204,6 +269,9 @@
         70% { box-shadow: 0 0 0 10px rgba(0, 0, 0, 0); }
         100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
     }
+.hidden-alert {
+    display: none;
+}
 
     /* Apply Animations */
     .page-title { animation: fadeInDown 0.6s ease-out; }
@@ -211,7 +279,7 @@
     .filter-form .filter-item { animation: fadeInDown 1.0s ease-out both; }
     .kpi-card { animation: slideInUp 0.8s ease-out both; }
     .chart-card { animation: slideInUp 0.9s ease-out both; }
-    .alerts-title { animation: slideInUp 1.0s ease-out both; }
+    .alerts-title { animation: slideInUp 1.0s ease-out both;text-align: center !important; }
     .alert-item { animation: slideInUp 1.1s ease-out both; }
 
     /* Staggered animation delays for filters */
@@ -225,76 +293,57 @@
    Modern Filter UI Styling
 ----------------------------*/
 
+/* FILTER CONTAINER */
 .filter-wrapper {
-    background: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(10px);
-    padding: 25px 30px;
-    border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    box-shadow: 0 8px 32px rgba(31, 38, 135, 0.10);
-    animation: fadeInDown 0.8s ease-out;
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 18px 22px;
+    border: 1px solid #e3e8ef;
+    box-shadow: 0px 4px 15px rgba(0,0,0,0.05);
 }
 
-/* Labels */
-.filter-wrapper label {
-    font-size: 0.9rem;
+/* LABELS */
+.filter-label {
+    font-size: 0.85rem;
+    font-weight: 600;
     color: #2c3e50;
+    margin-bottom: 4px;
+    display: block;
 }
 
-/* Input + dropdown fields */
-.filter-control {
-    border-radius: 12px;
-    padding: 10px 14px;
-    border: 1px solid #dbe1e8;
-    transition: all 0.3s ease;
-    background: rgba(255, 255, 255, 0.7);
-}
-
-.filter-control:focus {
-    border-color: #4ea8de;
-    box-shadow: 0 0 8px rgba(78, 168, 222, 0.5);
-}
-
-/* Filter Buttons */
-.filter-btn {
-    padding: 10px;
-    border-radius: 12px;
-    font-weight: 600;
+/* FIELDS (All Same Size) */
+.filter-field {
+    width: 100%;
+    height: 42px;
+    border: 1px solid #cdd6e1;
+    border-radius: 10px;
+    padding: 8px 12px;
+    background: #fdfdfd;
     font-size: 0.9rem;
-    background: linear-gradient(135deg, #4ea8de, #3a8cc7);
-    border: none;
-    box-shadow: 0 6px 20px rgba(78, 168, 222, 0.4);
-    transition: 0.3s ease;
+    transition: 0.25s ease;
 }
 
-.filter-btn:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 30px rgba(78, 168, 222, 0.55);
+/* Hover + Focus */
+.filter-field:hover {
+    border-color: #4ea8de;
 }
 
-/* Reset button clean style */
-.reset-btn {
-    border-radius: 12px;
-    font-weight: 600;
-    border: 1px solid #ccd4dd !important;
-    color: #2c3e50 !important;
-    transition: 0.3s ease;
+.filter-field:focus {
+    outline: none;
+    border-color: #4ea8de;
+    box-shadow: 0 0 0 3px rgba(78, 168, 222, 0.25);
 }
 
-.reset-btn:hover {
-    transform: translateY(-2px);
-    background: #f1f3f5 !important;
-}
-
-/* Responsive adjustments */
+/* Small Screen */
 @media (max-width: 768px) {
     .filter-wrapper {
-        padding: 15px 20px;
+        padding: 14px 16px;
     }
-    .filter-btn, .reset-btn {
-        margin-top: 8px;
+    .filter-field {
+        height: 40px;
     }
 }
+
 
     /* Staggered animation delays for KPIs */
     .col-md-3:nth-child(1) .kpi-card { animation-delay: 0.2s; }
@@ -329,29 +378,58 @@
     }
 
     /* KPI Cards - Subtle lift */
-    .kpi-card {
-        background: #fff;
-        padding: 24px;
-        border-radius: 16px;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        transition: all 0.3s ease;
-        border: 1px solid #eef2f7;
-    }
-    .kpi-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 25px rgba(0,0,0,0.08);
-    }
-    .kpi-card h3 {
-        font-size: 2.25rem;
-        font-weight: 700;
-        color: #2c3e50;
-    }
-    .kpi-card p {
-        font-size: 0.9rem;
-        color: #6c757d;
-        margin-bottom: 0;
-    }
+  /* --- MICRO / EXTRA-SMALL KPI CARDS --- */
+.kpi-card {
+    background: #ffffff;
+    padding: 8px 10px;
+    border-radius: 10px;
+    text-align: center;
+    min-height: 65px;                     /* SUPER COMPACT */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    border: 1px solid #eef2f7;
+    transition: 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+/* -------- MICRO ICON -------- */
+.icon-wrapper {
+    width: 22px;
+    height: 22px;
+    font-size: 5px;                      /* smaller icon size */
+    border-radius: 50%;
+    margin: 0 auto 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-wrapper.blue   { background:#4ea8de; }
+.icon-wrapper.red    { background:#e63946; }
+.icon-wrapper.green  { background:#2a9d8f; }
+.icon-wrapper.purple { background:#6a4c93; }
+
+/* -------- MICRO NUMBER -------- */
+.kpi-card h3 {
+    font-size: 1rem;                      /* number small */
+    font-weight: 700;
+    margin-bottom: 2px;
+    color: #2c3e50;
+}
+
+/* -------- MICRO LABEL -------- */
+.kpi-card p {
+    font-size: 0.7rem;                    /* small label */
+    margin: 0;
+    color: #6c757d;
+}
+
 
     /* Icons */
     .icon-wrapper {
@@ -498,5 +576,6 @@
         }
     });
 </script>
+{% include 'fotter.html' %}
 
 {% endblock %}
