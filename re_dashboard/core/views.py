@@ -46,12 +46,52 @@ from django.utils.timezone import now
 from accounts.models import Provider, EnergyType
 from .models import UploadMetadata
 
-# =================== HELPERS =================== #
+
 
 import os, re, traceback
 import pandas as pd
 import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+import os
+import re
+import traceback
+import pandas as pd
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+from accounts.models import Provider, EnergyType
+from .models import UploadMetadata
+
+# =================== HELPERS =================== #
+
+import pandas as pd, numpy as np, os, re, traceback
 from datetime import datetime, date
+from django.core.files.storage import FileSystemStorage
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from django.utils.timezone import now
+ 
+
+
+
+ 
+
 
 from django.shortcuts import render, redirect
 from django.contrib import messages
@@ -61,6 +101,33 @@ from django.db import connection
 from django.contrib.auth.models import User
 from django.utils.timezone import now
 
+import os
+import re
+import traceback
+import pandas as pd
+import numpy as np
+
+import os, re, traceback
+import pandas as pd
+import numpy as np
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+from django.utils.timezone import now
+
+import os, re, traceback
+import pandas as pd
+import numpy as np
+from datetime import datetime, date
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.utils.timezone import now
 from accounts.models import Provider, EnergyType
 from core.models import UploadMetadata
 
@@ -72,12 +139,13 @@ def clean_col(col: str) -> str:
 
 
 def normalize_date(val):
+    """Convert any date-like value to proper YYYY-MM-DD date."""
     if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
         return None
     try:
         if isinstance(val, (datetime, pd.Timestamp)):
             return val.date()
-        if isinstance(val, date):
+        if isinstance(val, date):  # ✅ handle pure date
             return val
         if isinstance(val, (int, float)):
             return (datetime(1899, 12, 30) + pd.to_timedelta(val, unit='D')).date()
@@ -90,26 +158,23 @@ def normalize_date(val):
 
 
 def normalize_hours(val):
+    """Convert time strings or day-hour formats into float hours."""
     if val is None or str(val).strip().lower() in ["", "nan", "nat"]:
         return 0.0
     try:
         if isinstance(val, (int, float)):
             return float(val)
         s = str(val).strip().replace(".", ":")
-
         if "day" in s:
             parts = s.split()
             days = float(parts[0])
             h, m, sec = [float(x) for x in parts[-1].split(":")]
             return days * 24 + h + m / 60 + sec / 3600
-
         if ":" in s:
             parts = s.split(":")
-            h = float(parts[0])
-            m = float(parts[1]) if len(parts) > 1 else 0
+            h, m = float(parts[0]), float(parts[1]) if len(parts) > 1 else 0
             sec = float(parts[2]) if len(parts) > 2 else 0
             return h + m / 60 + sec / 3600
-
         return float(s)
     except Exception:
         return 0.0
@@ -130,8 +195,24 @@ def sanitize_value(val):
     return val
 
 
+def detect_header_row(df):
+    """Detect first row that looks like a real header, skip meta rows like 'WEC Wise Report'."""
+    for i, row in df.iterrows():
+        row_values = [str(x).strip().lower() for x in row.values if pd.notna(x)]
+        if not row_values:
+            continue
+        if any("wec wise report" in val for val in row_values):
+            continue
+        keywords = ["date", "wec", "generation"]
+        if any(kw in val for val in row_values for kw in keywords):
+            return i
+    return 0
+
+
 def read_excel_multi(file_path, ext):
+    """Read multi-sheet Excel, CSV, or HTML-based XLS and skip meta header rows."""
     def find_data_start(df):
+        """Return the index where data header starts (e.g. contains DATE/WEC)."""
         for i, row in df.iterrows():
             joined = " ".join(str(x).lower() for x in row if pd.notna(x))
             if "date" in joined and "wec" in joined:
@@ -144,6 +225,7 @@ def read_excel_multi(file_path, ext):
         df = pd.read_csv(file_path, header=start_row)
         return {"main": df}
 
+    # --- Detect HTML disguised as .xls ---
     with open(file_path, "rb") as f:
         start_bytes = f.read(100).lower()
         if b"<html" in start_bytes or b"<table" in start_bytes:
@@ -151,9 +233,10 @@ def read_excel_multi(file_path, ext):
             start_row = find_data_start(df_all)
             df = df_all.iloc[start_row:].reset_index(drop=True)
             df.columns = [clean_col(c) for c in df.iloc[0]]
-            df = df[1:]
+            df = df[1:]  # drop header row from data
             return {"main": df}
 
+    # --- Regular Excel / XLSX ---
     if ext in [".xlsx", ".xlsm"]:
         sheets = pd.read_excel(file_path, sheet_name=None, engine="openpyxl", header=None)
     elif ext == ".xls":
@@ -171,12 +254,12 @@ def read_excel_multi(file_path, ext):
             header=start_row,
         )
         cleaned_sheets[sheet_name] = df
-
     return cleaned_sheets
 
-
-
 # =================== MAIN VIEW =================== #
+
+
+
 
 @login_required
 def upload_files(request):
@@ -216,9 +299,6 @@ def upload_files(request):
         filename = fs.save(data_file.name, data_file)
         file_path = fs.path(filename)
 
-        # 🔥 NEW FLAG to avoid multiple deletions
-        breakdown_cleared = False
-
         try:
             ext = os.path.splitext(filename)[1].lower()
             sheets = read_excel_multi(file_path, ext)
@@ -228,19 +308,24 @@ def upload_files(request):
                 if df.empty:
                     continue
 
+                # --- Clean column names first --- #
                 df.columns = [clean_col(c) for c in df.columns]
 
-                # --- Normalize columns --- #
+                # ✅ Normalize date and hours FIRST before replacing invalids
                 for col in df.columns:
                     col_l = col.lower().strip()
 
+                    # --- Date columns ---
                     if any(k in col_l for k in ["date", "gen_date", "dt"]):
                         df[col] = df[col].apply(normalize_date)
+                        # convert to string for SQL insert
                         df[col] = df[col].apply(lambda x: x.strftime("%Y-%m-%d") if isinstance(x, (datetime, date)) else x)
 
+                    # --- Hour / Duration columns ---
                     elif any(k in col_l for k in ["hrs", "hour", "time", "duration"]):
                         df[col] = df[col].apply(normalize_hours)
 
+                # ✅ Now clean invalids safely
                 df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
                 df = df.astype(object).where(pd.notnull(df), None)
                 df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
@@ -248,13 +333,6 @@ def upload_files(request):
                 # --- Determine correct target table --- #
                 if "breakdown" in sheet_name.lower():
                     target_table = f"{table_name}_breakdowndata"
-
-                    # 🔥 DELETE OLD BREAKDOWN DATA ONLY ONCE
-                    if not breakdown_cleared and target_table in db_tables:
-                        with connection.cursor() as cursor:
-                            cursor.execute(f"DELETE FROM `{target_table}`")
-                        breakdown_cleared = True
-
                 else:
                     target_table = table_name
 
@@ -271,6 +349,7 @@ def upload_files(request):
                     continue
                 df = df[valid_cols]
 
+                # --- Add metadata fields --- #
                 parts = table_name.split("_")
                 uploaded_by = parts[0]
                 energy_type = parts[-1].replace("_", " ").title()
@@ -282,7 +361,7 @@ def upload_files(request):
                 if "energy_type" in table_columns:
                     df["energy_type"] = energy_type
 
-                # --- Bulk Insert --- #
+                # --- Bulk insert --- #
                 columns = ", ".join(f"`{c}`" for c in df.columns)
                 placeholders = ", ".join(["%s"] * len(df.columns))
                 sql = f"INSERT INTO `{target_table}` ({columns}) VALUES ({placeholders})"
@@ -299,6 +378,7 @@ def upload_files(request):
                     )
                     uploaded_sheets.append(f"{sheet_name} → {inserted} rows")
 
+            # --- Final feedback --- #
             if uploaded_sheets:
                 messages.success(request, f"✅ Uploaded Successfully: {', '.join(uploaded_sheets)}")
             else:
@@ -313,6 +393,7 @@ def upload_files(request):
 
         return redirect("upload_files")
 
+    # --- GET --- #
     return render(request, "upload_files.html", {
         "expected_tables": expected_tables,
         "providers": providers,
@@ -320,10 +401,7 @@ def upload_files(request):
         "staff_users": User.objects.filter(is_superuser=False),
     })
 
-
-
-
-
+ 
 
 
 
@@ -1742,64 +1820,375 @@ def tracking_dashboard(request):
 
 
     from django.core.paginator import Paginator
+
+
+
+
+
 from django.db.models import Q
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
+from django.db import connection
+from datetime import datetime, date
+import re
+
+# Make sure PM_TABLE_NAME is defined somewhere globally like earlier:
+PM_TABLE_NAME = "preventive_maintenance_data"
+
 
 @login_required
 def manage_preventive_maintenance(request):
-    """Manage Preventive Maintenance Records"""
-    search = request.GET.get("search", "").strip()
+    """
+    Manage Preventive Maintenance:
+    - Bulk delete by filters (preview -> confirm)
+    - Manual edit/delete of single rows (table + modals)
+    - Search + pagination
+    """
 
-    # Fetch records
+    # --- helpers for building SQL ---
+    def build_where_and_params(filters):
+        where = " WHERE 1=1 "
+        params = []
+        if filters.get("username"):
+            where += " AND username = %s "
+            params.append(filters["username"])
+        if filters.get("energy_type"):
+            where += " AND energy_type = %s "
+            params.append(filters["energy_type"])
+        if filters.get("checkpoints_period"):
+            where += " AND checkpoints_period = %s "
+            params.append(filters["checkpoints_period"])
+        if filters.get("mw"):
+            # match exact or numeric; treat as string compare
+            where += " AND mw = %s "
+            params.append(filters["mw"])
+        return where, params
+
+    # --- get dropdown options (users, energy types, checkpoint periods) ---
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    staff_users = User.objects.filter(is_superuser=False).order_by("username")
     with connection.cursor() as cursor:
-        base_sql = f"SELECT id, username, energy_type, category, sub_category, duration, checkpoints_period, mw, description FROM `{PM_TABLE_NAME}`"
-        if search:
-            base_sql += f" WHERE username LIKE '%{search}%' OR category LIKE '%{search}%' OR sub_category LIKE '%{search}%' OR energy_type LIKE '%{search}%'"
-        base_sql += " ORDER BY id DESC;"
-        cursor.execute(base_sql)
-        rows = cursor.fetchall()
-        columns = [col[0] for col in cursor.description]
+        cursor.execute(f"SELECT DISTINCT energy_type FROM `{PM_TABLE_NAME}`")
+        energy_types = [r[0] for r in cursor.fetchall()]
+        cursor.execute(f"SELECT DISTINCT checkpoints_period FROM `{PM_TABLE_NAME}`")
+        checkpoints_periods = [r[0] for r in cursor.fetchall()]
 
-    data = [dict(zip(columns, row)) for row in rows]
-
-    # Pagination
-    paginator = Paginator(data, 10)
-    page = request.GET.get("page")
-    records = paginator.get_page(page)
-
-    # ---------- DELETE ----------
+    # --- handle POST actions ---
+    # 1) Single-row delete (manual)
     if request.method == "POST" and request.POST.get("delete_id"):
         delete_id = request.POST.get("delete_id")
         try:
             with connection.cursor() as cursor:
                 cursor.execute(f"DELETE FROM `{PM_TABLE_NAME}` WHERE id = %s", [delete_id])
-            messages.success(request, f"✅ Record ID {delete_id} deleted successfully.")
+                deleted = cursor.rowcount
+            messages.success(request, f"✅ Record ID {delete_id} deleted successfully ({deleted} row(s)).")
         except Exception as e:
             messages.error(request, f"❌ Failed to delete record: {e}")
         return redirect("manage_preventive_maintenance")
 
-    # ---------- EDIT ----------
+    # 2) Single-row edit
     if request.method == "POST" and request.POST.get("edit_id"):
         edit_id = request.POST.get("edit_id")
-        new_category = request.POST.get("edit_category")
-        new_sub_category = request.POST.get("edit_sub_category")
-        new_duration = request.POST.get("edit_duration")
-        new_description = request.POST.get("edit_description")
+        new_category = request.POST.get("edit_category", "").strip()
+        new_sub_category = request.POST.get("edit_sub_category", "").strip()
+        new_duration = request.POST.get("edit_duration", "").strip()
+        new_description = request.POST.get("edit_description", "").strip()
         try:
             with connection.cursor() as cursor:
-                cursor.execute(f"""
-                    UPDATE `{PM_TABLE_NAME}` 
-                    SET category=%s, sub_category=%s, duration=%s, description=%s 
-                    WHERE id=%s
-                """, [new_category, new_sub_category, new_duration, new_description, edit_id])
+                cursor.execute(
+                    f"""UPDATE `{PM_TABLE_NAME}`
+                        SET category=%s, sub_category=%s, duration=%s, description=%s
+                        WHERE id=%s""",
+                    [new_category, new_sub_category, new_duration, new_description, edit_id]
+                )
             messages.success(request, f"✅ Record ID {edit_id} updated successfully.")
         except Exception as e:
             messages.error(request, f"❌ Failed to update record: {e}")
         return redirect("manage_preventive_maintenance")
 
+    # 3) Bulk preview (user clicked "Preview Delete")
+    preview_count = None
+    preview_filters = {}
+    if request.method == "POST" and request.POST.get("preview_bulk"):
+        # read filters from POST
+        username = request.POST.get("bulk_username") or None
+        energy_type = request.POST.get("bulk_energy_type") or None
+        checkpoints_period = request.POST.get("bulk_checkpoints_period") or None
+        mw = request.POST.get("bulk_mw") or None
+
+        preview_filters = {
+            "username": username,
+            "energy_type": energy_type,
+            "checkpoints_period": checkpoints_period,
+            "mw": mw
+        }
+        where_clause, params = build_where_and_params(preview_filters)
+        try:
+            with connection.cursor() as cursor:
+                sql = f"SELECT COUNT(*) FROM `{PM_TABLE_NAME}` {where_clause}"
+                cursor.execute(sql, params)
+                preview_count = cursor.fetchone()[0]
+        except Exception as e:
+            messages.error(request, f"❌ Preview failed: {e}")
+            preview_count = None
+        # render page with preview_count (modal will auto-open via template JS)
+    # 4) Confirm bulk delete (user confirmed in modal)
+    if request.method == "POST" and request.POST.get("confirm_bulk_delete"):
+        username = request.POST.get("bulk_username_confirm") or None
+        energy_type = request.POST.get("bulk_energy_type_confirm") or None
+        checkpoints_period = request.POST.get("bulk_checkpoints_period_confirm") or None
+        mw = request.POST.get("bulk_mw_confirm") or None
+
+        filters = {
+            "username": username,
+            "energy_type": energy_type,
+            "checkpoints_period": checkpoints_period,
+            "mw": mw
+        }
+        where_clause, params = build_where_and_params(filters)
+        try:
+            with connection.cursor() as cursor:
+                sql = f"DELETE FROM `{PM_TABLE_NAME}` {where_clause}"
+                cursor.execute(sql, params)
+                deleted = cursor.rowcount
+            messages.success(request, f"🗑️ Bulk delete completed: {deleted} row(s) removed.")
+        except Exception as e:
+            messages.error(request, f"❌ Bulk delete failed: {e}")
+        return redirect("manage_preventive_maintenance")
+
+    # --- GET: show records (search + pagination) ---
+    search = request.GET.get("search", "").strip()
+    # fetch rows (we'll use fixed columns for PM)
+    with connection.cursor() as cursor:
+        sql = f"""
+            SELECT id, user_id, username, energy_type, category, sub_category,
+                   duration, checkpoints_period, mw, description
+            FROM `{PM_TABLE_NAME}`
+        """
+        params = []
+        if search:
+            sql += " WHERE username LIKE %s OR category LIKE %s OR sub_category LIKE %s OR energy_type LIKE %s "
+            sparam = f"%{search}%"
+            params.extend([sparam, sparam, sparam, sparam])
+        sql += " ORDER BY id DESC"
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+        cols = [c[0] for c in cursor.description]
+
+    data = [dict(zip(cols, r)) for r in rows]
+
+    # pagination
+    paginator = Paginator(data, 10)
+    page = request.GET.get("page")
+    records = paginator.get_page(page)
+
+    # render template; include preview_count and preview_filters if any
     return render(request, "manage_preventive_maintenance.html", {
         "records": records,
         "search": search,
+        "staff_users": staff_users,
+        "energy_types": energy_types,
+        "checkpoints_periods": checkpoints_periods,
+        "preview_count": preview_count,
+        "preview_filters": preview_filters,
+    })
+
+
+@login_required
+def upload_dsm_data(request):
+
+    DSM_TABLE_NAME = "dsm_data"
+
+    # ---- Check DSM table exists ----
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+        table_exists = DSM_TABLE_NAME in tables
+
+    if not table_exists:
+        messages.error(request, "DSM table does not exist. Please create structure first.")
+        return redirect("add_dsm_structure")
+
+    if request.method == "POST" and "data_file" in request.FILES:
+
+        provider = request.POST.get("provider")
+        energy_type = request.POST.get("energy_type")
+        uploaded_by = request.POST.get("uploaded_by")
+
+        data_file = request.FILES["data_file"]
+
+        if not provider or not energy_type or not uploaded_by:
+            messages.error(request, "Please select provider, energy type, and uploaded by user.")
+            return redirect("upload_dsm_data")
+
+        # ---- Save temp file ----
+        fs = FileSystemStorage()
+        filename = fs.save(data_file.name, data_file)
+        file_path = fs.path(filename)
+
+        try:
+            ext = os.path.splitext(filename)[1].lower()
+
+            # ---- Read file based on extension ----
+            if ext == ".csv":
+                df = pd.read_csv(file_path)
+
+            elif ext == ".xls":
+                xlsx_path = file_path + "x"
+                convert_xls_to_xlsx(file_path, xlsx_path)
+                df = pd.read_excel(xlsx_path, engine="openpyxl")
+                os.remove(xlsx_path)
+
+            elif ext in [".xlsx", ".xlsm", ".xlsb"]:
+                df = pd.read_excel(file_path, engine="openpyxl")
+
+            elif ext == ".ods":
+                df = pd.read_excel(file_path, engine="odf")
+
+            else:
+                messages.error(request, f"Unsupported file type: {ext}")
+                return redirect("upload_dsm_data")
+
+            if df.empty:
+                messages.error(request, "Uploaded file contains no data.")
+                return redirect("upload_dsm_data")
+
+            # ---- Clean column names ----
+            cleaned_cols = []
+            seen = {}
+
+            for col in df.columns:
+                new_col = re.sub(r"\W+", "_", str(col).lower()).strip("_") or "col"
+                if new_col in seen:
+                    seen[new_col] += 1
+                    new_col = f"{new_col}_{seen[new_col]}"
+                else:
+                    seen[new_col] = 0
+                cleaned_cols.append(new_col)
+
+            df.columns = cleaned_cols
+
+            # ---- Add system columns ----
+            df["username"] = uploaded_by
+            df["provider"] = provider
+            df["energy_type"] = energy_type
+             
+
+            # ---------------------------------------------------------
+            # 🔥 FIX: Remove ALL NaN, NaT, NULL-like values
+            # ---------------------------------------------------------
+            df = df.replace({float("nan"): None})
+            df = df.replace({pd.NA: None})
+            df = df.replace({pd.NaT: None})
+            df = df.astype(object).where(pd.notnull(df), None)
+
+            # ---- Insert data ----
+            cols = ", ".join([f"`{c}`" for c in df.columns])
+
+            with connection.cursor() as cursor:
+                for _, row in df.iterrows():
+                    values = list(row.values)
+                    placeholders = ", ".join(["%s"] * len(values))
+                    sql = f"INSERT INTO `{DSM_TABLE_NAME}` ({cols}) VALUES ({placeholders})"
+                    cursor.execute(sql, values)
+
+            messages.success(request, f"✅ {len(df)} rows uploaded successfully!")
+
+        except Exception as e:
+            messages.error(request, f"❌ Upload failed: {e}")
+
+        finally:
+            fs.delete(filename)
+
+        return redirect("upload_dsm_data")
+
+    # ---- Dropdown lists ----
+    providers = Provider.objects.all()
+    energy_types = EnergyType.objects.all()
+    staff_users = User.objects.filter(is_superuser=False)
+
+    return render(request, "upload_dsm_data.html", {
+        "providers": providers,
+        "energy_types": energy_types,
+        "staff_users": staff_users,
+        "table_exists": table_exists,
     })
 
 
 
+
+
+
+
+
+
+
+
+
+@login_required
+def delete_dsm_data(request):
+
+    DSM_TABLE_NAME = "dsm_data"
+
+    # ---- Check if table exists ----
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [row[0] for row in cursor.fetchall()]
+        table_exists = DSM_TABLE_NAME in tables
+
+    if not table_exists:
+        messages.error(request, "DSM table does not exist. Create structure first.")
+        return redirect("add_dsm_structure")
+
+    # ---- Dropdown values ----
+    staff_users = User.objects.filter(is_superuser=False)
+    energy_types = EnergyType.objects.all()
+    providers = Provider.objects.all()
+
+    if request.method == "POST":
+
+        selected_user = request.POST.get("username")
+        selected_energy = request.POST.get("energy_type")
+        selected_provider = request.POST.get("provider")
+
+        if not selected_user or not selected_energy:
+            messages.error(request, "Please select user and energy type.")
+            return redirect("delete_dsm_data")
+
+        # ------- Build DELETE Query -------
+        query = f"DELETE FROM `{DSM_TABLE_NAME}` WHERE 1=1 "
+        params = []
+
+        query += " AND username = %s "
+        params.append(selected_user)
+
+        query += " AND energy_type = %s "
+        params.append(selected_energy)
+
+        if selected_provider:
+            query += " AND provider = %s "
+            params.append(selected_provider)
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+
+            messages.success(request, f"🗑️ All DSM records deleted for: "
+                                      f"{selected_user} → {selected_energy}"
+                                      + (f" → {selected_provider}" if selected_provider else ""))
+
+        except Exception as e:
+            messages.error(request, f"❌ Delete failed: {e}")
+
+        return redirect("delete_dsm_data")
+
+    return render(request, "manage_dsm_data.html", {
+        "staff_users": staff_users,
+        "energy_types": energy_types,
+        "providers": providers,
+        "table_exists": table_exists,
+    })

@@ -3,10 +3,10 @@
 {% block title %}Solar Installation Summary{% endblock %}
 
 {% block content %}
-<div class="row" style="overflow: hidden;">
+<div class="row"  >
   <div class="col-md-12 d-flex justify-content-center align-items-center text-white"
        style="background-image: url('{% static 'images/solardashboard.jpg' %}');
-              background-size: cover;
+              background-size: 100% 100% !important;
               background-repeat: no-repeat;
               background-position: center;
               height: 100vh;">
@@ -22,8 +22,7 @@
 <style>
   /* Smooth fade-in + upward movement */
   .animated-text {
-    animation: fadeInUp 2s ease-out;
-    font-size: 2.5rem;
+     font-size: 2.5rem;
     font-weight: bold;
     text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.6);
   }
@@ -46,16 +45,6 @@
     }
   }
 
-  /* Fade in + slide up animation */
-  @keyframes fadeInUp {
-    0% {
-      opacity: 0;
-      transform: translateY(30px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
+  
 </style>
 {% endblock %}

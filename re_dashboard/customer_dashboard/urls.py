@@ -46,6 +46,7 @@ urlpatterns = [
     path('user_completed_maintenance', cd_views.user_completed_maintenance, name='user_completed_maintenance'),
     path('user_pm_report_dashboard', cd_views.user_pm_report_dashboard, name='user_pm_report_dashboard'),
     path("breakdown_analysis", cd_views.breakdown_analysis, name="breakdown_analysis"),
+    path("customer_upload_dsm", cd_views.customer_upload_dsm, name="customer_upload_dsm"),
 
 ]
  

@@ -33,5 +33,7 @@ urlpatterns = [
     path('tracking_dashboard', tracking_dashboard, name='tracking_dashboard'),
     path('upload_preventive_maintenance', upload_preventive_maintenance, name='upload_preventive_maintenance'),
     path('manage_preventive_maintenance', manage_preventive_maintenance, name='manage_preventive_maintenance'),
+    path('upload_dsm_data', upload_dsm_data, name='upload_dsm_data'),
+    path('delete_dsm_data', delete_dsm_data, name='delete_dsm_data'),
     
 ]

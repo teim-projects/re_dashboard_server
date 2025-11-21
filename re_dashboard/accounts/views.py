@@ -558,157 +558,169 @@ from openpyxl import Workbook
 from accounts.models import EnergyType
 
 
-# --- helper: convert old .xls to .xlsx ---
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+import pandas as pd
+import os, re, xlrd
+from openpyxl import Workbook
+
+
+# One common DSM table
+DSM_TABLE_NAME = "dsm_data"
+
+
+# --- helper: convert .xls to .xlsx ---
 def convert_xls_to_xlsx(xls_path, xlsx_path):
-    """Convert old .xls file to .xlsx using xlrd + openpyxl"""
     book = xlrd.open_workbook(xls_path)
     sheet = book.sheet_by_index(0)
     wb = Workbook()
     ws = wb.active
-
     for row in range(sheet.nrows):
         ws.append(sheet.row_values(row))
-
     wb.save(xlsx_path)
     return xlsx_path
 
 
 @login_required
 def add_dsm_structure(request):
-    energy_types = EnergyType.objects.all()
-    staff_users = User.objects.filter(is_superuser=False)
 
-    # ------------------ POST logic ------------------
-    if request.method == 'POST':
-
-        # ✅ DELETE specific DSM table
-        if 'delete_table_name' in request.POST:
-            table_to_delete = request.POST.get('delete_table_name')
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute(f"DROP TABLE IF EXISTS `{table_to_delete}`")
-                messages.success(request, f"Table '{table_to_delete}' deleted successfully.")
-            except Exception as e:
-                messages.error(request, f"Error deleting table: {str(e)}")
-            return redirect("add_dsm_structure")
-
-        # ✅ CREATE new DSM table
-        selected_username = request.POST.get("selected_user")
-        energy_type_id = request.POST.get("energy_type")
-        structure_file = request.FILES.get("structure_file")
-
-        if not selected_username or not energy_type_id or not structure_file:
-            messages.error(request, "All fields are required: User, Energy Type, and File.")
-            return redirect("add_dsm_structure")
-
-        # ✅ Fetch related objects
+    # ----------- DELETE DSM TABLE -----------
+    if request.method == "POST" and "delete_dsm_table" in request.POST:
         try:
-            user_obj = User.objects.get(username=selected_username)
-        except User.DoesNotExist:
-            messages.error(request, "Invalid user selected.")
+            with connection.cursor() as cursor:
+                cursor.execute(f"DROP TABLE IF EXISTS `{DSM_TABLE_NAME}`")
+            messages.success(request, f"🗑️ Deleted table '{DSM_TABLE_NAME}' successfully.")
+        except Exception as e:
+            messages.error(request, f"❌ Error deleting table: {e}")
+        return redirect("add_dsm_structure")
+
+    # ----------- ADD SINGLE COLUMN -----------
+    if request.method == "POST" and "add_column" in request.POST:
+
+        col_name = request.POST.get("column_name", "").strip()
+        col_type = request.POST.get("column_type", "TEXT").strip().upper()
+
+        if not col_name:
+            messages.error(request, "Please enter a column name.")
             return redirect("add_dsm_structure")
+
+        col_name = re.sub(r"\W+", "_", col_name.lower()).strip("_")
+        if not col_name:
+            messages.error(request, "Invalid column name.")
+            return redirect("add_dsm_structure")
+
+        valid_types = ["TEXT", "INT", "FLOAT", "DATE"]
+        if col_type not in valid_types:
+            col_type = "TEXT"
 
         try:
-            energy_type = EnergyType.objects.get(id=energy_type_id)
-            energy_type_name = energy_type.name.strip().lower().replace(' ', '_')
-        except EnergyType.DoesNotExist:
-            messages.error(request, "Invalid energy type selected.")
-            return redirect("add_dsm_structure")
+            with connection.cursor() as cursor:
+                cursor.execute("SHOW TABLES;")
+                tables = [r[0] for r in cursor.fetchall()]
+                if DSM_TABLE_NAME not in tables:
+                    messages.error(request, "⚠️ DSM table does not exist. Upload structure file first.")
+                    return redirect("add_dsm_structure")
 
-        # ✅ Build DSM table name
-        table_name = f"{selected_username.lower()}_{energy_type_name}_dsmdata"
+                cursor.execute(f"SHOW COLUMNS FROM `{DSM_TABLE_NAME}`;")
+                existing = [r[0].lower() for r in cursor.fetchall()]
+                if col_name in existing:
+                    messages.warning(request, f"Column '{col_name}' already exists.")
+                    return redirect("add_dsm_structure")
 
-        # ✅ Save uploaded file temporarily
+                cursor.execute(f"ALTER TABLE `{DSM_TABLE_NAME}` ADD COLUMN `{col_name}` {col_type};")
+
+            messages.success(request, f"✅ Column '{col_name}' ({col_type}) added successfully!")
+        except Exception as e:
+            messages.error(request, f"❌ Failed to add column: {e}")
+
+        return redirect("add_dsm_structure")
+
+    # ----------- UPLOAD STRUCTURE FILE (DROP + RECREATE) -----------
+    if request.method == "POST" and "structure_file" in request.FILES:
+
+        structure_file = request.FILES["structure_file"]
         fs = FileSystemStorage()
         filename = fs.save(structure_file.name, structure_file)
         file_path = fs.path(filename)
 
         try:
-            # ---------- Detect file extension ----------
-            file_ext = os.path.splitext(filename)[1].lower()
+            ext = os.path.splitext(filename)[1].lower()
 
-            if file_ext == ".csv":
-                sheets = {"main": pd.read_csv(file_path)}
-
-            elif file_ext == ".xls":
-                try:
-                    xlsx_path = file_path + "x"
-                    convert_xls_to_xlsx(file_path, xlsx_path)
-                    sheets = pd.read_excel(xlsx_path, engine="openpyxl", sheet_name=None)
-                    os.remove(xlsx_path)
-                except Exception:
-                    df_list = pd.read_html(file_path)
-                    sheets = {"main": df_list[0]}
-
-            elif file_ext in [".xlsx", ".xlsm", ".xlsb"]:
-                sheets = pd.read_excel(file_path, engine="openpyxl", sheet_name=None)
-
-            elif file_ext == ".ods":
-                sheets = pd.read_excel(file_path, engine="odf", sheet_name=None)
-
+            if ext == ".csv":
+                df = pd.read_csv(file_path)
+            elif ext == ".xls":
+                xlsx_path = file_path + "x"
+                convert_xls_to_xlsx(file_path, xlsx_path)
+                df = pd.read_excel(xlsx_path, engine="openpyxl")
+                os.remove(xlsx_path)
+            elif ext in [".xlsx", ".xlsm", ".xlsb"]:
+                df = pd.read_excel(file_path, engine="openpyxl")
+            elif ext == ".ods":
+                df = pd.read_excel(file_path, engine="odf")
             else:
-                messages.error(request, f"Unsupported file type: {file_ext}")
+                messages.error(request, f"Unsupported file type: {ext}")
                 return redirect("add_dsm_structure")
 
-            created_tables = []
+            if df.empty:
+                messages.warning(request, "Uploaded file is empty.")
+                return redirect("add_dsm_structure")
 
-            # ---------- Iterate through sheets ----------
-            for sheet_name, df in sheets.items():
-                if df.empty:
-                    continue
+            # Clean column names
+            cleaned = []
+            seen = {}
 
-                # ✅ Clean column names
-                df.columns = [
-                    re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
-                    for col in df.columns
-                ]
+            for col in df.columns:
+                c = re.sub(r"\W+", "_", str(col).strip()).lower().strip("_") or "col"
+                if c not in seen:
+                    seen[c] = 0
+                    cleaned.append(c)
+                else:
+                    seen[c] += 1
+                    cleaned.append(f"{c}_{seen[c]}")
 
-                # ✅ Build SQL table
-                column_defs = [f"`{col}` TEXT" for col in df.columns]
-                column_defs += ["`provider` TEXT", "`energy_type` TEXT", "`uploaded_by` TEXT"]
+            # Extra internal columns
+            extra_cols = [
+                "`username` TEXT",
+                "`energy_type` TEXT",
+                "`provider` TEXT",
+                
+            ]
 
-                create_sql = f"""
-                    CREATE TABLE IF NOT EXISTS `{table_name}` (
-                        `id` INT AUTO_INCREMENT PRIMARY KEY,
-                        {", ".join(column_defs)}
-                    );
-                """
+            dynamic = [f"`{c}` TEXT" for c in cleaned]
 
-                with connection.cursor() as cursor:
-                    cursor.execute(create_sql)
+            create_sql = f"""
+                CREATE TABLE IF NOT EXISTS `{DSM_TABLE_NAME}` (
+                    `id` INT AUTO_INCREMENT PRIMARY KEY,
+                    {', '.join(dynamic + extra_cols)}
+                );
+            """
 
-                created_tables.append(table_name)
+            with connection.cursor() as cursor:
+                cursor.execute(f"DROP TABLE IF EXISTS `{DSM_TABLE_NAME}`")
+                cursor.execute(create_sql)
 
-            if created_tables:
-                messages.success(
-                    request,
-                    f"✅ Created DSM table: {', '.join(created_tables)}"
-                )
-            else:
-                messages.warning(request, "No valid sheets found in the uploaded file.")
+            messages.success(request, f"🚀 DSM Table '{DSM_TABLE_NAME}' created with {len(cleaned)} columns!")
 
         except Exception as e:
-            messages.error(request, f"❌ Error creating DSM table: {str(e)}")
-
+            messages.error(request, f"❌ Failed to create table: {e}")
         finally:
             fs.delete(filename)
 
         return redirect("add_dsm_structure")
 
-    # ------------------ GET logic ------------------
+    # ----------- CHECK TABLE -----------
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
-        all_tables = [row[0] for row in cursor.fetchall()]
+        tables = [row[0] for row in cursor.fetchall()]
+    table_exists = DSM_TABLE_NAME in tables
 
-    # Filter only DSM tables
-    dsm_tables = [t for t in all_tables if t.endswith("_dsmdata")]
-
-    return render(request, 'add_dsm_structure.html', {
-        'energy_types': energy_types,
-        'users': staff_users,
-        'dsm_tables': dsm_tables,
+    return render(request, "add_dsm_structure.html", {
+        "dsm_table_name": DSM_TABLE_NAME,
+        "table_exists": table_exists,
     })
-
 
 
 

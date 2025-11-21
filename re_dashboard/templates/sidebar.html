@@ -76,11 +76,11 @@
       position: absolute;
       top: 10px;
       right: 10px;
-      background: red;
-      border: none;
-      color: white;
+       border: none;
+      color: rgb(255, 255, 255);
       font-size: 24px;
-      padding: 0 10px;
+            background-color: #2c3e50;
+font-weight: bold;
       cursor: pointer;
     }
 
@@ -497,7 +497,7 @@ margin: 0 10px;
 
 <!-- Sidebar -->
 <div id="sidebar" class="sidebar" style="z-index: 1000; overflow: scroll;">
-  <button class="close-btn" onclick="closeSidebar()">×</button>
+  <button class="close-btn" onclick="closeSidebar()">X</button>
   <center>
     <div class="text-center mt-5 bg-white pt-1" style="border-radius: 10px; width:70%;">
       <img src="{% static 'images/TeimLogo.png' %}" alt="TEIM Logo" class="img-fluid" style="height: 70px; width: 100px;" />
@@ -535,195 +535,258 @@ margin: 0 10px;
   </div>
   {% endif %}
 
-  <ul class="nav flex-column mt-4 pl-3">
+ <ul class="nav flex-column mt-4 pl-3">
+
     {% if request.user.is_superuser %}
-    <li class="nav-item">
-      <a class="nav-link bg-white text-dark text-center" href="{% url 'tracking_dashboard' %}">
-        <i class="fas fa-tachometer-alt"></i> Admin Area
-      </a>
+
+    <!-- Admin Header -->
+    <li class="nav-item mb-2">
+        <a class="nav-link bg-white text-dark text-center font-weight-bold" href="{% url 'tracking_dashboard' %}">
+            <i class="fas fa-user-shield"></i> Admin Dashboard
+        </a>
     </li>
 
-    <!-- Masters -->
+    <!-- ===================== MASTER SETUP ===================== -->
     <li class="nav-item">
-      <a class="nav-link" data-toggle="collapse" href="#mastersSubmenu" role="button" aria-expanded="false" aria-controls="mastersSubmenu">
-        <i class="fas fa-layer-group"></i>&nbsp; Masters <i class="fas fa-caret-down float-right"></i>
-      </a>
-      <div class="collapse ml-3" id="mastersSubmenu">
-        <ul class="nav flex-column">
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'add_energy_type' %}">
-              <i class="fas fa-bolt"></i> Energy Types
-            </a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'register_user' %}">
-              <i class="fas fa-user-plus"></i> Add New User
-            </a>
-          </li>
-          <li class="nav-item">
-           <a class="nav-link" href="{% url 'add_provider' %}">
-  <i class="fas fa-database" style="color:#4e73df;"></i> Customer Table Setup
-</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'upload_installation_summary' %}">
-              <i class="fas fa-file-circle-plus"></i> Add Installation Summary
-            </a>
-          </li>
+        <a class="nav-link" data-toggle="collapse" href="#mastersSubmenu" role="button">
+            <i class="fas fa-cogs"></i> Master Setup 
+            <i class="fas fa-caret-down float-right"></i>
+        </a>
 
+        <div class="collapse ml-3" id="mastersSubmenu">
+            <ul class="nav flex-column">
 
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'add_energy_type' %}">
+                        <i class="fas fa-bolt"></i> Energy Types
+                    </a>
+                </li>
 
-                    <li class="nav-item">
-            <a class="nav-link" href="{% url 'add_pm_structure' %}">
-              <i class="fas fa-file-circle-plus"></i> P M  Setup
-            </a>
-          </li>
-        </ul>
-      </div>
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'register_user' %}">
+                        <i class="fas fa-user-plus"></i> Create User
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'add_provider' %}">
+                        <i class="fas fa-database"></i> Customer Table Setup
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'upload_installation_summary' %}">
+                        <i class="fas fa-building"></i> Installation Summary Setup
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'add_pm_structure' %}">
+                        <i class="fas fa-tools"></i> PM Structure Setup
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'add_dsm_structure' %}">
+                        <i class="fas fa-balance-scale"></i>
+ DSM Structure Setup
+                    </a>
+                </li>
+
+            </ul>
+        </div>
     </li>
 
-    <!-- Records -->
-    <li class="nav-item">
-      <a class="nav-link" data-toggle="collapse" href="#RecordsSubmenu" role="button" aria-expanded="false" aria-controls="RecordsSubmenu">
-        <i class="fas fa-layer-group"></i>&nbsp; Records <i class="fas fa-caret-down float-right"></i>
-      </a>
-      <div class="collapse ml-3" id="RecordsSubmenu">
-        <ul class="nav flex-column">
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'user_list' %}">
-              <i class="fas fa-users"></i>&nbsp; Manage Users
-            </a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'existing_providers' %}">
-              <i class="fas fa-database"></i> Manage Providers
-            </a>
-          </li>
 
-             <li class="nav-item">
-      <a class="nav-link" href="{% url 'manage_installation_data' %}">
-        <i class="fas fa-pen-to-square"></i>&nbsp;Installation Data
-      </a>
+    <!-- ===================== RECORDS ===================== -->
+    <li class="nav-item mt-2">
+        <a class="nav-link" data-toggle="collapse" href="#RecordsSubmenu" role="button">
+            <i class="fas fa-folder-open"></i> Records 
+            <i class="fas fa-caret-down float-right"></i>
+        </a>
+
+        <div class="collapse ml-3" id="RecordsSubmenu">
+            <ul class="nav flex-column">
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'user_list' %}">
+                        <i class="fas fa-users"></i> Manage Users
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'existing_providers' %}">
+                        <i class="fas fa-handshake"></i> Manage Providers
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'manage_preventive_maintenance' %}">
+                        <i class="fas fa-toolbox"></i> Preventive Maintenance
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'manage_installation_data' %}">
+                        <i class="fas fa-database"></i> Installation Records
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'client_info' %}">
+                        <i class="fas fa-id-card"></i> Client Information
+                    </a>
+                </li>
+
+            </ul>
+        </div>
     </li>
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'client_info' %}">
-              <i class="fas fa-user-circle"></i>&nbsp; Client Info
-            </a>
-          </li>
 
 
-          
+    <!-- ===================== UPLOAD DATA ===================== -->
+    <li class="nav-item mt-2">
+        <a class="nav-link" data-toggle="collapse" href="#uploadSubmenu" role="button">
+            <i class="fas fa-upload"></i> Upload Data
+            <i class="fas fa-caret-down float-right"></i>
+        </a>
+
+        <div class="collapse ml-3" id="uploadSubmenu">
+            <ul class="nav flex-column">
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'upload_files' %}">
+                        <i class="fas fa-cloud-upload-alt"></i> Upload Generation & Breakdown
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'upload_preventive_maintenance' %}">
+                        <i class="fas fa-tools"></i> Upload PM Checkpoints
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'upload_dsm_data' %}">
+                        <i class="fas fa-wave-square"></i> Upload DSM Data
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'upload_installation_data' %}">
+                        <i class="fas fa-file-upload"></i> Upload Installation Summary
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+    </li>
 
 
-        </ul>
-      </div>
+    <!-- Modify Data -->
+    <li class="nav-item mt-2">
+        <a class="nav-link" href="{% url 'modify_data' %}">
+            <i class="fas fa-edit"></i> Modify Records
+        </a>
+    </li>
+
+
+    {% else %}
+
+    <!-- ===================== CUSTOMER AREA ===================== -->
+    <li class="nav-item mb-2">
+        <a class="nav-link bg-white text-dark text-center font-weight-bold" href="{% url 'dashboard' %}">
+            <i class="fas fa-user"></i> Customer Dashboard
+        </a>
     </li>
 
     <li class="nav-item">
-      <a class="nav-link" href="{% url 'upload_files' %}">
-        <i class="fas fa-upload"></i>&nbsp; Upload Data
-      </a>
+        <a class="nav-link" href="{% url 'wind_dashboard' %}">
+            <i class="fas fa-chart-line"></i> Interactive Dashboard
+        </a>
+    </li>
+
+    <li class="nav-item">
+        <a class="nav-link" href="{% url 'user_generation_info' %}">
+            <i class="fas fa-id-card"></i> Profile Information
+        </a>
+    </li>
+
+
+    <!-- Upload / Modify Gen Data -->
+    <li class="nav-item mt-2">
+        <a class="nav-link" data-toggle="collapse" href="#customerGen" role="button">
+            <i class="fas fa-bolt"></i> Generation Data
+            <i class="fas fa-caret-down float-right"></i>
+        </a>
+
+        <div class="collapse ml-3" id="customerGen">
+            <ul class="nav flex-column">
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'customer_upload' %}">
+                        <i class="fas fa-upload"></i> Upload Data
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'customer_upload' %}">
+                        <i class="fas fa-edit"></i> Modify Data
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+    </li>
+
+
+    <!-- PM Data -->
+    <!-- <li class="nav-item mt-2">
+        <a class="nav-link" data-toggle="collapse" href="#pmCustomer" role="button">
+            <i class="fas fa-tools"></i> PM Data
+            <i class="fas fa-caret-down float-right"></i>
+        </a>
+
+        <div class="collapse ml-3" id="pmCustomer">
+            <ul class="nav flex-column">
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'my_preventive_maintenance' %}">
+                        <i class="fas fa-database"></i> Manage PM Records
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link" href="{% url 'my_preventive_maintenance' %}">
+                        <i class="fas fa-edit"></i> Modify Data
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+    </li> -->
+    <li class="nav-item">
+ <a class="nav-link" href="{% url 'my_preventive_maintenance' %}">
+                        <i class="fas fa-database"></i> Manage PM Records
+                    </a>
     </li>
 
 
         <li class="nav-item">
-      <a class="nav-link" href="{% url 'upload_preventive_maintenance' %}">
-        <i class="fas fa-upload"></i>&nbsp; Upload P M Checkpoints
-      </a>
+ <a class="nav-link" href="{% url 'customer_upload_dsm' %}">
+                        <i class="fas fa-database"></i> Upload DSM Data
+                    </a>
     </li>
-
-
-    <li class="nav-item">
-      <a class="nav-link" href="{% url 'upload_installation_data' %}">
-        <i class="fas fa-file-upload"></i> &nbsp; Installation Summary
-      </a>
-    </li>
-    <li class="nav-item">
-      <a class="nav-link" href="{% url 'modify_data' %}">
-        <i class="fas fa-pen-to-square"></i>&nbsp; Modify Data
-      </a>
-    </li>
-     
-
-   
-
-    {% else %}
-    <li class="nav-item">
-      <a class="nav-link bg-white text-dark text-center" href="{% url 'dashboard' %}">
-        <i class="fas fa-tachometer-alt"></i> Customer Area
-      </a>
-    </li>
-    <li class="nav-item">
-      <a class="nav-link" href="{% url 'wind_dashboard' %}">
-        <i class="fas fa-chart-line"></i>&nbsp; Interactive Dashboard
-      </a>
-    </li>
-    <li class="nav-item">
-      <a class="nav-link" href="{% url 'user_generation_info' %}">
-        <i class="fas fa-user"></i>&nbsp; Profile Information
-      </a>
-    </li>
-
-     
-  <!-- Masters -->
-    <li class="nav-item">
-      <a class="nav-link" data-toggle="collapse" href="#mastersSubmenu" role="button" aria-expanded="false" aria-controls="mastersSubmenu">
-        <i class="fas fa-layer-group"></i>&nbsp; Genration Data  <i class="fas fa-caret-down float-right"></i>
-      </a>
-      <div class="collapse ml-3" id="mastersSubmenu">
-        <ul class="nav flex-column">
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'customer_upload' %}">
-              <i class="fas fa-bolt"></i> Uplode data
-            </a>
-          </li>
-                    <li class="nav-item">
-            <a class="nav-link" href="{% url 'customer_upload' %}">
-              <i class="fas fa-bolt"></i> Modify Data
-            </a>
-          </li>
- 
- 
-        </ul>
-      </div>
-    </li>
-
-      <!-- Masters -->
-    <li class="nav-item">
-      <a class="nav-link" data-toggle="collapse" href="#mastersSubmenuue" role="button" aria-expanded="false" aria-controls="mastersSubmenu">
-        <i class="fas fa-layer-group"></i>&nbsp; PM Data  <i class="fas fa-caret-down float-right"></i>
-      </a>
-      <div class="collapse ml-3" id="mastersSubmenuue">
-        <ul class="nav flex-column">
-          <li class="nav-item">
-            <a class="nav-link" href="{% url 'my_preventive_maintenance' %}">
-              <i class="fas fa-bolt"></i> Manage PM Records
-            </a>
-          </li>
-                    <li class="nav-item">
-            <a class="nav-link" href="{% url 'customer_upload' %}">
-              <i class="fas fa-bolt"></i> Modify Data
-            </a>
-          </li>
- 
- 
-        </ul>
-      </div>
-    </li>
- <!-- <li class="nav-item">
-      <a class="nav-link" href="{% url 'charge_master_list' %}">
-        <i class="fas fa-user"></i>&nbsp; Manage Open Access
-      </a>
-    </li> -->
     {% endif %}
 
     <!-- Logout -->
-    <li class="nav-item text-center mt-2">
-      <a href="#" class="btn btn-danger" data-toggle="modal" data-target="#logoutModal">
-        <i class="fas fa-sign-out-alt"></i> Logout
-      </a>
+    <li class="nav-item text-center mt-3">
+        <a href="#" class="btn btn-danger" data-toggle="modal" data-target="#logoutModal">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </a>
     </li>
-  </ul>
+
+</ul>
+
 </div>
 
 

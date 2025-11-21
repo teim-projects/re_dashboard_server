@@ -3,46 +3,103 @@
 {% load humanize %}
 
 {% block content %}
-<div class="container my-4">
+<div class="container my-4" style="margin-top: 80px !important;">
   
 
+<!-- FILTER BUTTONS + APPLIED FILTERS (NEW DESIGN) -->
+<div class="d-flex justify-content-between align-items-start w-100 mb-3  flex-wrap"  >
 
-<!-- Filter Buttons -->
-<div class="d-flex flex-wrap gap-2 mb-2"  style="margin-top: 90px;" >
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
-    <i class="fas fa-filter"></i> DATE RANGE
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
-    <i class="fas fa-filter"></i> OEM PROVIDER
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
-    <i class="fas fa-filter"></i> CUSTOMER
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
-    <i class="fas fa-filter"></i> STATE NAME
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
-    <i class="fas fa-filter"></i> SITE NAME
-  </button>
-  <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
-    <i class="fas fa-filter"></i> WTG NUMBER
-  </button>
-  <span>  <!-- Active filters chips -->
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <!-- LEFT FILTER BUTTONS -->
+    <div class="d-flex flex-wrap gap-2">
+
+        <button type="button" class="btn btn-light border rounded-pill px-3 py-1"
+                data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+            <i class="fa-solid fa-calendar-days text-primary"></i> Date
+        </button>
+
+        <button type="button" class="btn btn-light border rounded-pill px-3 py-1"
+                data-bs-toggle="modal" data-bs-target="#providerModal">
+            <i class="fa-solid fa-industry text-info"></i> OEM
+        </button>
+
+        <button type="button" class="btn btn-light border rounded-pill px-3 py-1"
+                data-bs-toggle="modal" data-bs-target="#customerModal">
+            <i class="fa-solid fa-user text-success"></i> Customer
+        </button>
+
+        <button type="button" class="btn btn-light border rounded-pill px-3 py-1"
+                data-bs-toggle="modal" data-bs-target="#stateModal">
+            <i class="fa-solid fa-map-location-dot text-warning"></i> State
+        </button>
+
+        <button type="button" class="btn btn-light border rounded-pill px-3 py-1"
+                data-bs-toggle="modal" data-bs-target="#siteModal">
+            <i class="fa-solid fa-map-pin text-danger"></i> Site
+        </button>
+
+        <button type="button" class="btn btn-light border rounded-pill px-3 py-1"
+                data-bs-toggle="modal" data-bs-target="#wtgModal">
+            <i class="fa-solid fa-bolt text-purple"></i> WTG
+        </button>
+
+    </div>
+
+    <!-- RIGHT SIDE: SMALL FILTER CHIPS -->
     {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
-      <span class="badge bg-secondary">Active filters:</span>
-      {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
-      {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
-      {% for x in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ x }}</span>{% endfor %}
-      {% for x in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ x }}</span>{% endfor %}
-      {% for x in selected_states %}<span class="badge bg-info text-dark">State: {{ x }}</span>{% endfor %}
-      {% for x in selected_sites %}<span class="badge bg-info text-dark">Site: {{ x }}</span>{% endfor %}
-      {% for x in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ x }}</span>{% endfor %}
-      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
-    {% endif %}
-  </div></span>
-</div>
+    <div class="d-flex flex-wrap gap-1 justify-content-end" style="max-width: 50%;">
 
+        {% if date_from and date_to %}
+        <span class="badge rounded-pill bg-primary-subtle text-primary small px-3 py-2 shadow-sm">
+            <i class="fa-solid fa-calendar"></i> {{ date_from }} → {{ date_to }}
+        </span>
+        {% endif %}
+
+        {% for p in selected_providers %}
+        <span class="badge rounded-pill bg-info-subtle text-info small px-3 py-2 shadow-sm">
+            <i class="fa-solid fa-industry"></i> {{ p }}
+        </span>
+        {% endfor %}
+
+        {% for c in selected_customers %}
+        <span class="badge rounded-pill bg-success-subtle text-success small px-3 py-2 shadow-sm">
+            <i class="fa-solid fa-user"></i> {{ c }}
+        </span>
+        {% endfor %}
+
+        {% for s in selected_states %}
+        <span class="badge rounded-pill bg-warning-subtle text-warning small px-3 py-2 shadow-sm">
+            <i class="fa-solid fa-location-dot"></i> {{ s }}
+        </span>
+        {% endfor %}
+
+        {% for s in selected_sites %}
+        <span class="badge rounded-pill bg-danger-subtle text-danger small px-3 py-2 shadow-sm">
+            <i class="fa-solid fa-map-pin"></i> {{ s }}
+        </span>
+        {% endfor %}
+
+        {% for w in selected_wtgs %}
+        <span class="badge rounded-pill bg-purple-subtle text-purple small px-3 py-2 shadow-sm">
+            <i class="fa-solid fa-bolt"></i> {{ w }}
+        </span>
+        {% endfor %}
+
+        <a href="?" class="badge rounded-pill bg-light border text-danger small px-3 py-2 shadow-sm">
+            Clear ✕
+        </a>
+
+    </div>
+    {% endif %}
+
+</div>
+<style>
+    .text-purple { color: #7b2cbf !important; }
+    .bg-purple-subtle { background: #f3e8ff !important; }
+
+    .badge {
+        font-size: 12px !important;
+    }
+</style>
   <!-- ========== Section 1: Generation Hours ========== -->
   <div class="row mb-5">
     <div class="col-md-8 mb-4">
