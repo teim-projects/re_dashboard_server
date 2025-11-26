@@ -9,7 +9,8 @@ urlpatterns = [
     path('customer/', include('customer_dashboard.urls')),
     path('solar/', include('solardashboard.urls')),
     path('account/', include('accounts.urls')),
-    path('core/',include('core.urls'))
+    path('core/',include('core.urls')),
+    path('open_access/',include('open_access.urls')),
 ]
 
 # Only add this in development

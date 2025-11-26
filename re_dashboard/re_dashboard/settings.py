@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'customer_dashboard',
     'solardashboard',
     'django.contrib.humanize',
+   'open_access',
     
 ]
 

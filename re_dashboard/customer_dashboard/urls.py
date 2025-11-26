@@ -25,21 +25,8 @@ urlpatterns = [
     path('wind_Grid_Availability/', cd_views.wind_Grid_Availability, name="wind_Grid_Availability"),
     path('wind_breakdown_hours/', cd_views.wind_breakdown_hours, name="wind_breakdown_hours"),
 
-    # Open Access calculator (local views)
-    path('open_access_calculator/', local_views.open_access_calculator, name="open_access_calculator"),
-    path('open-access-pdf/', local_views.open_access_pdf, name="open_access_pdf"),
-
-    # Charge Master CRUD (local views)
-    path('charge_master_list', local_views.charge_master_list, name='charge_master_list'),
-    path('charge-master/add/', local_views.charge_master_add, name='charge_master_add'),
-    path('charge-master/edit/<int:pk>/', local_views.charge_master_edit, name='charge_master_edit'),
-    path('charge-master/delete/<int:pk>/', local_views.charge_master_delete, name='charge_master_delete'),
-
-    path('open_access_history', cd_views.open_access_history, name='open_access_history'),
-    path('dashboard_breakdown', cd_views.dashboard_breakdown, name='dashboard_breakdown'),
-    path("open-access/delete/<int:calc_id>/", cd_views.delete_calculation, name="delete_calculation"),
-
-
+path('dashboard_breakdown', cd_views.dashboard_breakdown, name='dashboard_breakdown'),
+ 
 
 
     path('my_preventive_maintenance', cd_views.my_preventive_maintenance, name='my_preventive_maintenance'),

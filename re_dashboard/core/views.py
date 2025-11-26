@@ -1652,7 +1652,8 @@ from django.db import connection
 
 @login_required
 def user_generation_info(request):
-    user = request.user.username  # logged-in user
+    user = request.user.username.lower()
+  # logged-in user
     client_data = []
 
     with connection.cursor() as cursor:
@@ -1660,7 +1661,7 @@ def user_generation_info(request):
         all_tables = [row[0] for row in cursor.fetchall()]
 
     for table in all_tables:
-        if table.startswith(user + "_"):  # ✅ only take current user's tables
+        if table.startswith(f"{user}_"):  # ✅ only take current user's tables
             parts = table.split("_")
             if len(parts) >= 3:
                 provider_slug = "_".join(parts[1:-1])
