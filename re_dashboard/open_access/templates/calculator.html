@@ -96,6 +96,15 @@
 
             <h5 class="section-title">TOD Zones</h5>
             <div class="row g-2">
+
+<div class="col-6"><label>Zone A Units (00–06h)</label>
+<input type="number" name="tod_a_units" value="{{ input.tod_a_units }}"></div>
+
+<div class="col-6">
+  <label>Zone B Units (06–09h)</label>
+<input type="number" name="tod_b_units" value="{{ input.tod_b_units }}">
+</div>
+
               <div class="col-6">
                 <label class="form-label">Zone C Units (09–17h)</label>
                 <input type="number" step="0.01" name="tod_c_units"

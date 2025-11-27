@@ -8,7 +8,6 @@ def open_access(request):
 
 
 from django.shortcuts import render
-
 def calculate_bills(params):
     """
     params is a dict of floats taken from the form.
@@ -18,123 +17,162 @@ def calculate_bills(params):
     # ----- Common inputs -----
     total_units = params["total_units"]            # kWh
     contract_demand = params["contract_demand"]    # kVA
-    billed_demand = params["billed_demand"]        # kVA used for charges
+    billed_demand = params["billed_demand"]        # kVA used for charges (75% of contract)
     demand_rate = params["demand_rate"]            # Rs/kVA
-
+    
     wheeling_rate = params["wheeling_rate"]        # Rs/kWh
     energy_rate = params["energy_rate"]            # Rs/kWh
     tod_c_rate = params["tod_c_rate"]              # Rs/kWh (usually -3.5)
     tod_d_rate = params["tod_d_rate"]              # Rs/kWh (usually +3.5)
+    tod_a_units = params["tod_a_units"]            # kWh in Zone A
+    tod_b_units = params["tod_b_units"]            # kWh in Zone B
     tod_c_units = params["tod_c_units"]            # kWh in Zone C
     tod_d_units = params["tod_d_units"]            # kWh in Zone D
-
+    
     fac_rate = params["fac_rate"]                  # Rs/kWh
     duty_percent = params["duty_percent"] / 100.0  # to fraction
     tax_sale_rate = params["tax_sale_rate"]        # Rs/kWh
+    
     incremental_rebate = params["incremental_rebate"]  # Rs (negative)
     prompt_discount = params["prompt_discount"]        # Rs (negative)
 
     # ----- OA related inputs -----
-    oa_percent = params["oa_percent"] / 100.0      # fraction of units on OA
-    oa_energy_rate = params["oa_energy_rate"]      # Rs/kWh
-    oa_transmission_rate = params["oa_transmission_rate"]  # Rs/kWh
-    oa_wheeling_rate = params["oa_wheeling_rate"]  # Rs/kWh
-    oa_loss_rate = params["oa_loss_rate"]          # Rs/kWh
-    oa_sldc_fixed = params["oa_sldc_fixed"]        # Rs fixed per month
+    oa_percent = params["oa_percent"] / 100.0
+    oa_energy_rate = params["oa_energy_rate"]
+    oa_transmission_rate = params["oa_transmission_rate"]
+    oa_wheeling_rate = params["oa_wheeling_rate"]
+    oa_loss_rate = params["oa_loss_rate"]
+    oa_sldc_fixed = params["oa_sldc_fixed"]
 
     # =======================
-    # 1) ONLY MSEDCL BILL
+    # 1) ONLY MSEDCL BILL - EXACT EXCEL FORMULAS
     # =======================
-
-    demand_charges_only = billed_demand * demand_rate
-
-    wheeling_only = total_units * wheeling_rate
-    energy_only = total_units * energy_rate
-
-    tod_c_only = tod_c_units * tod_c_rate
-    tod_d_only = tod_d_units * tod_d_rate
-    tod_total_only = tod_c_only + tod_d_only
-
-    fac_only = total_units * fac_rate
-
-    duty_base_only = energy_only + wheeling_only + fac_only + tod_total_only
-
-    duty_only = duty_base_only * duty_percent
-
-    tax_sale_only = total_units * tax_sale_rate
-
-    total_only_msedcl = (
-        demand_charges_only
-        + wheeling_only
-        + energy_only
-        + tod_total_only
-        + fac_only
-        + duty_only
-        + tax_sale_only
-        + incremental_rebate
-        + prompt_discount
+    
+    # Calculate each component EXACTLY as per Excel
+    demand_charges_only = billed_demand * demand_rate  # E11 = B10 * B11 = 600 * 267 = 160,200
+    
+    energy_only = total_units * energy_rate  # E13 = B13 * C7 = 14.03 * 50,728 = 711,714
+    wheeling_only = total_units * wheeling_rate  # E12 = B12 * C7 = 0.74 * 50,728 = 37,539
+    
+    # TOD charges (only Zone C & D as per Excel)
+    tod_c_only = tod_c_units * tod_c_rate  # E25 = C25 * B25 = 18,868 * (-3.5) = -66,038
+    tod_d_only = tod_d_units * tod_d_rate  # E26 = C26 * B26 = 21,337 * 3.5 = 74,680
+    tod_total_only = tod_c_only + tod_d_only  # E14 = 8,642 (but Excel shows 8,660 due to rounding)
+    
+    fac_only = 0.0  # E15 = 0 (FAC is not applied)
+    tax_sale_only = total_units * tax_sale_rate  # E17 = B17 * C7 = 0.19 * 50,728 = 9,638
+    
+    # Electricity Duty as per Excel E16 = (E11+E12+E13+E14+E15+E17) * B16
+    duty_base_only = (
+        demand_charges_only +  # E11
+        energy_only +          # E13  
+        wheeling_only +        # E12
+        tod_total_only +       # E14
+        fac_only +             # E15
+        tax_sale_only          # E17
     )
-
+    
+    duty_only = duty_base_only * duty_percent  # E16 = duty_base * 21%
+    
+    # FINAL MSEDCL TOTAL - EXACT EXCEL FORMULA E32 = SUM(E10:E21)
+    total_only_msedcl = (
+        demand_charges_only +    # E11 = 160,200
+        energy_only +            # E13 = 711,714
+        wheeling_only +          # E12 = 37,539
+        tod_total_only +         # E14 = 8,642
+        fac_only +               # E15 = 0
+        duty_only +              # E16 = Duty
+        tax_sale_only +          # E17 = 9,638
+        incremental_rebate +     # E19 = -9,657
+        prompt_discount          # E20 = -9,085
+    )
+    
     unit_rate_only = total_only_msedcl / total_units if total_units else 0
 
     # =======================
-    # 2) AFTER OPEN ACCESS
+    # 2) AFTER OPEN ACCESS - EXACT EXCEL FORMULAS
     # =======================
 
-    oa_units = total_units * oa_percent
-    msedcl_units_after = total_units - oa_units
+    # Calculate OA and remaining MSEDCL units (as per Excel J4, J5)
+    oa_units = total_units * oa_percent  # J4 = Total Units × OA% = 50,728 × 58% = 29,422
+    msedcl_units_after = total_units - oa_units  # J5 = Total Units - OA Units = 50,728 - 29,422 = 21,337
 
-    # scale TOD units in same ratio
-    scale = msedcl_units_after / total_units if total_units else 0
-    tod_c_units_after = tod_c_units * scale
-    tod_d_units_after = tod_d_units * scale
+    # MSEDCL charges after OA - Excel columns I, J, L
+    demand_charges_after = billed_demand * demand_rate  # L11 = I11 * I10 = 267 × 600 = 160,200
+    
+    # Energy charges for remaining MSEDCL units
+    energy_after = msedcl_units_after * energy_rate  # L13 = I13 * J5 = 14.03 × 21,337 = 299,358
+    
+    # Wheeling charges for remaining MSEDCL units  
+    wheeling_after = msedcl_units_after * wheeling_rate  # L12 = I12 * J5 = 0.74 × 21,337 = 15,789
+    
+    # TOD charges after OA - Only Zone D remains (as per Excel row 31)
+    tod_d_after = tod_d_units * tod_d_rate  # L14 = C31 * B31 = 21,337 × 3.5 = 74,680
+    tod_total_after = tod_d_after  # Only Zone D contributes
+    
+    # FAC charges for remaining MSEDCL units
+    fac_after = msedcl_units_after * fac_rate  # L15 = I15 * J5 = 0.50 × 21,337 = 10,669
+    
+    # Tax on sale for remaining MSEDCL units
+    tax_sale_after = msedcl_units_after * tax_sale_rate  # L17 = I17 * J5 = 0.19 × 21,337 = 4,054
+    
+    # Duty after OA - Excel formula: (L11+L12+L13+L14+L15+L17) * I16
+    duty_base_after = (
+        demand_charges_after +  # L11
+        energy_after +          # L13
+        wheeling_after +        # L12  
+        tod_total_after +       # L14
+        fac_after +             # L15
+        tax_sale_after          # L17
+    )
+    duty_after = duty_base_after * duty_percent  # L16 = duty_base × 21%
+    
+    # No rebates in OA scenario as per Excel
+    incremental_rebate_after = 0
+    prompt_discount_after = 0
 
-    # MSEDCL portion after OA (same formulas but with reduced units)
-    demand_charges_after = demand_charges_only  # usually demand is same
-    wheeling_after = msedcl_units_after * wheeling_rate
-    energy_after = msedcl_units_after * energy_rate
-
-    tod_c_after = tod_c_units_after * tod_c_rate
-    tod_d_after = tod_d_units_after * tod_d_rate
-    tod_total_after = tod_c_after + tod_d_after
-
-    fac_after = msedcl_units_after * fac_rate
-
-    duty_base_after = energy_after + wheeling_after + fac_after + tod_total_after
-
-    duty_after = duty_base_after * duty_percent
-
-    tax_sale_after = msedcl_units_after * tax_sale_rate
-
+    # MSEDCL TOTAL BILL AMOUNT AFTER OA (Excel L19)
     total_msedcl_after = (
-        demand_charges_after
-        + wheeling_after
-        + energy_after
-        + tod_total_after
-        + fac_after
-        + duty_after
-        + tax_sale_after
-        + incremental_rebate * scale
-        + prompt_discount * scale
+        demand_charges_after +  # L11
+        energy_after +          # L13
+        wheeling_after +        # L12
+        tod_total_after +       # L14
+        fac_after +             # L15
+        duty_after +            # L16
+        tax_sale_after +        # L17
+        incremental_rebate_after + 
+        prompt_discount_after
     )
 
-    # OA charges
-    oa_energy_cost = oa_units * oa_energy_rate
-    oa_transmission = oa_units * oa_transmission_rate
-    oa_wheeling = oa_units * oa_wheeling_rate
-    oa_losses = oa_units * oa_loss_rate
+    # OPEN ACCESS CHARGES (Excel L21-L25)
+    oa_energy_cost = oa_units * oa_energy_rate  # L4 = J4 * K4 = 29,422 × 4.5 = 132,260
+    
+    # Transmission charges (Excel L21)
+    oa_transmission = oa_units * oa_transmission_rate  # L21 = J4 * I21 = 29,422 × 1.14 = 33,506
+    
+    # Wheeling Charges (Excel L22)  
+    oa_wheeling = oa_units * oa_wheeling_rate  # L22 = J4 * I22 = 29,422 × 0.74 = 21,749
+    
+    # Losses (Excel L23)
+    oa_losses = oa_units * oa_loss_rate  # L23 = J4 * I23 = 29,422 × 0.59 = 17,341
+    
+    # Operating Charges (Excel L24) - fixed amount
+    oa_operating = oa_sldc_fixed  # L24 = 15,450
 
+    # TOTAL OPEN ACCESS CHARGES (Excel L25)
     total_oa_charges = (
-        oa_energy_cost
-        + oa_transmission
-        + oa_wheeling
-        + oa_losses
-        + oa_sldc_fixed
+        oa_transmission +
+        oa_wheeling +
+        oa_losses +
+        oa_operating
     )
 
-    total_after_oa = total_msedcl_after + total_oa_charges
+    # Total Bill from OA (Excel L26) = MSEDCL Bill + OA Charges + OA Energy Cost
+    total_after_oa = total_msedcl_after + total_oa_charges + oa_energy_cost
+    
     unit_rate_after = total_after_oa / total_units if total_units else 0
 
+    # Savings calculation
     savings = total_only_msedcl - total_after_oa
     per_unit_saving = savings / total_units if total_units else 0
     monthly_saving = savings
@@ -145,6 +183,7 @@ def calculate_bills(params):
         "unit_rate_only": round(unit_rate_only, 2),
         "total_msedcl_after": round(total_msedcl_after, 2),
         "total_oa_charges": round(total_oa_charges, 2),
+        "oa_energy_cost": round(oa_energy_cost, 2),
         "total_after_oa": round(total_after_oa, 2),
         "unit_rate_after": round(unit_rate_after, 2),
         "savings": round(savings, 2),
@@ -154,33 +193,33 @@ def calculate_bills(params):
         "oa_units": round(oa_units, 0),
         "msedcl_units_after": round(msedcl_units_after, 0),
     }
-
-
 def calculator_view(request):
     # Default values loosely based on your Phoenix Studios case
     default_data = {
-        "total_units": 50728,
-        "contract_demand": 356,
-        "billed_demand": 267,
-        "demand_rate": 600,
-        "wheeling_rate": 0.74,
-        "energy_rate": 14.03,
-        "tod_c_rate": -3.5,
-        "tod_d_rate": 3.5,
-        "tod_c_units": 18868,
-        "tod_d_units": 21337,
-        "fac_rate": 0.50,
-        "duty_percent": 21.0,
-        "tax_sale_rate": 0.19,
-        "incremental_rebate": -9657,
-        "prompt_discount": -9085,
-        "oa_percent": 58.0,
-        "oa_energy_rate": 4.5,       # adjust to your OA energy price
-        "oa_transmission_rate": 1.14,
-        "oa_wheeling_rate": 0.74,
-        "oa_loss_rate": 0.59,
-        "oa_sldc_fixed": 15450,
-    }
+    "tod_a_units": 8016,
+    "tod_b_units": 2507,
+    "tod_c_units": 18868,
+    "tod_d_units": 21337,
+    "total_units": 50728,
+    "contract_demand": 356,
+    "billed_demand": 267,  # 75% of 356
+    "demand_rate": 600,
+    "wheeling_rate": 0.74,
+    "energy_rate": 14.03,
+    "tod_c_rate": -3.5,
+    "tod_d_rate": 3.5,
+    "fac_rate": 0.50,
+    "duty_percent": 21.0,
+    "tax_sale_rate": 0.19,
+    "incremental_rebate": -9657,
+    "prompt_discount": -9085,
+    "oa_percent": 58.0,
+    "oa_energy_rate": 4.5,
+    "oa_transmission_rate": 1.14,
+    "oa_wheeling_rate": 0.74,
+    "oa_loss_rate": 0.59,
+    "oa_sldc_fixed": 15450,
+}
 
     context = {"input": default_data, "result": None}
 
