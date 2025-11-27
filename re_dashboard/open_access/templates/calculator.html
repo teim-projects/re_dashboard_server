@@ -1,260 +1,467 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Open Access vs MSEDCL Calculator</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-  />
-  <style>
-    body { background: #f5f7fb; }
-    .card { border-radius: 1rem; }
-    .section-title { font-weight: 600; margin-top: 1rem; }
-    .result-number { font-size: 1.4rem; font-weight: 700; }
-    .badge-pill { border-radius: 2rem; }
-  </style>
-</head>
-<body>
-<div class="container py-4">
-  <h2 class="mb-3 text-center">MSEDCL vs Open Access Savings Calculator</h2>
-  <p class="text-center text-muted mb-4">
-    Enter your tariff parameters (similar to your Excel sheet) and compare
-    <strong>only MSEDCL</strong> vs <strong>MSEDCL + Open Access</strong>.
-  </p>
+{% extends 'base.html' %}
+{% load static %}
 
-  <form method="post" class="mb-4">
-    {% csrf_token %}
+{% block content %}
 
-    <div class="row g-3">
-      <!-- Left column: basic & MSEDCL inputs -->
-      <div class="col-lg-6">
-        <div class="card shadow-sm mb-3">
-          <div class="card-body">
-            <h5 class="section-title">Basic Inputs</h5>
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label">Total Units (kWh)</label>
-                <input type="number" step="0.01" name="total_units"
-                       class="form-control"
-                       value="{{ input.total_units }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Contract Demand (kVA)</label>
-                <input type="number" step="0.01" name="contract_demand"
-                       class="form-control"
-                       value="{{ input.contract_demand }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Billed Demand (kVA)</label>
-                <input type="number" step="0.01" name="billed_demand"
-                       class="form-control"
-                       value="{{ input.billed_demand }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Demand Rate (Rs/kVA)</label>
-                <input type="number" step="0.01" name="demand_rate"
-                       class="form-control"
-                       value="{{ input.demand_rate }}">
-              </div>
-            </div>
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 
-            <h5 class="section-title">MSEDCL Energy & Charges</h5>
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label">Wheeling Rate (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="wheeling_rate"
-                       class="form-control"
-                       value="{{ input.wheeling_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Energy Rate (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="energy_rate"
-                       class="form-control"
-                       value="{{ input.energy_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">FAC Rate (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="fac_rate"
-                       class="form-control"
-                       value="{{ input.fac_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Duty %</label>
-                <input type="number" step="0.01" name="duty_percent"
-                       class="form-control"
-                       value="{{ input.duty_percent }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Tax on Sale (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="tax_sale_rate"
-                       class="form-control"
-                       value="{{ input.tax_sale_rate }}">
-              </div>
-            </div>
+<style>
+    :root {
+        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        --success-gradient: linear-gradient(135deg, #2af598 0%, #009efd 100%);
+        --card-bg: #ffffff;
+        --input-bg: #f8f9fa;
+        --text-main: #2d3748;
+        --shadow-soft: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        --shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
 
-            <h5 class="section-title">TOD Zones</h5>
-            <div class="row g-2">
+    body {
+        font-family: 'Poppins', sans-serif;
+        background-color: #f0f2f5; /* Softer background */
+        color: var(--text-main);
+    }
 
-<div class="col-6"><label>Zone A Units (00–06h)</label>
-<input type="number" name="tod_a_units" value="{{ input.tod_a_units }}"></div>
+    /* --- Container & Card Styling --- */
+    .main-card {
+        background: var(--card-bg);
+        border-radius: 20px;
+        box-shadow: var(--shadow-soft);
+        padding: 40px;
+        margin-top: 10px;
+        margin-bottom: 50px;
+        animation: fadeInDown 0.8s ease-out;
+        border: none;
+    }
 
-<div class="col-6">
-  <label>Zone B Units (06–09h)</label>
-<input type="number" name="tod_b_units" value="{{ input.tod_b_units }}">
-</div>
+    h3 {
+        font-weight: 700;
+        color: #4a5568;
+        letter-spacing: -0.5px;
+    }
 
-              <div class="col-6">
-                <label class="form-label">Zone C Units (09–17h)</label>
-                <input type="number" step="0.01" name="tod_c_units"
-                       class="form-control"
-                       value="{{ input.tod_c_units }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Zone C Rate (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="tod_c_rate"
-                       class="form-control"
-                       value="{{ input.tod_c_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Zone D Units (17–24h)</label>
-                <input type="number" step="0.01" name="tod_d_units"
-                       class="form-control"
-                       value="{{ input.tod_d_units }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Zone D Rate (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="tod_d_rate"
-                       class="form-control"
-                       value="{{ input.tod_d_rate }}">
-              </div>
-            </div>
+    h5 {
+        font-weight: 600;
+        color: #718096;
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 15px;
+        border-left: 4px solid #764ba2;
+        padding-left: 10px;
+    }
 
-            <h5 class="section-title">Rebates</h5>
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label">Incremental Rebate (Rs)</label>
-                <input type="number" step="0.01" name="incremental_rebate"
-                       class="form-control"
-                       value="{{ input.incremental_rebate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">Prompt Payment Discount (Rs)</label>
-                <input type="number" step="0.01" name="prompt_discount"
-                       class="form-control"
-                       value="{{ input.prompt_discount }}">
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+    /* --- Custom Tabs --- */
+    .nav-tabs {
+        border-bottom: none;
+        justify-content: center;
+        margin-bottom: 30px;
+    }
+    .nav-tabs .nav-link {
+        border: none;
+        border-radius: 50px;
+        padding: 10px 30px;
+        font-weight: 600;
+        color: #718096;
+        transition: all 0.3s ease;
+        background: transparent;
+        margin: 0 5px;
+    }
+    .nav-tabs .nav-link:hover {
+        background: #e2e8f0;
+        transform: translateY(-2px);
+    }
+    .nav-tabs .nav-link.active {
+        background: var(--primary-gradient);
+        color: white;
+        box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
+        transform: translateY(-2px);
+    }
 
-      <!-- Right column: OA inputs & button -->
-      <div class="col-lg-6">
-        <div class="card shadow-sm mb-3">
-          <div class="card-body">
-            <h5 class="section-title">Open Access Inputs</h5>
-            <div class="row g-2">
-              <div class="col-6">
-                <label class="form-label">OA Share (%)</label>
-                <input type="number" step="0.01" name="oa_percent"
-                       class="form-control"
-                       value="{{ input.oa_percent }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">OA Energy Rate (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="oa_energy_rate"
-                       class="form-control"
-                       value="{{ input.oa_energy_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">OA Transmission (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="oa_transmission_rate"
-                       class="form-control"
-                       value="{{ input.oa_transmission_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">OA Wheeling (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="oa_wheeling_rate"
-                       class="form-control"
-                       value="{{ input.oa_wheeling_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">OA Loss Rate (Rs/kWh)</label>
-                <input type="number" step="0.0001" name="oa_loss_rate"
-                       class="form-control"
-                       value="{{ input.oa_loss_rate }}">
-              </div>
-              <div class="col-6">
-                <label class="form-label">SLDC Fixed (Rs)</label>
-                <input type="number" step="0.01" name="oa_sldc_fixed"
-                       class="form-control"
-                       value="{{ input.oa_sldc_fixed }}">
-              </div>
-            </div>
+    /* --- Inputs --- */
+    label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #4a5568;
+        margin-bottom: 5px;
+    }
 
-            <div class="mt-4 d-grid">
-              <button type="submit" class="btn btn-primary btn-lg">
-                Calculate Savings
-              </button>
-            </div>
-          </div>
-        </div>
+    .form-control {
+        background-color: var(--input-bg);
+        border: 2px solid transparent;
+        border-radius: 12px;
+        height: 50px;
+        font-weight: 500;
+        color: #2d3748;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+    }
 
-        {% if result %}
-        <div class="card shadow-sm">
-          <div class="card-body">
-            <h5 class="section-title">Results</h5>
-            <div class="row g-3">
-              <div class="col-md-6">
-                <div class="p-3 bg-light rounded">
-                  <div class="text-muted small">Only MSEDCL Bill</div>
-                  <div class="result-number">₹ {{ result.total_only_msedcl }}</div>
-                  <div class="small">Unit rate: ₹ {{ result.unit_rate_only }} / kWh</div>
+    .form-control:hover {
+        background-color: #fff;
+        border-color: #e2e8f0;
+        transform: translateY(-2px);
+    }
+
+    .form-control:focus {
+        background-color: #fff;
+        border-color: #764ba2;
+        box-shadow: 0 0 0 4px rgba(118, 75, 162, 0.1);
+        transform: translateY(-2px);
+    }
+
+    /* --- Buttons --- */
+    .btn-next {
+        background: var(--primary-gradient);
+        border: none;
+        border-radius: 12px;
+        padding: 12px 40px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
+        transition: all 0.3s ease;
+    }
+    .btn-next:hover {
+        transform: translateY(-3px) scale(1.02);
+        box-shadow: 0 8px 25px rgba(118, 75, 162, 0.4);
+    }
+
+    .btn-calc {
+        background: var(--success-gradient);
+        border: none;
+        border-radius: 50px;
+        padding: 12px 50px;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: white;
+        box-shadow: 0 4px 15px rgba(0, 158, 253, 0.3);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+    .btn-calc:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 10px 25px rgba(0, 158, 253, 0.4);
+        color: white;
+    }
+    .btn-calc:active {
+        transform: scale(0.95);
+    }
+
+    /* --- Results Section --- */
+    .result-card {
+        background: #f8fbff;
+        border-radius: 15px;
+        padding: 20px;
+        border-left: 6px solid #4facfe;
+        transition: all 0.4s ease;
+        position: relative;
+        overflow: hidden;
+        height: 100%;
+        cursor: default;
+    }
+    .result-card:hover {
+        background: #ffffff;
+        transform: translateY(-5px);
+        box-shadow: var(--shadow-hover);
+        border-left-width: 10px;
+    }
+    .result-title {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #718096;
+        margin-bottom: 5px;
+    }
+    .result-value {
+        font-size: 1.6rem;
+        font-weight: 700;
+        background: -webkit-linear-gradient(#2d3748, #4a5568);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* --- Savings Box (The Hero) --- */
+    .saving-box {
+        background: var(--success-gradient);
+        border-radius: 20px;
+        padding: 30px;
+        color: white;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(42, 245, 152, 0.4);
+        animation: pulse-green 3s infinite;
+    }
+    .saving-value {
+        font-size: 2.5rem;
+        font-weight: 800;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .saving-sub {
+        font-size: 1rem;
+        background: rgba(255,255,255,0.2);
+        display: inline-block;
+        padding: 5px 15px;
+        border-radius: 20px;
+        margin-top: 10px;
+        backdrop-filter: blur(5px);
+    }
+
+    /* --- Animations --- */
+    @keyframes fadeInDown {
+        from { opacity: 0; transform: translateY(-30px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pulse-green {
+        0% { box-shadow: 0 0 0 0 rgba(42, 245, 152, 0.7); }
+        70% { box-shadow: 0 0 0 15px rgba(42, 245, 152, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(42, 245, 152, 0); }
+    }
+
+    .animate-entry {
+        animation: fadeInUp 0.6s ease-out forwards;
+        opacity: 0; /* Start hidden */
+    }
+    .delay-1 { animation-delay: 0.1s; }
+    .delay-2 { animation-delay: 0.2s; }
+    .delay-3 { animation-delay: 0.3s; }
+
+    /* Custom Input Wrapper for Icons */
+    .input-wrapper {
+        position: relative;
+    }
+    .input-icon {
+        position: absolute;
+        right: 15px;
+        top: 40px; /* Adjust based on label height */
+        color: #a0aec0;
+        pointer-events: none;
+    }
+</style>
+
+<div class="container">
+    <div class="main-card">
+        
+        <!-- <div class="text-center mb-5">
+            <h3><i class="fas fa-bolt text-warning mr-2"></i> MSEDCL vs OA Calculator</h3>
+            <p class="text-muted">Compare costs and visualize your savings instantly.</p>
+        </div> -->
+
+        <form method="post"  class="mt-2">
+            {% csrf_token %}
+
+            <ul class="nav nav-tabs " id="calcTabs" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active" id="tab1-btn" data-toggle="tab" href="#tab1">
+                        <i class="fas fa-file-invoice mr-2"></i> Current Inputs
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="tab2-btn" data-toggle="tab" href="#tab2">
+                        <i class="fas fa-chart-line mr-2"></i> OA & Results
+                    </a>
+                </li>
+            </ul>
+
+            <div class="tab-content">
+
+                <div class="tab-pane fade show active" id="tab1">
+                    
+                    <div class="animate-entry delay-1">
+                        <h5 class="mt-3">Basic Parameters</h5>
+                        <div class="form-row">
+                            <div class="col-md-3 mb-3">
+                                <label>Total Units (kWh)</label>
+                                <input class="form-control" type="number" name="total_units" value="{{ input.total_units }}" placeholder="e.g. 10000">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label>Contract Demand (kVA)</label>
+                                <input class="form-control" type="number" name="contract_demand" value="{{ input.contract_demand }}">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label>Billed Demand (kVA)</label>
+                                <input class="form-control" type="number" name="billed_demand" value="{{ input.billed_demand }}">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label>Demand Rate (₹)</label>
+                                <input class="form-control" type="number" name="demand_rate" value="{{ input.demand_rate }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="animate-entry delay-2">
+                        <h5 class="mt-4">MSEDCL Rates</h5>
+                        <div class="form-row">
+                            <div class="col-md-3 mb-3">
+                                <label>Wheeling Rate</label>
+                                <input class="form-control" type="number" step="0.01" name="wheeling_rate" value="{{ input.wheeling_rate }}">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label>Energy Rate</label>
+                                <input class="form-control" type="number" step="0.01" name="energy_rate" value="{{ input.energy_rate }}">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label>FAC Rate</label>
+                                <input class="form-control" type="number" step="0.01" name="fac_rate" value="{{ input.fac_rate }}">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label>Electricity Duty (%)</label>
+                                <input class="form-control" type="number" step="0.01" name="duty_percent" value="{{ input.duty_percent }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="animate-entry delay-3">
+                        <h5 class="mt-4">TOD (Time of Day) Zones</h5>
+                        <div class="form-row mb-2">
+                            <div class="col-md-3 mb-3"><label>Zone A Units</label><input class="form-control" type="number" name="tod_a_units" value="{{ input.tod_a_units }}"></div>
+                            <div class="col-md-3 mb-3"><label>Zone A Rate</label><input class="form-control" type="number" step="0.01" name="tod_a_rate" value="{{ input.tod_a_rate }}"></div>
+                            <div class="col-md-3 mb-3"><label>Zone B Units</label><input class="form-control" type="number" name="tod_b_units" value="{{ input.tod_b_units }}"></div>
+                            <div class="col-md-3 mb-3"><label>Zone B Rate</label><input class="form-control" type="number" step="0.01" name="tod_b_rate" value="{{ input.tod_b_rate }}"></div>
+                        </div>
+                        <div class="form-row mb-3">
+                            <div class="col-md-3 mb-3"><label>Zone C Units</label><input class="form-control" type="number" name="tod_c_units" value="{{ input.tod_c_units }}"></div>
+                            <div class="col-md-3 mb-3"><label>Zone C Rate</label><input class="form-control" type="number" step="0.01" name="tod_c_rate" value="{{ input.tod_c_rate }}"></div>
+                            <div class="col-md-3 mb-3"><label>Zone D Units</label><input class="form-control" type="number" name="tod_d_units" value="{{ input.tod_d_units }}"></div>
+                            <div class="col-md-3 mb-3"><label>Zone D Rate</label><input class="form-control" type="number" step="0.01" name="tod_d_rate" value="{{ input.tod_d_rate }}"></div>
+                        </div>
+                    </div>
+
+                    <div class="animate-entry delay-3">
+                         <h5 class="mt-4">Rebates</h5>
+                         <div class="form-row">
+                             <div class="col-md-3 mb-3"><label>Incremental Rebate</label><input class="form-control" type="number" name="incremental_rebate" value="{{ input.incremental_rebate }}"></div>
+                             <div class="col-md-3 mb-3"><label>Prompt Discount</label><input class="form-control" type="number" name="prompt_discount" value="{{ input.prompt_discount }}"></div>
+                         </div>
+                    </div>
+
+                    <div class="mt-5 text-right">
+                        <button type="button" id="nextBtn" class="btn btn-primary btn-next text-white">
+                            Next Step <i class="fas fa-arrow-right ml-2"></i>
+                        </button>
+                    </div>
+
                 </div>
-              </div>
-              <div class="col-md-6">
-                <div class="p-3 bg-light rounded">
-                  <div class="text-muted small">After Open Access</div>
-                  <div class="result-number">₹ {{ result.total_after_oa }}</div>
-                  <div class="small">Unit rate: ₹ {{ result.unit_rate_after }} / kWh</div>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="p-3 bg-light rounded">
-                  <div class="text-muted small">Total OA Charges</div>
-                  <div class="result-number">₹ {{ result.total_oa_charges }}</div>
-                  <div class="small">OA Units: {{ result.oa_units }} kWh</div>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <div class="p-3 bg-light rounded">
-                  <div class="text-muted small">MSEDCL Energy After OA</div>
-                  <div class="result-number">₹ {{ result.total_msedcl_after }}</div>
-                  <div class="small">Units: {{ result.msedcl_units_after }} kWh</div>
-                </div>
-              </div>
-              <div class="col-12">
-                <div class="p-3 bg-success text-white rounded">
-                  <div class="text-uppercase small">Savings</div>
-                  <div class="result-number">₹ {{ result.savings }}</div>
-                  <div class="small">
-                    Per unit saving: ₹ {{ result.per_unit_saving }} / kWh<br>
-                    Monthly saving: ₹ {{ result.monthly_saving }}<br>
-                    Yearly saving: ₹ {{ result.yearly_saving }}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        {% endif %}
 
-      </div>
+                <div class="tab-pane fade" id="tab2">
+
+                    <h5 class="mt-3">Open Access Configuration</h5>
+
+                    <div class="form-row">
+                        <div class="col-md-4 mb-4">
+                            <label>OA Share %</label>
+                            <input type="number" class="form-control" name="oa_percent" value="{{ input.oa_percent }}">
+                        </div>
+                        <div class="col-md-4 mb-4">
+                            <label>OA Energy Rate (₹/kWh)</label>
+                            <input type="number" step="0.01" class="form-control" name="oa_energy_rate" value="{{ input.oa_energy_rate }}">
+                        </div>
+                        <div class="col-md-4 mb-4">
+                            <label>Transmission Rate</label>
+                            <input type="number" step="0.01" class="form-control" name="oa_transmission_rate" value="{{ input.oa_transmission_rate }}">
+                        </div>
+                        <div class="col-md-4 mb-4">
+                            <label>Wheeling Rate</label>
+                            <input type="number" step="0.01" class="form-control" name="oa_wheeling_rate" value="{{ input.oa_wheeling_rate }}">
+                        </div>
+                        <div class="col-md-4 mb-4">
+                            <label>Loss Rate (%)</label>
+                            <input type="number" step="0.01" class="form-control" name="oa_loss_rate" value="{{ input.oa_loss_rate }}">
+                        </div>
+                        <div class="col-md-4 mb-4">
+                            <label>SLDC Fixed Charges</label>
+                            <input type="number" class="form-control" name="oa_sldc_fixed" value="{{ input.oa_sldc_fixed }}">
+                        </div>
+                    </div>
+
+                    <div class="mt-4 mb-5 text-center">
+                        <button type="submit" class="btn btn-calc">
+                            <i class="fas fa-calculator mr-2"></i> Calculate Savings
+                        </button>
+                    </div>
+
+                    {% if result %}
+                    <hr class="my-5" style="border-top: 2px dashed #e2e8f0;">
+
+                    <h5 class="text-center mb-4">Calculation Results</h5>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-4 animate-entry delay-1">
+                            <div class="result-card">
+                                <div class="result-title"><i class="fas fa-building mr-1"></i> Current MSEDCL Bill</div>
+                                <div class="result-value">₹ {{ result.total_only_msedcl }}</div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-4 animate-entry delay-1">
+                            <div class="result-card" style="border-left-color: #2ecc71;">
+                                <div class="result-title"><i class="fas fa-check-circle mr-1"></i> Bill After OA</div>
+                                <div class="result-value">₹ {{ result.total_after_oa }}</div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-4 animate-entry delay-2">
+                            <div class="result-card" style="border-left-color: #9b59b6;">
+                                <div class="result-title"><i class="fas fa-bolt mr-1"></i> OA Charges</div>
+                                <div class="result-value">₹ {{ result.total_oa_charges }}</div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6 mb-4 animate-entry delay-2">
+                            <div class="result-card" style="border-left-color: #f1c40f;">
+                                <div class="result-title"><i class="fas fa-file-contract mr-1"></i> MSEDCL Balance</div>
+                                <div class="result-value">₹ {{ result.total_msedcl_after }}</div>
+                            </div>
+                        </div>
+
+                        <div class="col-12 mt-2 animate-entry delay-3">
+                            <div class="saving-box">
+                                <div style="font-size: 1.1rem; opacity: 0.9;">TOTAL SAVINGS</div>
+                                <div class="saving-value">₹ {{ result.savings }}</div>
+                                <div class="saving-sub">
+                                    <i class="fas fa-calendar-alt mr-1"></i> Monthly: ₹ {{ result.monthly_saving }} 
+                                    <span class="mx-2">|</span> 
+                                    <i class="fas fa-calendar-check mr-1"></i> Yearly: ₹ {{ result.yearly_saving }}
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    {% endif %}
+
+                </div>
+            </div>
+
+        </form>
     </div>
-  </form>
 </div>
 
-</body>
-</html>
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+<script>
+    // Smooth scroll to top when next button is clicked (optional UX improvement)
+    $("#nextBtn").click(function () {
+        $('#tab2-btn').tab('show');
+        $('html, body').animate({
+            scrollTop: $(".main-card").offset().top
+        }, 500);
+    });
+
+    // Re-trigger animations on tab switch if desired
+    $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+        // Logic to reset animation classes could go here if you want them to replay
+    });
+</script>
+
+{% endblock %}
