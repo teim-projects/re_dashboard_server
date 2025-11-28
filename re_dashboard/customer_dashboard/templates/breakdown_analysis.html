@@ -179,6 +179,30 @@ document.addEventListener("DOMContentLoaded", function () {
  
    <!-- ALERTS -->
 <h3 class="fw-bold mb-3 alerts-title text-center">Recent Alerts</h3>
+<script>
+function sendBreakdownEmail() {
+    fetch("/customer/email_breakdown_alerts/", {
+        method: "POST",
+        headers: {
+            "X-CSRFToken": "{{ csrf_token }}"
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === "success") {
+            alert("Email Sent Successfully!");
+        } else {
+            alert("Error: " + data.message);
+        }
+    });
+}
+</script>
+
+<div class="text-end mt-2 mb-2">
+    <button onclick="sendBreakdownEmail()" class="btn btn-success px-4 py-2">
+        <i class="fa fa-envelope"></i> Email These Alerts
+    </button>
+</div>
 
 <div class="row g-4" id="alertsContainer">
 

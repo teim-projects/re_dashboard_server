@@ -34,6 +34,7 @@ path('dashboard_breakdown', cd_views.dashboard_breakdown, name='dashboard_breakd
     path('user_pm_report_dashboard', cd_views.user_pm_report_dashboard, name='user_pm_report_dashboard'),
     path("breakdown_analysis", cd_views.breakdown_analysis, name="breakdown_analysis"),
     path("customer_upload_dsm", cd_views.customer_upload_dsm, name="customer_upload_dsm"),
+path("email_breakdown_alerts/", cd_views.email_breakdown_alerts, name="email_breakdown_alerts"),
 
 ]
  

@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+{% extends 'basewind.html' %}
 {% load static %}
 
 {% block content %}
@@ -55,16 +55,16 @@
 
     /* --- Custom Tabs --- */
     .nav-tabs {
-        border-bottom: none;
+        border-bottom: 10px !important;
         justify-content: center;
         margin-bottom: 30px;
     }
     .nav-tabs .nav-link {
         border: none;
-        border-radius: 50px;
+        border-radius: 0px 50px 5px 50px;
         padding: 10px 30px;
         font-weight: 600;
-        color: #718096;
+        color: #000000;
         transition: all 0.3s ease;
         background: transparent;
         margin: 0 5px;
@@ -75,7 +75,7 @@
     }
     .nav-tabs .nav-link.active {
         background: var(--primary-gradient);
-        color: white;
+        color: rgb(255, 255, 255) !important;
         box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
         transform: translateY(-2px);
     }
@@ -209,6 +209,20 @@
         margin-top: 10px;
         backdrop-filter: blur(5px);
     }
+.save-btn {
+    font-size: 1.05rem;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #2ecc71, #27ae60);
+    border: none;
+    color: white;
+    box-shadow: 0 4px 10px rgba(39, 174, 96, 0.3);
+    transition: 0.25s ease-in-out;
+}
+
+.save-btn:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 15px rgba(39, 174, 96, 0.4);
+}
 
     /* --- Animations --- */
     @keyframes fadeInDown {
@@ -256,7 +270,7 @@
             <p class="text-muted">Compare costs and visualize your savings instantly.</p>
         </div> -->
 
-        <form method="post"  class="mt-2">
+        <form method="post"  class="mt-3">
             {% csrf_token %}
 
             <ul class="nav nav-tabs " id="calcTabs" role="tablist">
@@ -272,6 +286,7 @@
                 </li>
             </ul>
 
+            <hr>
             <div class="tab-content">
 
                 <div class="tab-pane fade show active" id="tab1">
@@ -422,8 +437,8 @@
                                 <div class="result-value">₹ {{ result.total_msedcl_after }}</div>
                             </div>
                         </div>
-
-                        <div class="col-12 mt-2 animate-entry delay-3">
+<div class="col-md-3"></div>
+                        <div class="col-6 mt-2 animate-entry delay-3">
                             <div class="saving-box">
                                 <div style="font-size: 1.1rem; opacity: 0.9;">TOTAL SAVINGS</div>
                                 <div class="saving-value">₹ {{ result.savings }}</div>
@@ -434,6 +449,14 @@
                                 </div>
                             </div>
                         </div>
+
+<div class="col-md-3"></div>
+
+<div class="col-12 text-center mt-4 animate-entry delay-4">
+    <button class="btn btn-success px-4 py-2 save-btn">
+        <i class="fas fa-save mr-2"></i> Save Result
+    </button>
+</div>
 
                     </div>
                     {% endif %}

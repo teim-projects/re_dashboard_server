@@ -4251,6 +4251,7 @@ def breakdown_analysis(request):
     # -----------------------------------------------
     # 8️⃣ RENDER REPETITIVE BREAKDOWN DASHBOARD
     # -----------------------------------------------
+    request.session["bd_alerts"] = alerts
     return render(request, "breakdown_analysis.html", {
         "alerts": alerts,
         "chart_data": chart_data,
@@ -4369,3 +4370,41 @@ def customer_upload_dsm(request):
         "energy_types": energy_types,
         "table_exists": table_exists,
     })
+from django.core.mail import EmailMultiAlternatives
+from django.http import JsonResponse
+from django.template.loader import render_to_string
+from django.contrib.auth.decorators import login_required
+
+from django.core.mail import EmailMultiAlternatives
+from django.http import JsonResponse
+from django.template.loader import render_to_string
+from django.contrib.auth.decorators import login_required
+
+
+@login_required
+def email_breakdown_alerts(request):
+    try:
+        alerts = request.session.get("bd_alerts", [])
+        user = request.user
+
+        if not alerts:
+            return JsonResponse({"status": "error", "message": "No alerts available to send."})
+
+        html_content = render_to_string("email_breakdown_alerts.html", {
+            "alerts": alerts,
+            "username": user.username,
+        })
+
+        subject = "Your Breakdown Alert Summary"
+        email = EmailMultiAlternatives(
+            subject,
+            "",
+            to=[user.email]  # user email
+        )
+        email.attach_alternative(html_content, "text/html")
+        email.send()
+
+        return JsonResponse({"status": "success", "message": "Breakdown alerts emailed successfully!"})
+
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)})

@@ -150,40 +150,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
 </ul>
 
-  <div class="tab-content mt-5">
-    <div class="tab-pane fade show active" id="completed">
-      <button class="btn btn-sm btn-outline-info mb-2 float-end" onclick="exportPDF('completed')"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>
-      <table class="table table-bordered align-middle">
-<thead>
-  <tr>
-    <th>WTG</th>
-    <th>Site</th>
-    <th>Category</th>
-    <th>Status</th>
-    <th>Date</th>
-    <th>Remarks</th>
-  </tr>
-</thead>
-<tbody>
-  {% for r in completed_records %}
-    <tr>
-      <td>{{ r.wtg_no }}</td>
-      <td>{{ r.site }}</td>
-      <td>{{ r.category }}</td>
-      <td class="text-success">Completed</td>
-      <td>{{ r.completed_on }}</td>
-      <td>{{ r.remarks }}</td>
-    </tr>
-  {% endfor %}
-</tbody>
+<div class="tab-content mt-5">
 
+  <!-- COMPLETED TAB -->
+  <div class="tab-pane fade show active" id="completed">
+    <button class="btn btn-sm btn-outline-info mb-2 float-end" onclick="exportPDF('completed')">
+      <i class="bi bi-file-earmark-pdf"></i> Export PDF
+    </button>
+
+    <div class="table-responsive">
+      <table class="table table-bordered align-middle">
+        <thead>
+          <tr>
+            <th>WTG</th>
+            <th>Site</th>
+            <th>Category</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in completed_records %}
+            <tr>
+              <td>{{ r.wtg_no }}</td>
+              <td>{{ r.site }}</td>
+              <td>{{ r.category }}</td>
+              <td class="text-success">Completed</td>
+              <td>{{ r.completed_on }}</td>
+              <td>{{ r.remarks }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
       </table>
     </div>
+  </div>
 
-    <div class="tab-pane fade" id="pending">
-      <button class="btn btn-sm btn-outline-danger mb-2 float-end" onclick="exportPDF('pending')"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>
+  <!-- PENDING TAB -->
+  <div class="tab-pane fade" id="pending">
+    <button class="btn btn-sm btn-outline-danger mb-2 float-end" onclick="exportPDF('pending')">
+      <i class="bi bi-file-earmark-pdf"></i> Export PDF
+    </button>
+
+    <div class="table-responsive">
       <table class="table table-bordered align-middle">
-        <thead><tr><th>WTG</th><th>Category</th><th>Status</th></tr></thead>
+        <thead>
+          <tr><th>WTG</th><th>Category</th><th>Status</th></tr>
+        </thead>
         <tbody>
           {% for r in pending_records %}
             <tr><td>{{ r.wtg_no }}</td><td>{{ r.category }}</td><td class="text-warning">Pending</td></tr>
@@ -191,17 +204,31 @@ document.addEventListener("DOMContentLoaded", () => {
         </tbody>
       </table>
     </div>
+  </div>
 
-    <div class="tab-pane fade" id="all">
-      <button class="btn btn-sm btn-outline-danger mb-2 float-end" onclick="exportPDF('all')"><i class="bi bi-file-earmark-pdf"></i> Export PDF</button>
+  <!-- ALL TAB -->
+  <div class="tab-pane fade" id="all">
+    <button class="btn btn-sm btn-outline-danger mb-2 float-end" onclick="exportPDF('all')">
+      <i class="bi bi-file-earmark-pdf"></i> Export PDF
+    </button>
+
+    <div class="table-responsive">
       <table class="table table-bordered align-middle">
-        <thead><tr><th>WTG</th><th>Category</th><th>Status</th><th>Date</th></tr></thead>
+        <thead>
+          <tr><th>WTG</th><th>Category</th><th>Status</th><th>Date</th></tr>
+        </thead>
         <tbody>
           {% for r in all_records %}
             <tr>
               <td>{{ r.wtg_no }}</td>
               <td>{{ r.category }}</td>
-              <td>{% if r.status == "Completed" %}<span class="text-success">Completed{% else %}<span class="text-warning">Pending{% endif %}</span></td>
+              <td>
+                {% if r.status == "Completed" %}
+                  <span class="text-success">Completed</span>
+                {% else %}
+                  <span class="text-warning">Pending</span>
+                {% endif %}
+              </td>
               <td>{{ r.completed_on }}</td>
             </tr>
           {% endfor %}
@@ -209,6 +236,9 @@ document.addEventListener("DOMContentLoaded", () => {
       </table>
     </div>
   </div>
+
+</div>
+
 
   {% endif %}
 </div>

@@ -289,7 +289,16 @@ document.addEventListener("click", function (e) {
     border-right-color: #fdcb6e;
     animation-duration: 0.9s;
 }
-
+   h5 {
+        font-weight: 600;
+        color: #718096;
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 15px;
+        border-left: 4px solid #764ba2;
+        padding-left: 10px;
+    }
 /* ---- CENTER DOT ---- */
 .center-dot {
     width: 16px;
@@ -363,8 +372,14 @@ document.addEventListener("click", function (e) {
             </a>
         </li>
         <li>
-            <a class="dropdown-item" href="#">
+            <a class="dropdown-item" href="{% url 'calculator' %}">
                 <i class="fa-solid fa-calculator me-2"></i> Open Access Calculator
+            </a>
+        </li>
+
+                <li>
+            <a class="dropdown-item" href="#">
+                <i class="fas fa-balance-scale"></i> DSM Charges
             </a>
         </li>
     </ul>
