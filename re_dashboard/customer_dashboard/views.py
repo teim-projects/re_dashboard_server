@@ -919,9 +919,15 @@ from django.db import connection
 from django.contrib.auth.decorators import login_required
 import json
 
+from collections import defaultdict
+from datetime import datetime, date, timedelta
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+import json
+
 
 def _pick(col_map, *candidates):
-    """Find actual column name from possible variants with normalization."""
     def normalize(name):
         return (
             name.lower()
@@ -938,36 +944,28 @@ def _pick(col_map, *candidates):
                 return col_map[actual]
     return None
 
+
 def parse_date_like(v):
     if isinstance(v, date):
         return v
     if isinstance(v, datetime):
         return v.date()
 
-    # Add more date formats including dd-mm-yyyy
-    formats = (
-        "%Y-%m-%d",   # 2022-01-01
-        "%d/%m/%Y",   # 01/01/2022
-        "%d-%m-%Y",   # 01-01-2022
-        "%d-%b-%Y",   # 01-Jan-2022
-        "%d.%m.%Y",   # 01.01.2022
-    )
-
+    formats = ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d-%b-%Y", "%d.%m.%Y")
     for fmt in formats:
         try:
             return datetime.strptime(str(v).strip(), fmt).date()
-        except Exception:
+        except:
             continue
 
-    # Fallback: try to split manually
     try:
         parts = str(v).replace("/", "-").replace(".", "-").split("-")
         if len(parts) == 3:
-            if len(parts[0]) == 4:  # yyyy-mm-dd
-                return datetime(int(parts[0]), int(parts[1]), int(parts[2])).date()
-            else:  # dd-mm-yyyy
-                return datetime(int(parts[2]), int(parts[1]), int(parts[0])).date()
-    except Exception:
+            if len(parts[0]) == 4:
+                return date(int(parts[0]), int(parts[1]), int(parts[2]))
+            else:
+                return date(int(parts[2]), int(parts[1]), int(parts[0]))
+    except:
         pass
 
     return None
@@ -993,34 +991,30 @@ def wind_Grid_Availability_and_Machine(request):
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
-    table_names = [t for t in db_tables if t.startswith(user + "_") and t.endswith("_wind")]
+
+    table_names = [
+        t for t in db_tables
+        if t.startswith(user + "_") and t.endswith("_wind")
+    ]
 
     if not table_names:
-        context = {
-            "grid_chart_data": json.dumps([]),
-            "availability_chart_data": json.dumps([]),
-            "plf_yearly_data": json.dumps([]),
-            "plf_monthly_data": json.dumps({}),
-            "providers": [], "customers": [], "states": [],
-            "sites": [], "wtgs": [],
+        return render(request, "wind_Grid_Availability_and_Machine.html", {
+            "grid_chart_data": "[]",
+            "availability_chart_data": "[]",
+            "plf_yearly_data": "[]",
+            "plf_monthly_data": "{}",
+            "providers": [], "customers": [], "states": [], "sites": [], "wtgs": [],
             "selected_providers": [], "selected_customers": [],
-            "selected_states": [], "selected_sites": [],
-            "selected_wtgs": [],
+            "selected_states": [], "selected_sites": [], "selected_wtgs": [],
             "date_from": None, "date_to": None,
             "no_data": True,
             "no_data_msg": "No wind tables found for your account."
-        }
-        return render(request, "wind_Grid_Availability_and_Machine.html", context)
+        })
 
-    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    # DEFAULT DATE = Last 3 Years (AUTO FILTER)
-    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-    from datetime import date, timedelta
-
+    # Default date = last 3 years
     if not request.GET.get("date_from") and not request.GET.get("date_to"):
         today = date.today()
-        auto_from = today - timedelta(days=3*365)
-
+        auto_from = today - timedelta(days=3 * 365)
         date_from = auto_from.strftime("%Y-%m-%d")
         date_to = today.strftime("%Y-%m-%d")
     else:
@@ -1034,12 +1028,7 @@ def wind_Grid_Availability_and_Machine(request):
     sites = request.GET.getlist("site")
     wtgs = request.GET.getlist("wtg")
 
-    # Accumulators
-    year_failure_hours = defaultdict(list)
-    month_failure_hours = defaultdict(list)
-    year_plf = defaultdict(list)
-    month_plf = defaultdict(list)
-
+    # Store distinct values
     distincts = {
         "providers": set(),
         "customers": set(),
@@ -1048,11 +1037,20 @@ def wind_Grid_Availability_and_Machine(request):
         "wtgs": set(),
     }
 
+    # Data accumulators
+    year_failure_hours = defaultdict(list)
+    month_failure_hours = defaultdict(list)
+    year_plf = defaultdict(list)
+    month_plf = defaultdict(list)
+
     # Process each table
     for table in table_names:
+
+        # Get columns
         with connection.cursor() as cursor:
             cursor.execute(f"SHOW COLUMNS FROM `{table}`")
             cols = [row[0] for row in cursor.fetchall()]
+
         col_map = {c.lower(): c for c in cols}
 
         date_col = _pick(col_map, "date", "gen_date", "reading_date", "day_date", "gen. date")
@@ -1060,20 +1058,38 @@ def wind_Grid_Availability_and_Machine(request):
         ga_col = _pick(col_map, "ga", "gridavailability", "grid availability", "ga%")
         gia_col = _pick(col_map, "gia", "gridinternalavailability", "gia%", "grid indicator availability")
 
-        wtg_col = _pick(col_map, "wec", "wecno", "wtg", "wtgno", "locno", "section")
         provider_col = _pick(col_map, "provider", "oem", "oemprovider")
         customer_col = _pick(col_map, "customer", "customername", "consumer")
         state_col = _pick(col_map, "state", "statename", "st")
         site_col = _pick(col_map, "site", "sitename", "location")
+        wtg_col = _pick(col_map, "wec", "wecno", "wtg", "wtgno", "locno", "section")
 
         plf_day_col = _pick(col_map, "plf_day", "plf", "cf", "capacityfactor")
 
         if not date_col:
             continue
 
-        # ---------------------
-        # Build WHERE filters
-        # ---------------------
+        # ---------------------------
+        # FETCH DISTINCT FILTER VALUES
+        # ---------------------------
+        def add_distinct(col_name, key):
+            if not col_name:
+                return
+            with connection.cursor() as c:
+                c.execute(f"SELECT DISTINCT `{col_name}` FROM `{table}`")
+                for row in c.fetchall():
+                    if row[0]:
+                        distincts[key].add(str(row[0]).strip())
+
+        add_distinct(provider_col, "providers")
+        add_distinct(customer_col, "customers")
+        add_distinct(state_col, "states")
+        add_distinct(site_col, "sites")
+        add_distinct(wtg_col, "wtgs")
+
+        # ---------------------------
+        # BUILD WHERE CLAUSE
+        # ---------------------------
         conditions, params = [], []
 
         if date_from:
@@ -1084,21 +1100,21 @@ def wind_Grid_Availability_and_Machine(request):
             conditions.append(f"`{date_col}` <= %s")
             params.append(date_to)
 
-        def add_filter(col, values):
+        def filter_in(col, values):
             if col and values:
                 placeholders = ",".join(["%s"] * len(values))
                 conditions.append(f"`{col}` IN ({placeholders})")
                 params.extend(values)
 
-        add_filter(provider_col, providers)
-        add_filter(customer_col, customers)
-        add_filter(state_col, states)
-        add_filter(site_col, sites)
-        add_filter(wtg_col, wtgs)
+        filter_in(provider_col, providers)
+        filter_in(customer_col, customers)
+        filter_in(state_col, states)
+        filter_in(site_col, sites)
+        filter_in(wtg_col, wtgs)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        # Select required columns
+        # Select necessary columns
         select_cols = [date_col]
         for c in [gf_col, ga_col, gia_col, plf_day_col]:
             if c:
@@ -1116,9 +1132,9 @@ def wind_Grid_Availability_and_Machine(request):
 
         idx = {col: i for i, col in enumerate(select_cols)}
 
-        # -----------------
-        # Compute values
-        # -----------------
+        # ---------------------------
+        # PROCESS EACH ROW
+        # ---------------------------
         for row in rows:
             d = parse_date_like(row[idx[date_col]])
             if not d:
@@ -1127,17 +1143,17 @@ def wind_Grid_Availability_and_Machine(request):
             year = d.year
             month = d.strftime("%Y-%m")
 
-            # --- Grid Failure Hours ---
+            # Failure hours
             hrs = 0.0
             if gf_col and row[idx.get(gf_col)] not in (None, ""):
                 hrs = to_hours(row[idx[gf_col]])
-            elif ga_col and row[idx.get(ga_col)] not in (None, ""):
+            elif ga_col:
                 try:
                     ga = float(row[idx[ga_col]])
                     hrs = (100 - ga) * 24 / 100
                 except:
                     pass
-            elif gia_col and row[idx.get(gia_col)] not in (None, ""):
+            elif gia_col:
                 try:
                     gia = float(row[idx[gia_col]])
                     hrs = (100 - gia) * 24 / 100
@@ -1147,7 +1163,7 @@ def wind_Grid_Availability_and_Machine(request):
             year_failure_hours[year].append(hrs)
             month_failure_hours[month].append(hrs)
 
-            # --- PLF ---
+            # PLF
             if plf_day_col and row[idx.get(plf_day_col)] not in (None, ""):
                 try:
                     plf_val = float(row[idx[plf_day_col]])
@@ -1156,24 +1172,9 @@ def wind_Grid_Availability_and_Machine(request):
                 except:
                     pass
 
-        # Collect distinct filter values
-        def collect(col):
-            if not col:
-                return
-            with connection.cursor() as cursor:
-                cursor.execute(f"SELECT DISTINCT `{col}` FROM `{table}`")
-                for r in cursor.fetchall():
-                    if r[0]:
-                        distincts_key = None
-            # sorry ignore extra
-
-        distincts["providers"].update([str(v) for v in providers])
-        distincts["customers"].update([str(v) for v in customers])
-        distincts["states"].update([str(v) for v in states])
-        distincts["sites"].update([str(v) for v in sites])
-        distincts["wtgs"].update([str(v) for v in wtgs])
-
-    # Final chart data
+    # ---------------------------
+    # PREPARE FINAL JSON DATA
+    # ---------------------------
     grid_chart_data = [
         {"year": y, "avg_failure": round(sum(v) / len(v), 2)}
         for y, v in year_failure_hours.items()
@@ -1184,6 +1185,7 @@ def wind_Grid_Availability_and_Machine(request):
         avg_f = round(sum(v) / len(v), 2)
         avg_av = round(100 - avg_f, 2)
         machine = min(100, avg_av + 2)
+
         availability_chart_data.append({
             "month": m,
             "grid_availability": avg_av,
@@ -1203,27 +1205,31 @@ def wind_Grid_Availability_and_Machine(request):
             "avg_plf": round(sum(v) / len(v), 2)
         })
 
-    context = {
+    # ---------------------------
+    # SEND DATA TO TEMPLATE
+    # ---------------------------
+    return render(request, "wind_Grid_Availability_and_Machine.html", {
         "grid_chart_data": json.dumps(grid_chart_data),
         "availability_chart_data": json.dumps(availability_chart_data),
         "plf_yearly_data": json.dumps(plf_yearly),
         "plf_monthly_data": json.dumps(plf_monthly),
+
         "providers": sorted(distincts["providers"]),
         "customers": sorted(distincts["customers"]),
         "states": sorted(distincts["states"]),
         "sites": sorted(distincts["sites"]),
         "wtgs": sorted(distincts["wtgs"]),
+
         "selected_providers": providers,
         "selected_customers": customers,
         "selected_states": states,
         "selected_sites": sites,
         "selected_wtgs": wtgs,
+
         "date_from": date_from,
         "date_to": date_to,
         "no_data": False,
-    }
-
-    return render(request, "wind_Grid_Availability_and_Machine.html", context)
+    })
 
 from collections import defaultdict
 from datetime import datetime, date

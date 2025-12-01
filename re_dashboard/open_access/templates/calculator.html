@@ -453,9 +453,13 @@
 <div class="col-md-3"></div>
 
 <div class="col-12 text-center mt-4 animate-entry delay-4">
-    <button class="btn btn-success px-4 py-2 save-btn">
-        <i class="fas fa-save mr-2"></i> Save Result
-    </button>
+<button type="button" onclick="confirmSave()" class="btn btn-success px-4 py-2 save-btn">
+    <i class="fas fa-save mr-2"></i> Save Result
+</button>
+<input type="hidden" id="save_result_flag" name="save_result" value="">
+
+
+
 </div>
 
                     </div>
@@ -471,20 +475,46 @@
 <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
 <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
-    // Smooth scroll to top when next button is clicked (optional UX improvement)
+function confirmSave() {
+    Swal.fire({
+        title: "Save Calculation?",
+        text: "Do you want to save this calculation and view history?",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonColor: "#28a745",
+        cancelButtonColor: "#6c757d",
+        confirmButtonText: "Yes, Save",
+        cancelButtonText: "Cancel"
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Set flag so Django knows user clicked save
+            document.getElementById("save_result_flag").value = "1";
+
+            // Submit the form
+            document.querySelector("form").submit();
+        }
+    });
+}
+</script>
+
+<script>
+    // Switch to next tab on click
     $("#nextBtn").click(function () {
+        $('#tab2-btn').tab('show');
+    });
+
+    // If result exists, auto-switch to tab2
+    {% if result %}
+    document.addEventListener("DOMContentLoaded", function () {
         $('#tab2-btn').tab('show');
         $('html, body').animate({
             scrollTop: $(".main-card").offset().top
-        }, 500);
+        }, 300);
     });
-
-    // Re-trigger animations on tab switch if desired
-    $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-        // Logic to reset animation classes could go here if you want them to replay
-    });
+    {% endif %}
 </script>
 
 {% endblock %}

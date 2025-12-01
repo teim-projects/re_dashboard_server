@@ -192,39 +192,44 @@ def calculate_bills(params):
         "yearly_saving": round(yearly_saving, 2),
         "oa_units": round(oa_units, 0),
         "msedcl_units_after": round(msedcl_units_after, 0),
-    }
+    } 
+
+
+
+from .models import CalculationRecord
+from django.contrib import messages
+
 def calculator_view(request):
-    # Default values loosely based on your Phoenix Studios case
+
     default_data = {
-    "tod_a_units": 8016,
-    "tod_b_units": 2507,
-    "tod_c_units": 18868,
-    "tod_d_units": 21337,
-    "total_units": 50728,
-    "contract_demand": 356,
-    "billed_demand": 267,  # 75% of 356
-    "demand_rate": 600,
-    "wheeling_rate": 0.74,
-    "energy_rate": 14.03,
-    "tod_c_rate": -3.5,
-    "tod_d_rate": 3.5,
-    "fac_rate": 0.50,
-    "duty_percent": 21.0,
-    "tax_sale_rate": 0.19,
-    "incremental_rebate": -9657,
-    "prompt_discount": -9085,
-    "oa_percent": 58.0,
-    "oa_energy_rate": 4.5,
-    "oa_transmission_rate": 1.14,
-    "oa_wheeling_rate": 0.74,
-    "oa_loss_rate": 0.59,
-    "oa_sldc_fixed": 15450,
-}
+        "tod_a_units": 8016,
+        "tod_b_units": 2507,
+        "tod_c_units": 18868,
+        "tod_d_units": 21337,
+        "total_units": 50728,
+        "contract_demand": 356,
+        "billed_demand": 267,
+        "demand_rate": 600,
+        "wheeling_rate": 0.74,
+        "energy_rate": 14.03,
+        "tod_c_rate": -3.5,
+        "tod_d_rate": 3.5,
+        "fac_rate": 0.50,
+        "duty_percent": 21.0,
+        "tax_sale_rate": 0.19,
+        "incremental_rebate": -9657,
+        "prompt_discount": -9085,
+        "oa_percent": 58.0,
+        "oa_energy_rate": 4.5,
+        "oa_transmission_rate": 1.14,
+        "oa_wheeling_rate": 0.74,
+        "oa_loss_rate": 0.59,
+        "oa_sldc_fixed": 15450,
+    }
 
     context = {"input": default_data, "result": None}
 
     if request.method == "POST":
-        # Read form data, convert to float
         data = {}
         for key in default_data.keys():
             value = request.POST.get(key, "")
@@ -232,7 +237,153 @@ def calculator_view(request):
                 data[key] = float(value)
             except ValueError:
                 data[key] = default_data[key]
+
+        result = calculate_bills(data)
         context["input"] = data
-        context["result"] = calculate_bills(data)
+        context["result"] = result
+
+        if "save_result" in request.POST:
+            CalculationRecord.objects.create(
+                user=request.user,
+                total_units=data["total_units"],
+                contract_demand=data["contract_demand"],
+                billed_demand=data["billed_demand"],
+                demand_rate=data["demand_rate"],
+                wheeling_rate=data["wheeling_rate"],
+                energy_rate=data["energy_rate"],
+                tod_a_units=data["tod_a_units"],
+                tod_b_units=data["tod_b_units"],
+                tod_c_units=data["tod_c_units"],
+                tod_d_units=data["tod_d_units"],
+                tod_c_rate=data["tod_c_rate"],
+                tod_d_rate=data["tod_d_rate"],
+                fac_rate=data["fac_rate"],
+                duty_percent=data["duty_percent"],
+                tax_sale_rate=data["tax_sale_rate"],
+                incremental_rebate=data["incremental_rebate"],
+                prompt_discount=data["prompt_discount"],
+                oa_percent=data["oa_percent"],
+                oa_energy_rate=data["oa_energy_rate"],
+                oa_transmission_rate=data["oa_transmission_rate"],
+                oa_wheeling_rate=data["oa_wheeling_rate"],
+                oa_loss_rate=data["oa_loss_rate"],
+                oa_sldc_fixed=data["oa_sldc_fixed"],
+
+                total_only_msedcl=result["total_only_msedcl"],
+                total_msedcl_after=result["total_msedcl_after"],
+                total_oa_charges=result["total_oa_charges"],
+                total_after_oa=result["total_after_oa"],
+                savings=result["savings"],
+                monthly_saving=result["monthly_saving"],
+                yearly_saving=result["yearly_saving"],
+                per_unit_saving=result["per_unit_saving"],
+                oa_units=result["oa_units"],
+                msedcl_units_after=result["msedcl_units_after"],
+            )
+
+            messages.success(request, "Calculation saved successfully!")
+            return redirect("calculation_history")
 
     return render(request, "calculator.html", context)
+
+
+from django.contrib.auth.decorators import login_required
+from .models import CalculationRecord
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib import messages
+
+from django.core.paginator import Paginator
+
+@login_required
+def calculation_history(request):
+
+    # --- Records per page filter ---
+    per_page = request.GET.get("per_page", 5)
+    try:
+        per_page = int(per_page)
+    except:
+        per_page = 5
+
+    # --- Fetch records ---
+    all_records = CalculationRecord.objects.filter(user=request.user).order_by("-created_at")
+
+    # --- Pagination ---
+    paginator = Paginator(all_records, per_page)
+    page_number = request.GET.get("page")
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, "calculation_history.html", {
+        "page_obj": page_obj,
+        "records": page_obj.object_list,
+        "per_page": per_page,
+    })
+
+@login_required
+def delete_record(request, pk):
+    record = get_object_or_404(CalculationRecord, id=pk, user=request.user)
+    record.delete()
+    messages.success(request, "Record deleted successfully!")
+    return redirect("calculation_history")
+
+
+
+from django.http import JsonResponse
+
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def record_details(request, pk):
+    record = get_object_or_404(CalculationRecord, id=pk, user=request.user)
+
+    data = {
+        "created_at": record.created_at.strftime("%d %b, %Y %H:%M"),
+
+        # Basic inputs
+        "total_units": record.total_units,
+        "contract_demand": record.contract_demand,
+        "billed_demand": record.billed_demand,
+        "demand_rate": record.demand_rate,
+
+        # MSEDCL rates
+        "wheeling_rate": record.wheeling_rate,
+        "energy_rate": record.energy_rate,
+        "fac_rate": record.fac_rate,
+        "duty_percent": record.duty_percent,
+        "tax_sale_rate": record.tax_sale_rate,
+
+        # TOD
+        "tod_a_units": record.tod_a_units,
+        "tod_b_units": record.tod_b_units,
+        "tod_c_units": record.tod_c_units,
+        "tod_d_units": record.tod_d_units,
+        "tod_c_rate": record.tod_c_rate,
+        "tod_d_rate": record.tod_d_rate,
+
+        # Rebates
+        "incremental_rebate": record.incremental_rebate,
+        "prompt_discount": record.prompt_discount,
+
+        # OA inputs
+        "oa_percent": record.oa_percent,
+        "oa_energy_rate": record.oa_energy_rate,
+        "oa_transmission_rate": record.oa_transmission_rate,
+        "oa_wheeling_rate": record.oa_wheeling_rate,
+        "oa_loss_rate": record.oa_loss_rate,
+        "oa_sldc_fixed": record.oa_sldc_fixed,
+
+        # Calculated results
+        "total_only_msedcl": record.total_only_msedcl,
+        "total_msedcl_after": record.total_msedcl_after,
+        "total_oa_charges": record.total_oa_charges,
+        "oa_energy_cost": record.oa_energy_cost if hasattr(record, "oa_energy_cost") else "",
+        "total_after_oa": record.total_after_oa,
+        "savings": record.savings,
+        "monthly_saving": record.monthly_saving,
+        "yearly_saving": record.yearly_saving,
+        "per_unit_saving": record.per_unit_saving,
+        "oa_units": record.oa_units,
+        "msedcl_units_after": record.msedcl_units_after,
+    }
+
+    return JsonResponse(data)
