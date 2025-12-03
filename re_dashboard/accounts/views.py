@@ -286,7 +286,6 @@ def convert_xls_to_xlsx(xls_path, xlsx_path):
     wb.save(xlsx_path)
     return xlsx_path
 
-
 @login_required
 def add_provider_with_structure(request):
     energy_types = EnergyType.objects.all()
@@ -295,7 +294,7 @@ def add_provider_with_structure(request):
     # ------------------ POST logic ------------------
     if request.method == 'POST':
 
-        # ✅ DELETE specific table
+        # DELETE specific table
         if 'delete_table_name' in request.POST:
             table_to_delete = request.POST.get('delete_table_name')
             try:
@@ -306,7 +305,7 @@ def add_provider_with_structure(request):
                 messages.error(request, f"Error deleting table: {str(e)}")
             return redirect("add_provider")
 
-        # ✅ DELETE provider and related tables
+        # DELETE provider and related tables
         elif 'delete_id' in request.POST:
             delete_id = request.POST.get('delete_id')
             try:
@@ -327,109 +326,135 @@ def add_provider_with_structure(request):
                 messages.error(request, f"Error deleting provider: {str(e)}")
             return redirect("add_provider")
 
-        # ✅ ADD new provider and create structure
+        # ADD provider and create table
         provider_name = request.POST.get("provider_name", "").strip().lower().replace(' ', '_')
         energy_type_id = request.POST.get("energy_type")
         structure_file = request.FILES.get("structure_file")
         selected_username = request.POST.get("selected_user")
 
         if not provider_name or not energy_type_id or not structure_file or not selected_username:
-            messages.error(request, "All fields are required: provider, energy type, file, and user.")
+            messages.error(request, "All fields are required.")
             return redirect("add_provider")
 
-        # ✅ Fetch related objects
+        # Fetch objects
         try:
             user_obj = User.objects.get(username=selected_username)
-        except User.DoesNotExist:
+        except:
             messages.error(request, "Invalid user selected.")
             return redirect("add_provider")
 
         try:
             energy_type = EnergyType.objects.get(id=energy_type_id)
-            energy_type_name = energy_type.name.strip().lower().replace(' ', '_')
-        except EnergyType.DoesNotExist:
+            energy_type_name = energy_type.name.strip().lower().replace(" ", "_")
+        except:
             messages.error(request, "Invalid energy type selected.")
             return redirect("add_provider")
 
         provider_obj, created = Provider.objects.get_or_create(name=provider_name)
         UserProvider.objects.get_or_create(user=user_obj, provider=provider_obj)
 
-
-        # ✅ Save uploaded file temporarily
+        # Save structure file temporarily
         fs = FileSystemStorage()
         filename = fs.save(structure_file.name, structure_file)
         file_path = fs.path(filename)
 
         try:
-            # ---------- Detect file extension ----------
             file_ext = os.path.splitext(filename)[1].lower()
 
             if file_ext == ".csv":
                 sheets = {"main": pd.read_csv(file_path)}
-
             elif file_ext == ".xls":
                 try:
                     xlsx_path = file_path + "x"
                     convert_xls_to_xlsx(file_path, xlsx_path)
                     sheets = pd.read_excel(xlsx_path, engine="openpyxl", sheet_name=None)
                     os.remove(xlsx_path)
-                except Exception:
-                    df_list = pd.read_html(file_path)
-                    sheets = {"main": df_list[0]}
-
+                except:
+                    sheets = {"main": pd.read_html(file_path)[0]}
             elif file_ext in [".xlsx", ".xlsm", ".xlsb"]:
                 sheets = pd.read_excel(file_path, engine="openpyxl", sheet_name=None)
-
             elif file_ext == ".ods":
                 sheets = pd.read_excel(file_path, engine="odf", sheet_name=None)
-
             else:
                 messages.error(request, f"Unsupported file type: {file_ext}")
                 return redirect("add_provider")
 
             created_tables = []
 
-            # ---------- Iterate through sheets ----------
+            # -------------------------------------------
+            # CREATE TABLES FROM STRUCTURE FILE
+            # -------------------------------------------
             for sheet_name, df in sheets.items():
-                # skip empty sheets
+
                 if df.empty:
                     continue
 
                 sheet_clean = sheet_name.strip().lower()
 
-                # ✅ Identify generation vs breakdown
+                # Normal vs Breakdown table
                 if "breakdown" in sheet_clean:
                     table_name = f"{selected_username.lower()}_{provider_name}_{energy_type_name}_breakdowndata"
                 else:
                     table_name = f"{selected_username.lower()}_{provider_name}_{energy_type_name}"
 
-                # ✅ Clean column names
+                # Clean column names
                 df.columns = [
                     re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
                     for col in df.columns
                 ]
 
-                # ✅ Build SQL table
+                # Build base column definitions
                 column_defs = [f"`{col}` TEXT" for col in df.columns]
                 column_defs += ["`provider` TEXT", "`energy_type` TEXT", "`uploaded_by` TEXT"]
 
-                create_sql = f"""
-                    CREATE TABLE IF NOT EXISTS `{table_name}` (
-                        `id` INT AUTO_INCREMENT PRIMARY KEY,
-                        {", ".join(column_defs)}
-                    );
-                """
+                # -------------------------------------------
+                # 🔥 SOLAR vs WIND UNIQUE KEY LOGIC
+                # -------------------------------------------
+                is_solar = "solar" in energy_type_name.lower()
 
+                if is_solar:
+                    # Solar → add UNIQUE KEY on (date, site, location)
+                    create_sql = f"""
+                        CREATE TABLE IF NOT EXISTS `{table_name}` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            {", ".join(column_defs)},
+                            UNIQUE KEY uniq_record (`date`, `site`, `location`)
+                        );
+                    """
+                else:
+                    # Wind → no unique key
+                    create_sql = f"""
+                        CREATE TABLE IF NOT EXISTS `{table_name}` (
+                            `id` INT AUTO_INCREMENT PRIMARY KEY,
+                            {", ".join(column_defs)}
+                        );
+                    """
+
+                # Execute CREATE TABLE
                 with connection.cursor() as cursor:
-                    cursor.execute(create_sql)
+                    try:
+                        cursor.execute(create_sql)
+                    except:
+                        # fallback create
+                        cursor.execute(f"""
+                            CREATE TABLE IF NOT EXISTS `{table_name}` (
+                                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                                {", ".join(column_defs)}
+                            );
+                        """)
+                        # Add solar unique key ONLY if solar
+                        if is_solar:
+                            try:
+                                cursor.execute(
+                                    f"ALTER TABLE `{table_name}` ADD UNIQUE KEY uniq_record (`date`, `site`, `location`);"
+                                )
+                            except:
+                                pass
 
                 created_tables.append(table_name)
 
             if created_tables:
-                messages.success(
-                    request,
-                    f"✅ Created table(s): {', '.join(created_tables)} for provider '{provider_name}'."
-                )
+                messages.success(request, f"✅ Created tables: {', '.join(created_tables)}")
             else:
                 messages.warning(request, "No valid sheets found to create tables.")
 
@@ -460,7 +485,6 @@ def add_provider_with_structure(request):
         'provider_table_map': provider_table_map,
         'users': staff_users,
     })
-
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render

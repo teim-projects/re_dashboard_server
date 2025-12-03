@@ -1,0 +1,589 @@
+{% extends "basesolar.html" %}
+{% load static %}
+
+{% block content %}
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+:root{
+  --g-blue: #1a73e8;
+  --g-red:  #ea4335;
+  --g-yellow: #fbbc05;
+  --g-green: #34a853;
+  --muted: #6b7280;
+  --card-bg: #ffffff;
+  --shadow: 0 6px 18px rgba(10,25,47,0.08);
+}
+
+body { font-family: "Poppins", sans-serif; }
+
+.dashboard-container { padding: 28px; }
+
+/* FILTER CARDS */
+.filter-card {
+    background: var(--card-bg);
+    padding: 14px;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    min-width: 240px;
+}
+.filter-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 8px;
+    background: #e8f0fe;
+    color: var(--g-blue);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 18px;
+}
+.filter-inner { display: flex; flex-direction: column; width: 100%; }
+.filter-inner label { font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.filter-inner select, .filter-inner input {
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #dce3ee;
+    width: 100%;
+}
+
+/* KPI CARDS */
+.kpi-row { display:flex; gap:16px; flex-wrap:wrap; }
+.kpi-card {
+  background:var(--card-bg);
+  padding:14px;
+  border-radius:10px;
+  min-width:220px;
+  box-shadow:var(--shadow);
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+.kpi-icon { width:56px; height:56px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:20px; }
+.kpi-blue { background: linear-gradient(135deg, #e8f0fe, var(--g-blue)); color:var(--g-blue); }
+.kpi-red  { background: linear-gradient(135deg,#ffece9, var(--g-red)); color:var(--g-red); }
+.kpi-green{ background: linear-gradient(135deg,#eaf6ee, var(--g-green)); color:var(--g-green); }
+.kpi-label { font-weight:600; color:var(--muted); font-size:13px; }
+.kpi-value { font-size:26px; font-weight:800; }
+
+/* chart panels */
+.charts-row-2 { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top:20px; }
+.chart-panel { background:white; padding:12px; border-radius:10px; box-shadow:var(--shadow); }
+.chart-area { width:100%; height:360px; }
+
+.monthly-panel { margin-top:14px; background:white; padding:12px; border-radius:10px; box-shadow:var(--shadow); }
+
+#tooltip {
+  position:absolute; opacity:0; pointer-events:none;
+  padding:8px 10px; background:white; border-radius:8px;
+  box-shadow:0 6px 20px rgba(0,0,0,0.15);
+}
+
+/* quarter pill + reset */ .controls-row { display:flex; gap:10px; align-items:center; margin-left:auto; } .pill { background:#f1f5f9; color:#0b2540; padding:6px 10px; border-radius:999px; font-weight:600; font-size:13px; display:inline-flex; gap:8px; align-items:center; } .reset-btn { background:transparent; border:1px solid #dbe7ff; padding:6px 10px; border-radius:8px; cursor:pointer; } /* responsive */ @media (max-width:980px){ .charts-row-2 { grid-template-columns: 1fr; } .chart-area { height:300px; } }
+.kpi-magenta {
+    background: linear-gradient(135deg, #007e26, rgb(0, 184, 83));
+    color: rgb(0, 0, 0);   /* icon color */
+}
+
+.bar-active { stroke:#000; stroke-width:2px; }
+</style>
+
+<div class="dashboard-container container-fluid" style="margin-top: 45px;">
+
+
+<div class="d-flex" style="align-items:center; gap:12px; margin-bottom:8px;"> 
+    <div id="activeControls" class="controls-row" style="display:none;"> 
+        <div class="pill" id="activePill"><span id="activePillText"></span></div> 
+        <button class="reset-btn" id="resetFilters">Reset</button> 
+    </div>
+ </div>
+<!-- FILTER + KPI SIDE-BY-SIDE -->
+<div style="
+    display:grid;
+    grid-template-columns: 55% 45%;
+    gap:20px;
+    margin-bottom:25px;
+">
+
+    <!-- LEFT FILTERS -->
+    <div class="filters-left" style="
+        display:grid;
+        grid-template-columns: 1fr 1fr;
+        gap:18px;
+    ">
+
+        <div class="filter-card">
+            <div class="filter-icon"><i class="fas fa-map-marker-alt"></i></div>
+            <div class="filter-inner">
+                <label>Site</label>
+                <select id="siteSelect"><option value="">All Sites</option></select>
+            </div>
+        </div>
+
+        <div class="filter-card">
+            <div class="filter-icon"><i class="fas fa-calendar"></i></div>
+            <div class="filter-inner">
+                <label>Year</label>
+                <select id="yearSelect"><option value="">All Years</option></select>
+            </div>
+        </div>
+
+        <div class="filter-card">
+            <div class="filter-icon"><i class="fas fa-calendar-alt"></i></div>
+            <div class="filter-inner">
+                <label>Month</label>
+                <select id="monthSelect">
+                    <option value="">All</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="filter-card">
+            <div class="filter-icon"><i class="fas fa-clock"></i></div>
+            <div class="filter-inner">
+                <label>Day</label>
+                <input id="dayInput" type="number" min="1" max="31" placeholder="All">
+            </div>
+        </div>
+
+    </div>
+
+    <!-- RIGHT KPI CARDS -->
+    <div class="kpi-right">
+
+        <div class="kpi-row">
+
+            <div class="kpi-card">
+              <div class="kpi-icon kpi-blue " style="color: rgb(255, 206, 114);" ><i class="fas fa-bolt"></i></div>
+              <div>
+                <div class="kpi-label">PLF Daily</div>
+                <div class="kpi-value" id="kpiDaily">0.00</div>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+              <div class="kpi-icon kpi-red" style="color: rgb(255, 255, 255);"><i class="fas fa-calendar"></i></div>
+              <div>
+                <div class="kpi-label">PLF Monthly</div>
+                <div class="kpi-value" id="kpiMonthly">0.00</div>
+              </div>
+            </div>
+
+            <div class="kpi-card">
+<div class="kpi-icon kpi-magenta">
+    <i class="fas fa-chart-line"></i>
+</div>
+              <div>
+                <div class="kpi-label">PLF Yearly</div>
+                <div class="kpi-value" id="kpiYearly">0.00</div>
+              </div>
+            </div>
+
+
+
+
+            <div class="kpi-card">
+<div class="kpi-icon " style=" 
+    background: linear-gradient(135deg, #f2e9ff, #8e44ad);
+    color: #ffffff;
+ 
+">
+    <i class="fas fa-sliders-h"></i>
+</div>
+
+
+              
+                <div class="kpi-label">  
+                    <p>Filter-driven <strong>PLF</strong><br> Smart Dashboard</p>
+                </div>
+              
+
+
+
+
+
+
+        </div>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- CHARTS -->
+<div class="charts-row-2">
+    <div class="chart-panel">
+        <div class="panel-title">PLF Quarterly</div>
+        <div id="plfQuarterly" class="chart-area"></div>
+    </div>
+
+    <div class="chart-panel">
+        <div class="panel-title">PLF Yearly</div>
+        <div id="plfYearly" class="chart-area"></div>
+    </div>
+</div>
+
+<div class="monthly-panel">
+    <div class="panel-title">PLF Monthly</div>
+    <div id="plfMonthly" class="chart-area"></div>
+</div>
+
+</div>
+
+<div id="tooltip"></div>
+
+<!-- JS IS SAME – NO CHANGE -->
+<script>
+/* ---------- Config & state ---------- */
+const apiURL = "{% url 'api_solar_plf' %}";
+
+const googleColors = [getComputedStyle(document.documentElement).getPropertyValue('--g-blue').trim() || "#1a73e8",
+                      getComputedStyle(document.documentElement).getPropertyValue('--g-red').trim()  || "#ea4335",
+                      getComputedStyle(document.documentElement).getPropertyValue('--g-yellow').trim()|| "#fbbc05",
+                      getComputedStyle(document.documentElement).getPropertyValue('--g-green').trim() || "#34a853"];
+
+const tooltip = document.getElementById('tooltip');
+
+let serverData = null;   // last fetched data from API
+let activeQuarter = null; // {q:2, months:[4,5,6], year:2024}
+let activeYear = null;
+let activeMonth = null;
+
+/* ---------- Helpers ---------- */
+function $(id){ return document.getElementById(id); }
+function fmt(n, d=2){ return (Number(n) || 0).toFixed(d); }
+function showTooltip(html, x, y){ tooltip.innerHTML = html; tooltip.style.left = (x+12)+'px'; tooltip.style.top = (y+12)+'px'; tooltip.style.opacity = 1; }
+function hideTooltip(){ tooltip.style.opacity = 0; }
+
+/* ---------- UI control helpers ---------- */
+function setActivePill(text){
+  if(!text){
+    document.getElementById('activeControls').style.display = 'none';
+    activeQuarter = null;
+  } else {
+    document.getElementById('activeControls').style.display = 'flex';
+    document.getElementById('activePillText').textContent = text;
+  }
+}
+
+/* Reset filters (clears quarter/month/year active state but keeps dropdowns) */
+function resetAll(){
+  activeQuarter = null;
+  activeYear = null;
+  activeMonth = null;
+  setActivePill(null);
+  // reset dropdowns visibly but keep user selections? We'll clear selections
+  $('yearSelect').value = "";
+  $('monthSelect').value = "";
+  $('dayInput').value = "";
+  // refresh from server (no extra client-side quarter filtering)
+  loadAndRender();
+}
+
+/* ---------- Fetch from API ---------- */
+async function fetchFromServer(params = {}){
+  const p = new URLSearchParams(params);
+  const res = await fetch(apiURL + "?" + p.toString());
+  if (!res.ok) {
+    console.error("API error", res.status);
+    return null;
+  }
+  const data = await res.json();
+  return data;
+}
+
+/* ---------- Main load & render ---------- */
+async function loadAndRender(){
+  // base params from dropdowns (server-side filtering)
+  const params = {};
+  const site = $('siteSelect').value;
+  const year = $('yearSelect').value;
+  const month = $('monthSelect').value;
+  const day = $('dayInput').value;
+  if(site) params.site = site;
+  if(year) params.year = year;
+  if(month) params.month = month;
+  if(day) params.day = day;
+
+  const data = await fetchFromServer(params);
+  if(!data){
+    alert("Failed to load PLF data from server.");
+    return;
+  }
+  serverData = data; // store
+
+  // populate dropdowns (only once or when data changes)
+  fillDropdownsFromData(data);
+
+  // compute and render KPIs + charts with applied client-side activeQuarter/month/day filtering logic
+  applyClientFiltersAndRender();
+}
+
+/* Populate site/year dropdown options */
+function fillDropdownsFromData(data){
+  // sites
+  const siteSel = $('siteSelect');
+  siteSel.innerHTML = '<option value="">All Sites</option>';
+  (data.sites||[]).forEach(s => {
+    const o = document.createElement('option'); o.value = s; o.textContent = s; siteSel.appendChild(o);
+  });
+
+  // years
+  const ySel = $('yearSelect');
+  const current = ySel.value;
+  ySel.innerHTML = '<option value="">All Years</option>';
+  (data.years||[]).forEach(y => {
+    const o = document.createElement('option'); o.value = y; o.textContent = y; ySel.appendChild(o);
+  });
+  if(current) ySel.value = current; // keep previously selected if any
+}
+
+/* Apply any client-side filters (quarter selection) and render everything */
+function applyClientFiltersAndRender(){
+  if(!serverData) return;
+
+  // Start from server-provided aggregates
+  // For quarter clicks we will filter serverData.plf_monthly_chart by quarter months
+  // For month/year clicks we let server handle via dropdown filtering (already requested)
+
+  // Determine effective monthly data to use for KPI aggregation
+  let monthly = (serverData.plf_monthly_chart || []).map(m => ({ month: m.month, value: Number(m.value) || 0 }));
+  let quarterly = (serverData.plf_quarterly || []).map(q => ({ quarter: q.quarter, value: Number(q.value) || 0 }));
+  let yearly = (serverData.plf_yearly_chart || []).map(y => ({ year: y.year, value: Number(y.value) || 0 }));
+
+  // If user clicked a quarter -> narrow monthly data to quarter months
+  if(activeQuarter){
+    const months = activeQuarter.months; // e.g. [4,5,6]
+    // map month names for comparison
+    const monthNames = [
+      "January","February","March","April","May","June",
+      "July","August","September","October","November","December"
+    ];
+    const quarterMonthNames = months.map(m => monthNames[m-1]);
+    monthly = monthly.filter(m => quarterMonthNames.includes(m.month));
+    // compute KPIs from these monthly values (we use monthly.value as approximation)
+    const avgDaily = monthly.length ? (monthly.reduce((s,v) => s + v.value,0)/monthly.length) : 0;
+    const avgMonthly = avgDaily; // approximation since server returns %; keep same
+    const avgYearly = avgDaily;
+    $('kpiDaily').textContent = fmt(avgDaily);
+    $('kpiMonthly').textContent = fmt(avgMonthly);
+    $('kpiYearly').textContent = fmt(avgYearly);
+
+    // Set active pill text
+    const qtext = `Quarter ${activeQuarter.q} • ${activeQuarter.year}`;
+    setActivePill(qtext);
+  } else {
+    // No quarter active -> use kpis from server (server computed using any dropdown filters)
+    const k = serverData.kpis || {};
+    $('kpiDaily').textContent = fmt(k.daily||0);
+    $('kpiMonthly').textContent = fmt(k.monthly||0);
+    $('kpiYearly').textContent = fmt(k.yearly||0);
+    setActivePill(null);
+  }
+
+  // draw charts (use the possibly filtered monthly array)
+  drawQuarterlyChart(quarterly);
+  drawYearlyChart(yearly);
+  drawMonthlyChart(monthly);
+}
+
+/* ---------- Drawing charts with D3 (click handlers wired) ---------- */
+
+/* Generic helper to clear and create svg */
+function createSvg(containerSelector, height=360){
+  const container = document.querySelector(containerSelector);
+  container.innerHTML = ""; // clear
+  const w = container.clientWidth;
+  const svg = d3.select(container).append("svg").attr("width", w).attr("height", height);
+  return {svg, width: w, height};
+}
+
+/* Quarter chart */
+function drawQuarterlyChart(data){
+  const {svg, width, height} = createSvg('#plfQuarterly', 360);
+  const margin = {top:20,left:48,right:20,bottom:60};
+  const cw = width - margin.left - margin.right;
+  const ch = height - margin.top - margin.bottom;
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand().domain(data.map(d=>d.quarter)).range([0,cw]).padding(0.28);
+  const y = d3.scaleLinear().domain([0, d3.max(data,d=>d.value)*1.2 || 1]).range([ch,0]);
+
+  g.append('g').call(d3.axisLeft(y).ticks(5));
+  g.append('g').attr('transform', `translate(0,${ch})`).call(d3.axisBottom(x)).selectAll('text').attr('transform','rotate(-10)').style('text-anchor','middle');
+
+  const color = d3.scaleOrdinal().range(googleColors);
+
+  // bars with transition
+  const bars = g.selectAll('.bar').data(data, d=>d.quarter);
+  bars.enter().append('rect')
+    .attr('class','bar')
+    .attr('x', d=> x(d.quarter))
+    .attr('width', x.bandwidth())
+    .attr('y', ch)
+    .attr('height', 0)
+    .attr('fill', (d,i)=> color(i%googleColors.length))
+    .style('cursor','pointer')
+    .on('mousemove', (e,d)=>{
+      showTooltip(`<b>${d.quarter}</b><br>${fmt(d.value)}%`, e.pageX, e.pageY);
+    })
+    .on('mouseleave', hideTooltip)
+    .on('click', (e,d)=>{
+      // on quarter click: set activeQuarter, set year dropdown if empty to most recent server year
+      const qnum = Number(d.quarter.replace(/\D/g,'')); // get number from "Qtr 2"
+      const monthsInQ = ((q)=> q===1?[1,2,3]:q===2?[4,5,6]:q===3?[7,8,9]:[10,11,12])(qnum);
+      // determine year to use: if year dropdown already set, use that; else pick most recent from serverData.years
+      let year = $('yearSelect').value || (serverData.years && serverData.years.length ? serverData.years[serverData.years.length-1] : null);
+      if(year) $('yearSelect').value = year;
+      activeQuarter = { q: qnum, months: monthsInQ, year: year };
+
+      // refresh server data with year param so monthly chart contains that year's months
+      loadAndRender(); // this will call applyClientFiltersAndRender which will honor activeQuarter
+      // visually highlight chosen bar
+      d3.selectAll('#plfQuarterly .bar').classed('bar-active', b => b.quarter === d.quarter);
+    })
+    .transition().duration(650).attr('y', d=> y(d.value)).attr('height', d=> ch - y(d.value));
+
+  // labels
+  g.selectAll('.bar-label').data(data).enter().append('text')
+    .attr('x', d=> x(d.quarter) + x.bandwidth()/2)
+    .attr('y', d=> y(d.value) - 8)
+    .attr('text-anchor','middle')
+    .style('font-weight',700)
+    .text(d=> fmt(d.value)+'%');
+}
+
+/* Yearly chart */
+function drawYearlyChart(data){
+  const {svg, width, height} = createSvg('#plfYearly', 360);
+  const margin = {top:20,left:48,right:20,bottom:60};
+  const cw = width - margin.left - margin.right;
+  const ch = height - margin.top - margin.bottom;
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand().domain(data.map(d=>d.year)).range([0,cw]).padding(0.28);
+  const y = d3.scaleLinear().domain([0, d3.max(data,d=>d.value)*1.2 || 1]).range([ch,0]);
+
+  g.append('g').call(d3.axisLeft(y).ticks(5));
+  g.append('g').attr('transform', `translate(0,${ch})`).call(d3.axisBottom(x)).selectAll('text').attr('transform','rotate(-10)').style('text-anchor','middle');
+
+  const color = d3.scaleOrdinal().range(googleColors);
+
+  g.selectAll('.bar')
+    .data(data, d=>d.year)
+    .enter().append('rect')
+    .attr('class','bar')
+    .attr('x', d=> x(d.year))
+    .attr('width', x.bandwidth())
+    .attr('y', ch)
+    .attr('height', 0)
+    .attr('fill', (d,i)=> color(i%googleColors.length))
+    .style('cursor','pointer')
+    .on('mousemove', (e,d)=> showTooltip(`<b>${d.year}</b><br>${fmt(d.value)}%`, e.pageX, e.pageY))
+    .on('mouseleave', hideTooltip)
+    .on('click', (e,d)=>{
+      // set year dropdown and refresh server data (server will compute kpis for that year)
+      $('yearSelect').value = d.year;
+      activeQuarter = null; setActivePill(null);
+      // highlight
+      d3.selectAll('#plfYearly .bar').classed('bar-active', b => b.year === d.year);
+      loadAndRender();
+    })
+    .transition().duration(700).attr('y', d=> y(d.value)).attr('height', d=> ch - y(d.value));
+
+  // labels
+  g.selectAll('.bar-label').data(data).enter().append('text')
+    .attr('x', d=> x(d.year) + x.bandwidth()/2)
+    .attr('y', d=> y(d.value) - 8)
+    .attr('text-anchor','middle')
+    .style('font-weight',700)
+    .text(d=> fmt(d.value)+'%');
+}
+
+/* Monthly chart (click month to set month filter) */
+function drawMonthlyChart(data){
+  const {svg, width, height} = createSvg('#plfMonthly', 380);
+  const margin = {top:20,left:56,right:20,bottom:70};
+  const cw = width - margin.left - margin.right;
+  const ch = height - margin.top - margin.bottom;
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const x = d3.scaleBand().domain(data.map(d=>d.month)).range([0,cw]).padding(0.16);
+  const y = d3.scaleLinear().domain([0, d3.max(data,d=>d.value)*1.2 || 1]).range([ch,0]);
+
+  g.append('g').call(d3.axisLeft(y).ticks(6));
+  g.append('g').attr('transform', `translate(0,${ch})`).call(d3.axisBottom(x)).selectAll('text').attr('transform','rotate(-30)').style('text-anchor','end');
+
+  const color = d3.scaleOrdinal().range(googleColors);
+
+  g.selectAll('.bar')
+    .data(data, d=>d.month)
+    .enter().append('rect')
+    .attr('class','bar')
+    .attr('x', d=> x(d.month))
+    .attr('width', x.bandwidth())
+    .attr('y', ch)
+    .attr('height', 0)
+    .attr('fill', (d,i)=> color(i%googleColors.length))
+    .style('cursor','pointer')
+    .on('mousemove', (e,d)=> showTooltip(`<b>${d.month}</b><br>${fmt(d.value)}%`, e.pageX, e.pageY))
+    .on('mouseleave', hideTooltip)
+    .on('click', (e,d) => {
+      // find month index from month name
+      const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const mIndex = monthNames.indexOf(d.month) + 1;
+      if(mIndex){
+        $('monthSelect').value = mIndex;
+        activeQuarter = null; setActivePill(null);
+        loadAndRender();
+      }
+      d3.selectAll('#plfMonthly .bar').classed('bar-active', b => b.month === d.month);
+    })
+    .transition().duration(650).attr('y', d=> y(d.value)).attr('height', d=> ch - y(d.value));
+
+  // labels
+  g.selectAll('.bar-label').data(data).enter().append('text')
+    .attr('x', d=> x(d.month) + x.bandwidth()/2)
+    .attr('y', d=> y(d.value) - 8)
+    .attr('text-anchor','middle')
+    .style('font-weight',700)
+    .text(d=> fmt(d.value)+'%');
+}
+
+/* ---------- UI event wiring ---------- */
+$('resetFilters').addEventListener('click', resetAll);
+
+['siteSelect','yearSelect','monthSelect','dayInput'].forEach(id=>{
+  const el = $(id);
+  if(!el) return;
+  el.addEventListener('change', ()=>{
+    // selecting year/month via dropdown should clear activeQuarter
+    activeQuarter = null; setActivePill(null);
+    loadAndRender();
+  });
+});
+
+/* ---------- Init ---------- */
+(async function init(){
+  // initial load
+  await loadAndRender();
+})();
+</script>
+
+{% endblock %}

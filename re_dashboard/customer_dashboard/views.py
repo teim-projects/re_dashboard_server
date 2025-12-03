@@ -1906,7 +1906,44 @@ def read_excel_multi(file_path, ext):
         cleaned_sheets[sheet_name] = df
     return cleaned_sheets
 
-# ---------------- VIEW ---------------- #
+# =================== MAIN VIEW =================== #
+def normalize_percentage(val):
+    """Correctly normalize PLF, Plant Availability, Grid OK values from Excel."""
+    if val is None or str(val).strip() in ["", "nan", "None"]:
+        return None
+
+    s = str(val).strip()
+
+    # 1️⃣ Direct % format (e.g., "18.99%")
+    if s.endswith("%"):
+        try:
+            return float(s.replace("%", "").strip())
+        except:
+            return None
+
+    # 2️⃣ Do NOT convert times like "00:00"
+    if ":" in s:
+        return s
+
+    try:
+        f = float(s)
+
+        # 3️⃣ Excel stores 100% as 1.0 → convert to 100
+        if f == 1:
+            return 100.0
+
+        # 4️⃣ Excel stores percentages as decimals (0.1899 → 18.99)
+        if 0 < f < 1:
+            return round(f * 100, 4)
+
+        # 5️⃣ Already in correct integer/float form
+        return round(f, 4)
+
+    except:
+        return None
+
+
+
 
 @login_required
 def customer_upload(request):
@@ -1914,6 +1951,9 @@ def customer_upload(request):
     providers = Provider.objects.all()
     energy_types = EnergyType.objects.all()
 
+    # =====================================================
+    # FETCH LOGGED-IN USER TABLES
+    # =====================================================
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [row[0] for row in cursor.fetchall()]
@@ -1927,16 +1967,20 @@ def customer_upload(request):
             label = f"{username} - {provider_slug.replace('_',' ').title()} - {energy_slug.title()}"
             user_tables.append({"name": table, "label": label})
 
+    # =====================================================
+    # POST REQUEST (UPLOAD)
+    # =====================================================
     if request.method == "POST":
         table_name = request.POST.get("table_name", "").strip()
         provider_name = request.POST.get("provider_name", "").strip()
         energy_type_name = request.POST.get("energy_type", "").title()
         data_file = request.FILES.get("data_file")
 
-        if not table_name or not data_file or not provider_name:
-            messages.error(request, "❌ Table, file, and provider are required.")
+        if not table_name or not provider_name or not data_file:
+            messages.error(request, "❌ Table, provider and file are required.")
             return redirect("customer_upload")
 
+        # Save uploaded file
         fs = FileSystemStorage()
         filename = fs.save(data_file.name, data_file)
         file_path = fs.path(filename)
@@ -1946,42 +1990,120 @@ def customer_upload(request):
             sheets = read_excel_multi(file_path, ext)
             uploaded_sheets = []
 
+            # =====================================================
+            # LOOP THROUGH ALL SHEETS
+            # =====================================================
             for sheet_name, df in sheets.items():
+
                 if df.empty:
                     continue
 
-                # Clean column names
+                # ----- CLEAN COLUMNS -----
                 df.columns = [clean_col(c) for c in df.columns]
 
-                # Replace NaN, empty
-                df = df.replace({pd.NaT: None, "": None, "nan": None, "NaN": None})
-                df = df.astype(object).where(pd.notnull(df), None)
-                df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
-
-                # ✅ Normalize all date columns globally (prevents later chart errors)
+                # =====================================================
+                # NORMALIZATION (DATE, %, HOURS)
+                # =====================================================
                 for col in df.columns:
-                    if col in ["gen_date", "date", "generation_date"]:
-                        df[col] = df[col].apply(normalize_date)
-                    elif "hrs" in col or "hour" in col:
-                        df[col] = df[col].apply(normalize_hours)
+                    col_l = col.lower().strip()
 
-                # Determine target table
-                if "breakdown" in sheet_name.lower():
+                    # DATE FIELDS
+                    if any(k in col_l for k in ["date", "gen_date", "generation_date", "dt"]):
+                        df[col] = df[col].apply(normalize_date)
+                        df[col] = df[col].apply(
+                            lambda x: x.strftime("%Y-%m-%d")
+                            if isinstance(x, (datetime, date)) else x
+                        )
+                        continue
+
+                    # PERCENTAGE FIELDS
+                    if any(k in col_l for k in ["plf", "availability", "grid", "%", "gf", "pa"]):
+                        df[col] = df[col].apply(normalize_percentage)
+                        continue
+
+                    # HOURS FIELDS
+                    if any(k in col_l for k in ["hr", "hour", "hrs", "duration", "time"]):
+                        df[col] = df[col].apply(normalize_hours)
+                        continue
+
+                # =====================================================
+                # SANITIZE & REMOVE EMPTY ROWS
+                # =====================================================
+                df = df.replace({
+                    pd.NaT: None,
+                    np.nan: None,
+                    "": None,
+                    "nan": None,
+                    "NaN": None,
+                    np.inf: None,
+                    -np.inf: None
+                })
+
+                df = df.dropna(how="all")   # ❗ prevents NULL rows
+
+                # =====================================================
+                # DETECT TARGET TABLE (BREAKDOWN / MONTHLY)
+                # =====================================================
+                sname = sheet_name.lower()
+
+                if "breakdown" in sname:
                     target_table = f"{table_name}_breakdowndata"
+                elif "month" in sname or "monthly" in sname:
+                    target_table = f"{table_name}_monthly"
                 else:
                     target_table = table_name
 
                 if target_table not in db_tables:
                     continue
 
+                # =====================================================
+                # GET TABLE COLUMNS
+                # =====================================================
                 with connection.cursor() as cursor:
                     cursor.execute(f"SHOW COLUMNS FROM `{target_table}`")
-                    table_columns = [col[0].lower() for col in cursor.fetchall()]
+                    table_columns = [c[0].lower() for c in cursor.fetchall()]
 
-                valid_columns = [col for col in df.columns if col in table_columns]
-                df = df[valid_columns]
+                # =====================================================
+                # FIX COMMON WRONG COLUMN NAMES
+                # =====================================================
+                alias_map = {
+                    "loaction": "location",
+                    "loc": "location",
+                    "location ": "location",
+                }
+                df.rename(columns=lambda c: alias_map.get(c.lower(), c.lower()), inplace=True)
 
-                # Add metadata
+                # =====================================================
+                # SOLAR MERGED COLUMN FIX
+                # =====================================================
+                if "solar" in table_name.lower():
+                    merge_cols = [
+                        "weather_condition_breakdown_details",
+                        "weather_condition__breakdown_details",
+                        "breakdown_details_weather_condition",
+                        "breakdown_details__weather_condition",
+                    ]
+                    for mc in merge_cols:
+                        if mc in df.columns:
+                            df["weather_condition"] = df[mc].apply(
+                                lambda x: x if isinstance(x, str) and not any(ch.isdigit() for ch in x)
+                                else "Nil"
+                            )
+                            df["breakdown_details"] = df[mc].apply(
+                                lambda x: x if isinstance(x, str) and any(ch.isdigit() for ch in x)
+                                else "Nil"
+                            )
+                            df.drop(columns=[mc], errors="ignore")
+
+                # =====================================================
+                # FILTER VALID COLUMNS
+                # =====================================================
+                valid_cols = [c for c in df.columns if c in table_columns]
+                df = df[valid_cols]
+
+                # =====================================================
+                # ADD METADATA
+                # =====================================================
                 if "uploaded_by" in table_columns:
                     df["uploaded_by"] = username
                 if "provider" in table_columns:
@@ -1989,29 +2111,64 @@ def customer_upload(request):
                 if "energy_type" in table_columns:
                     df["energy_type"] = energy_type_name
 
-                # Insert rows safely
-                columns = ", ".join(f"`{col}`" for col in df.columns)
-                placeholders = ", ".join(["%s"] * len(df.columns))
-                insert_sql = f"INSERT INTO `{target_table}` ({columns}) VALUES ({placeholders})"
-                values = [tuple(sanitize_value(v) for v in row) for row in df.values]
+                # =====================================================
+                # UPSERT LOGIC
+                # =====================================================
+                is_solar = "solar" in table_name.lower()
 
-                with connection.cursor() as cursor:
-                    cursor.executemany(insert_sql, values)
-                    rows_inserted = cursor.rowcount
+                final_cols = list(df.columns)
+                col_sql = ", ".join(f"`{c}`" for c in final_cols)
+                placeholder_sql = ", ".join(["%s"] * len(final_cols))
 
-                if rows_inserted > 0:
-                    UploadMetadata.objects.update_or_create(
-                        table_name=target_table, defaults={"last_modified": now()}
+                # SOLAR UPSERT UNIQUE KEY: date + site + location
+                if is_solar:
+                    update_cols = [
+                        c for c in final_cols
+                        if c not in ["date", "site", "location"]
+                    ]
+                    update_clause = ", ".join(
+                        f"`{c}` = VALUES(`{c}`)" for c in update_cols
                     )
-                    uploaded_sheets.append(f"{sheet_name} → {rows_inserted} rows")
 
+                    sql = f"""
+                        INSERT INTO `{target_table}` ({col_sql})
+                        VALUES ({placeholder_sql})
+                        ON DUPLICATE KEY UPDATE {update_clause};
+                    """
+                else:
+                    # WIND → normal insert
+                    sql = f"""
+                        INSERT INTO `{target_table}` ({col_sql})
+                        VALUES ({placeholder_sql});
+                    """
+
+                # Prepare row values
+                values = [
+                    tuple(sanitize_value(v) for v in row)
+                    for row in df.values
+                ]
+
+                # Execute SQL
+                with connection.cursor() as cursor:
+                    cursor.executemany(sql, values)
+                    affected = cursor.rowcount
+
+                if affected > 0:
+                    UploadMetadata.objects.update_or_create(
+                        table_name=target_table,
+                        defaults={"last_modified": now()},
+                    )
+                    uploaded_sheets.append(f"{sheet_name} → {affected} rows")
+
+            # =====================================================
+            # RESULT MESSAGES
+            # =====================================================
             if uploaded_sheets:
-                messages.success(request, f"✅ Uploaded Successfully: {', '.join(uploaded_sheets)}")
+                messages.success(request, "✔ Upload Success:\n" + "\n".join(uploaded_sheets))
             else:
-                messages.error(request, "❌ No sheets uploaded successfully.")
+                messages.error(request, "❌ No sheets uploaded. Check Excel format.")
 
         except Exception as e:
-            print("❌ Error:", traceback.format_exc())
             messages.error(request, f"❌ Upload failed: {e}")
 
         finally:
@@ -2019,15 +2176,15 @@ def customer_upload(request):
 
         return redirect("customer_upload")
 
+    # =====================================================
+    # GET REQUEST
+    # =====================================================
     return render(request, "customer_upload.html", {
         "user_tables": user_tables,
         "providers": providers,
         "energy_types": energy_types,
-    })  
+    })
 
-
-
-    
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
