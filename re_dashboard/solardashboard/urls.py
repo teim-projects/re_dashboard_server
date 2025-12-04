@@ -11,4 +11,6 @@ urlpatterns = [
     # ... your other urls
     path('solar_plf_dashboard/', views.solar_plf_dashboard, name='solar_plf_dashboard'),
     path('api_solar_plf/', views.api_solar_plf, name='api_solar_plf'),
+    path("generation_operating/", views.generation_operating, name="generation_operating"),
+    path("api/generation_operating/", views.api_generation_operating, name="api_generation_operating"),
 ]

@@ -547,3 +547,331 @@ def api_solar_plf(request):
         "years": years,
         "sites": sorted(list(distinct_sites)),
     })
+
+
+
+
+
+# views.py
+import math
+from collections import defaultdict
+from datetime import datetime
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+import math
+from collections import defaultdict
+from datetime import datetime
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+# ---------- Helper utilities (reusable) ----------
+def _pick(col_map, *candidates):
+    """Pick first candidate present in col_map (case-insensitive)."""
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+def _parse_date(v):
+    """Try common date formats, return datetime.date or None."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    # fallback: try to parse ISO
+    try:
+        return datetime.fromisoformat(s).date()
+    except Exception:
+        return None
+
+def _clean_num(v):
+    """Return float cleaned from strings/None; safe 0 fallback."""
+    if v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).replace(",", "").strip()
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+# views.py (append / add)
+import math
+import calendar
+from collections import defaultdict
+from datetime import datetime
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from decimal import Decimal
+
+# -----------------------
+# Helper utils (auto-detect columns + clean parsing)
+# -----------------------
+def _pick(cmap, *candidates):
+    """Return actual column name from column map for first match (case-insensitive)."""
+    for cand in candidates:
+        if cand is None:
+            continue
+        if cand.lower() in cmap:
+            return cmap[cand.lower()]
+    return None
+
+def _parse_date(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v
+    # try common date strings
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(str(v), fmt)
+        except Exception:
+            pass
+    # fallback: try parse via fromisoformat
+    try:
+        return datetime.fromisoformat(str(v))
+    except Exception:
+        return None
+
+def _clean_num(v):
+    if v is None:
+        return 0.0
+    if isinstance(v, (float, int)):
+        return float(v)
+    try:
+        return float(Decimal(str(v)))
+    except Exception:
+        try:
+            s = str(v).replace(",", "").strip()
+            return float(s)
+        except Exception:
+            return 0.0
+
+# -----------------------
+# Page view
+import math
+from datetime import datetime
+from collections import defaultdict
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+# ---------------- helpers ---------------- #
+def _pick(col_map, *candidates):
+    """Return real column name from col_map by trying candidate variants (case-insensitive)."""
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+def _parse_date(val):
+    if not val:
+        return None
+    if isinstance(val, (datetime,)):
+        return val
+    # try common string formats
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y", "%d-%B-%Y"):
+        try:
+            return datetime.strptime(str(val), fmt)
+        except Exception:
+            pass
+    # try SQL timestamp fallback
+    try:
+        return datetime.fromisoformat(str(val))
+    except Exception:
+        return None
+
+def _clean_num(v):
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except Exception:
+        try:
+            # remove commas
+            return float(str(v).replace(",", ""))
+        except Exception:
+            return None
+
+# ---------------- page view ---------------- #
+@login_required
+def generation_operating(request):
+    # this page renders the template; filters handled in API
+    return render(request, "generation_operating.html")
+
+# ---------------- API ---------------- #
+@login_required
+def api_generation_operating(request):
+    """
+    Returns JSON:
+    {
+      "years": [2023,2024],
+      "sites": ["S1","S2"],
+      "kpis": {"generation_daily_avg":..., "operating_daily_avg":...},
+      "monthly_by_year": {
+         "2023": [{"m":1,"gen":..., "op":...}, ... 12],
+         "2024": [...]
+      },
+      "comparison": {"generation_total":..., "operating_total":...}
+    }
+    """
+    site_filter = request.GET.get("site")
+    year_filter = request.GET.get("year")
+    month_filter = request.GET.get("month")
+    day_filter = request.GET.get("day")
+
+    # fetch DB tables
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [r[0] for r in cursor.fetchall()]
+
+    # pick candidate solar tables by heuristic
+    candidate_tables = []
+    for t in db_tables:
+        tl = t.lower()
+        if 'solar' in tl or tl.endswith('_solar') or '_solar_' in tl:
+            candidate_tables.append(t)
+
+    distinct_sites = set()
+    rows = []  # unified rows with keys: date, site, gen_hours, op_hours
+
+    for table in candidate_tables:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
+            cols = [c[0] for c in cursor.fetchall()]
+        col_map = {c.lower(): c for c in cols}
+
+        date_col = _pick(col_map, "date", "reading_date", "gen_date", "timestamp")
+        site_col = _pick(col_map, "site", "location", "sitename", "plant", "sitecode", "location_name")
+
+        # possible names for generation and operating hours
+        gen_col = _pick(col_map,
+                        "generation_hours", "gen_hours", "gen_hour", "generation",
+                        "daily_generation", "daily generation", "generation_kwh", "daily_gen")
+        op_col = _pick(col_map,
+                       "operating_hours", "op_hours", "op_hour", "operating",
+                       "operation_hours", "operating_hours_decimal", "operating_hour")
+
+        # if we don't have at least date + one of gen/op, skip
+        if not date_col or (not gen_col and not op_col):
+            continue
+
+        # build where clauses
+        conditions = []
+        params = []
+        if site_filter and site_col:
+            conditions.append(f"`{site_col}` = %s")
+            params.append(site_filter)
+        if year_filter and date_col:
+            conditions.append(f"YEAR(`{date_col}`) = %s")
+            params.append(year_filter)
+        if month_filter and date_col:
+            conditions.append(f"MONTH(`{date_col}`) = %s")
+            params.append(month_filter)
+        if day_filter and date_col:
+            conditions.append(f"DAY(`{date_col}`) = %s")
+            params.append(day_filter)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        sel_cols = []
+        sel_cols.append(f"`{date_col}` as dt")
+        sel_cols.append(f"`{site_col}` as site") if site_col else sel_cols.append("NULL as site")
+        sel_cols.append(f"`{gen_col}` as gen") if gen_col else sel_cols.append("NULL as gen")
+        sel_cols.append(f"`{op_col}` as op") if op_col else sel_cols.append("NULL as op")
+
+        query = f"SELECT {', '.join(sel_cols)} FROM `{table}` {where} ORDER BY `{date_col}` ASC"
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                fetched = cursor.fetchall()
+                desc = [d[0].lower() for d in cursor.description]
+        except Exception:
+            # skip tables that error
+            continue
+
+        for row in fetched:
+            rec = dict(zip(desc, row))
+            dt = _parse_date(rec.get("dt"))
+            if not dt:
+                continue
+            site = rec.get("site") or "Unknown"
+            gen = _clean_num(rec.get("gen"))
+            op = _clean_num(rec.get("op"))
+            distinct_sites.add(str(site))
+            rows.append({"date": dt, "site": str(site), "gen": gen, "op": op})
+
+    if not rows:
+        return JsonResponse({
+            "years": [],
+            "sites": sorted(list(distinct_sites)),
+            "kpis": {"generation_daily_avg": 0, "operating_daily_avg": 0},
+            "monthly_by_year": {},
+            "comparison": {"generation_total": 0, "operating_total": 0}
+        })
+
+    # apply site_filter again if not applied in SQL (defensive)
+    if site_filter:
+        rows = [r for r in rows if r["site"] == site_filter]
+
+    # KPI calculations - daily average (mean of day's gen/op where available)
+    gen_values = [r["gen"] for r in rows if r["gen"] is not None]
+    op_values = [r["op"] for r in rows if r["op"] is not None]
+    generation_daily_avg = round(sum(gen_values)/len(gen_values), 2) if gen_values else 0
+    operating_daily_avg = round(sum(op_values)/len(op_values), 2) if op_values else 0
+
+    # monthly-by-year aggregation: compute average per month per year for both metrics
+    monthly_by_year = defaultdict(lambda: {m: {"gen_vals": [], "op_vals": []} for m in range(1,13)})
+    totals = {"gen": 0.0, "op": 0.0}
+
+    for r in rows:
+        y = r["date"].year
+        m = r["date"].month
+        if r["gen"] is not None:
+            monthly_by_year[y][m]["gen_vals"].append(r["gen"])
+            totals["gen"] += (r["gen"] or 0)
+        if r["op"] is not None:
+            monthly_by_year[y][m]["op_vals"].append(r["op"])
+            totals["op"] += (r["op"] or 0)
+
+    # build nice structure
+    result_monthly = {}
+    for y, months in monthly_by_year.items():
+        lst = []
+        for m in range(1,13):
+            gen_vals = months[m]["gen_vals"]
+            op_vals = months[m]["op_vals"]
+            gen_avg = round(sum(gen_vals)/len(gen_vals), 3) if gen_vals else None
+            op_avg  = round(sum(op_vals)/len(op_vals), 3) if op_vals else None
+            lst.append({"m": m, "gen": gen_avg, "op": op_avg})
+        result_monthly[y] = lst
+
+    years = sorted(result_monthly.keys())
+
+    return JsonResponse({
+        "years": years,
+        "sites": sorted(list(distinct_sites)),
+        "kpis": {
+            "generation_daily_avg": generation_daily_avg,
+            "operating_daily_avg": operating_daily_avg
+        },
+        "monthly_by_year": result_monthly,
+        "comparison": {
+            "generation_total": round(totals["gen"], 2),
+            "operating_total": round(totals["op"], 2)
+        }
+    })
