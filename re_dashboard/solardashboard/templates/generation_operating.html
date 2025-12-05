@@ -214,7 +214,6 @@
   <div id="tooltip" class="d3-tooltip" style="opacity:0;"></div>
 
 </div>
-
 <script>
 const API = "{% url 'api_generation_operating' %}";
 
@@ -229,19 +228,26 @@ let state = {
   selectedYearsOp: new Set()
 };
 
+let firstLoad = true;
 const tooltip = d3.select("#tooltip");
 
-// fetch and draw
-async function loadAndDraw(){
+
+// ---------------------------
+// MAIN LOAD FUNCTION
+// ---------------------------
+async function loadAndDraw() {
   const params = new URLSearchParams();
+
+  // Read filters (ALL EMPTY BY DEFAULT)
   const site = document.getElementById("site").value;
   const year = document.getElementById("year").value;
   const month = document.getElementById("month").value;
   const day = document.getElementById("day").value;
-  if(site) params.append("site", site);
-  if(year) params.append("year", year);
-  if(month) params.append("month", month);
-  if(day) params.append("day", day);
+
+  if (site) params.append("site", site);
+  if (year) params.append("year", year);
+  if (month) params.append("month", month);
+  if (day) params.append("day", day);
 
   const res = await fetch(API + "?" + params.toString());
   const data = await res.json();
@@ -250,71 +256,106 @@ async function loadAndDraw(){
   state.monthly_by_year = data.monthly_by_year || {};
   state.sites = data.sites || [];
 
-  // set site and year options
+  // Update dropdowns without resetting user choices
   setOptions();
 
-  // set KPIs
-  document.getElementById("kpi-gen").textContent = data.kpis ? (data.kpis.generation_daily_avg || 0) : 0;
-  document.getElementById("kpi-op").textContent = data.kpis ? (data.kpis.operating_daily_avg || 0) : 0;
+  // Set KPIs
+  document.getElementById("kpi-gen").textContent =
+      data.kpis ? (data.kpis.generation_daily_avg || 0) : 0;
 
-  // set default selected years (all)
-  state.selectedYearsGen = new Set(state.years);
-  state.selectedYearsOp = new Set(state.years);
+  document.getElementById("kpi-op").textContent =
+      data.kpis ? (data.kpis.operating_daily_avg || 0) : 0;
+
+  // Default all years selected ONCE only
+  if (firstLoad) {
+    state.selectedYearsGen = new Set(state.years);
+    state.selectedYearsOp = new Set(state.years);
+    firstLoad = false;
+  }
 
   drawLineCharts();
   drawComparison(data.comparison || {});
 }
 
-function setOptions(){
+
+
+// ---------------------------
+// PRESERVE FILTER SELECTIONS
+// ---------------------------
+function setOptions() {
   const siteSel = document.getElementById("site");
-  const yrSel = document.getElementById("year");
-  // sites
+  const yearSel = document.getElementById("year");
+
+  const prevSite = siteSel.value;
+  const prevYear = yearSel.value;
+
+  // Sites
   siteSel.innerHTML = "<option value=''>All Sites</option>";
   state.sites.forEach(s => {
-    const o = document.createElement("option"); o.value = s; o.text = s; siteSel.appendChild(o);
+    const opt = document.createElement("option");
+    opt.value = s;
+    opt.text = s;
+    siteSel.appendChild(opt);
   });
-  // years
-  yrSel.innerHTML = "<option value=''>All Years</option>";
+
+  // Years
+  yearSel.innerHTML = "<option value=''>All Years</option>";
   state.years.forEach(y => {
-    const o = document.createElement("option"); o.value = y; o.text = y; yrSel.appendChild(o);
+    const opt = document.createElement("option");
+    opt.value = y;
+    opt.text = y;
+    yearSel.appendChild(opt);
   });
+
+  // Restore old values
+  siteSel.value = prevSite;
+  yearSel.value = prevYear;
 }
 
-// ----- DRAW LINE CHARTS (GEN + OP) -----
+
+
+// ---------------------------
+// DRAW BOTH LINE CHARTS
+// ---------------------------
 function drawLineCharts(){
   drawSingleLine("#chart-op", "op", "#legend-op");
   drawSingleLine("#chart-gen", "gen", "#legend-gen");
 }
 
+
+
 function drawSingleLine(containerSelector, metricKey, legendSelector){
+
   const container = d3.select(containerSelector);
   container.selectAll("*").remove();
+
   const width = container.node().clientWidth;
   const height = container.node().clientHeight || 320;
-  const margin = {top:20, right:24, bottom:36, left:48};
-  const innerW = Math.max(300, width - margin.left - margin.right);
-  const innerH = Math.max(120, height - margin.top - margin.bottom);
 
-  // build series per year (array length 12) with nulls where missing
+  const margin = {top:20, right:24, bottom:36, left:48};
+  const innerW = width - margin.left - margin.right;
+  const innerH = height - margin.top - margin.bottom;
+
   const years = state.years;
+
   const series = years.map((y, idx) => {
     const months = state.monthly_by_year[y] || [];
-    // months is array of objects {m:1..12, gen:, op:}
     const values = [];
-    for(let m=1; m<=12; m++){
+
+    for (let m = 1; m <= 12; m++) {
       const item = months[m-1] || {};
-      const v = (metricKey === "gen" ? item.gen : item.op);
+      const v = metricKey === "gen" ? item.gen : item.op;
       values.push(v === null ? null : +v);
     }
+
     return {year: y, values, color: colorForYear(y, idx)};
   });
 
-  // scales
-  // flatten numeric values to find y domain but ignore nulls
   const allVals = series.flatMap(s => s.values.filter(v => v != null));
   const yMax = allVals.length ? d3.max(allVals) : 1;
   const yMin = allVals.length ? d3.min(allVals) : 0;
-  const yPad = Math.max( (yMax - yMin) * 0.12, 0.2 );
+
+  const yPad = Math.max((yMax - yMin) * 0.12, 0.2);
 
   const x = d3.scaleLinear().domain([1,12]).range([0, innerW]);
   const y = d3.scaleLinear().domain([Math.max(0, yMin - yPad), yMax + yPad]).range([innerH, 0]);
@@ -322,146 +363,179 @@ function drawSingleLine(containerSelector, metricKey, legendSelector){
   const svg = container.append("svg").attr("width", width).attr("height", height);
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-  // axes
-  const xAxis = d3.axisBottom(x).ticks(12).tickFormat(i => MONTHS[i-1]).tickSizeOuter(0);
+  const xAxis = d3.axisBottom(x).ticks(12).tickFormat(i => MONTHS[i-1]);
   const yAxis = d3.axisLeft(y).ticks(6);
 
-  g.append("g").attr("class","axis-y").call(yAxis);
-  g.append("g").attr("class","axis-x").attr("transform", `translate(0,${innerH})`).call(xAxis)
-    .selectAll("text").attr("transform","translate(-6,6) rotate(-20)").style("text-anchor","end");
+  g.append("g").call(yAxis);
+  g.append("g").attr("transform", `translate(0,${innerH})`).call(xAxis);
 
-  // grid lines horizontal
   g.append("g").selectAll("line.grid")
     .data(y.ticks(6)).enter()
     .append("line")
-    .attr("class","grid")
     .attr("x1",0).attr("x2",innerW)
     .attr("y1",d=>y(d)).attr("y2",d=>y(d))
-    .style("stroke", "#e6f0f8").style("stroke-width", 1);
+    .style("stroke", "#e6f0f8");
 
-  // line generator with defined to skip nulls (prevents drop to zero)
   const line = d3.line()
     .defined(d => d != null)
     .x((d,i) => x(i+1))
     .y(d => y(d))
     .curve(d3.curveMonotoneX);
 
-  // draw each year line & points
-  const seriesGroup = g.append("g").attr("class","series-group");
+  const seriesGroup = g.append("g");
 
   series.forEach((s, idx) => {
-    // path
+
     const path = seriesGroup.append("path")
       .datum(s.values)
       .attr("fill","none")
       .attr("stroke", s.color)
       .attr("stroke-width", 2.5)
-      .attr("d", line)
-      .style("opacity", 0.95);
+      .attr("d", line);
 
-    // animated draw
-    const totalLen = path.node().getTotalLength ? path.node().getTotalLength() : null;
-    if (totalLen) {
-      path.attr("stroke-dasharray", `${totalLen} ${totalLen}`)
-          .attr("stroke-dashoffset", totalLen)
-          .transition().duration(900).ease(d3.easeCubicOut)
-          .attr("stroke-dashoffset", 0);
-    }
+    const total = path.node().getTotalLength();
+    path.attr("stroke-dasharray", total)
+        .attr("stroke-dashoffset", total)
+        .transition().duration(800)
+        .attr("stroke-dashoffset", 0);
 
-    // points (only for defined)
-    seriesGroup.selectAll(".pts-"+idx)
-      .data(s.values.map((v,i) => ({v,i})).filter(d=>d.v != null))
+    seriesGroup.selectAll(".p"+idx)
+      .data(s.values.map((v,i)=>({v,i})).filter(d=>d.v!=null))
       .enter().append("circle")
       .attr("cx", d=>x(d.i+1))
       .attr("cy", d=>y(d.v))
-      .attr("r", 3.5)
+      .attr("r",3.5)
       .attr("fill", s.color)
       .attr("stroke","#fff")
-      .on("mousemove", (evt,d) => {
-         const [mx,my] = d3.pointer(evt);
-         tooltip.style("opacity",1)
-                .style("left",(evt.pageX+12)+"px")
-                .style("top",(evt.pageY+12)+"px")
-                .html(`<strong>${s.year} - ${MONTHS[d.i]}</strong><div>${metricKey==='gen' ? 'Gen' : 'Op'}: ${d.v}</div>`);
+      .on("mousemove",(evt,d)=>{
+        tooltip.style("opacity",1)
+          .style("left",(evt.pageX+10)+"px")
+          .style("top",(evt.pageY+10)+"px")
+          .html(`<strong>${s.year} - ${MONTHS[d.i]}</strong><br>${metricKey==='gen' ? 'Gen' : 'Op'}: ${d.v}`);
       })
-      .on("mouseleave", ()=> tooltip.style("opacity",0));
+      .on("mouseleave",()=>tooltip.style("opacity",0));
   });
 
-  // legend
+  // ---- Legend
   const legend = d3.select(legendSelector);
   legend.html("");
-  years.forEach((y, idx) => {
-    const it = legend.append("div").attr("class","legend-item").style("background", "#fff")
-      .on("click", () => toggleYear(y, metricKey));
-    it.append("div").attr("class","legend-color").style("background", colorForYear(y, idx))
-    it.append("div").text(y).style("font-size","13px").style("color","#183254");
+
+  years.forEach((y,idx)=>{
+    const it = legend.append("div")
+      .attr("class","legend-item")
+      .on("click",()=>toggleYear(y, metricKey));
+
+    it.append("div")
+      .attr("class","legend-color")
+      .style("background", colorForYear(y,idx));
+
+    it.append("div").text(y);
   });
 
-  // show/hide logic uses state.selectedYearsGen/Op
-  function toggleYear(year, key) {
-    const setRef = (key==='gen') ? state.selectedYearsGen : state.selectedYearsOp;
-    if (setRef.has(year)) setRef.delete(year); else setRef.add(year);
-    // redraw with filtered years (we'll filter while drawing by using setRef)
-    // to keep this function generic, redraw both charts
-    drawLineCharts();
-  }
+  const selectedSet = (metricKey==="gen") ? state.selectedYearsGen : state.selectedYearsOp;
 
-  // when drawing, filter series by selectedYears
-  // BUT because function already drew all, we need to re-draw filtering at top.
-  // To keep it simple and efficient: if a year is not selected, set path opacity low
-  // (we will apply that now)
-  const selectedSet = (metricKey === "gen") ? state.selectedYearsGen : state.selectedYearsOp;
   seriesGroup.selectAll("path")
     .each(function(d,i){
       const yr = years[i];
-      d3.select(this).style("opacity", selectedSet.has(yr) ? 0.95 : 0.12);
+      d3.select(this).style("opacity", selectedSet.has(yr) ? 0.95 : 0.1);
     });
-  seriesGroup.selectAll("circle")
-    .each(function(d,i){
-      // determine parent series by computing approximate index from color match:
-      const col = d3.select(this).attr("fill");
-      const sidx = series.findIndex(s=>s.color===col);
-      const yr = years[sidx];
-      d3.select(this).style("opacity", selectedSet.has(yr) ? 1 : 0.08);
-    });
+
 }
 
-// ----- bottom comparison bar (simple) -----
+
+
+// ---------------------------
+// TOGGLE YEAR VISIBILITY
+// ---------------------------
+function toggleYear(year, key){
+  const setRef = key === "gen" ? state.selectedYearsGen : state.selectedYearsOp;
+  if(setRef.has(year)) setRef.delete(year);
+  else setRef.add(year);
+  drawLineCharts();
+}
+
+
+
+// ---------------------------
+// BOTTOM COMPARISON BARS
+// ---------------------------
 function drawComparison(comparison){
-  const container = d3.select("#chart-compare");
-  container.selectAll("*").remove();
-  const w = container.node().clientWidth;
-  const h = container.node().clientHeight || 160;
-  const svg = container.append("svg").attr("width",w).attr("height",h);
-  const margin = {left:40, right:20, top:12, bottom:20};
-  const innerW = w - margin.left - margin.right;
-  const innerH = h - margin.top - margin.bottom;
-  const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+    const container = d3.select("#chart-compare");
+    container.selectAll("*").remove();
 
-  const gen = comparison.generation_total || 0;
-  const op  = comparison.operating_total || 0;
-  const max = Math.max(gen, op, 1);
+    const w = container.node().clientWidth;
+    const h = 160;
 
-  const x = d3.scaleLinear().domain([0, max]).range([0, innerW]);
+    const svg = container.append("svg").attr("width", w).attr("height", h);
 
-  // background bars
-  const barH = 22;
-  g.append("rect").attr("x",0).attr("y",10).attr("width", x(gen)).attr("height",barH).attr("fill","#1f6fb6");
-  g.append("rect").attr("x",0).attr("y",40).attr("width", x(op)).attr("height",barH).attr("fill","#08306b").attr("opacity",0.8);
+    const margin = {left:120, right:20, top:20, bottom:20};
+    const innerW = w - margin.left - margin.right;
 
-  g.append("text").attr("x",0).attr("y",8).text("Generation").style("font-size","12px").style("fill","#234e7a");
-  g.append("text").attr("x",0).attr("y",38).text("Operating").style("font-size","12px").style("fill","#234e7a");
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-  g.append("text").attr("x",x(gen)+8).attr("y",10+barH/2+4).text(gen.toLocaleString()).style("font-size","12px").style("fill","#0b2b3f");
-  g.append("text").attr("x",x(op)+8).attr("y",40+barH/2+4).text(op.toLocaleString()).style("font-size","12px").style("fill","#0b2b3f");
+    const gen = +comparison.generation_total || 0;
+    const op  = +comparison.operating_total || 0;
+
+    const max = Math.max(gen, op, 1);
+
+    const barH = 26;
+    const gap = 24;
+
+    const x = d3.scaleLinear().domain([0,max]).range([0, innerW]);
+
+    const data = [
+      {label:"Generation", value:gen, color:"#1f6fb6"},
+      {label:"Operating",  value:op,  color:"#002f6c"}
+    ];
+
+    g.selectAll("bars")
+      .data(data)
+      .enter()
+      .append("rect")
+      .attr("x",0)
+      .attr("y",(d,i)=>i*(barH+gap))
+      .attr("width",d=>x(d.value))
+      .attr("height",barH)
+      .attr("rx",8)
+      .attr("fill",d=>d.color);
+
+    // left labels
+    g.selectAll("labels")
+      .data(data)
+      .enter()
+      .append("text")
+      .attr("x",-10)
+      .attr("y",(d,i)=>i*(barH+gap)+barH/2+4)
+      .attr("text-anchor","end")
+      .style("font-size","14px")
+      .style("fill","#203a55")
+      .text(d=>d.label);
+
+    // value inside
+    g.selectAll("values")
+      .data(data)
+      .enter()
+      .append("text")
+      .attr("x",d=>x(d.value)-12)
+      .attr("y",(d,i)=>i*(barH+gap)+barH/2+4)
+      .attr("text-anchor","end")
+      .style("font-size","14px")
+      .style("fill","white")
+      .style("font-weight",600)
+      .text(d=>d.value.toLocaleString());
 }
 
-// --- UI bindings ---
+
+
+// ---------------------------
+// FILTER CHANGE EVENTS
+// ---------------------------
 document.getElementById("site").addEventListener("change", loadAndDraw);
 document.getElementById("year").addEventListener("change", loadAndDraw);
 document.getElementById("month").addEventListener("change", loadAndDraw);
 document.getElementById("day").addEventListener("change", loadAndDraw);
-document.getElementById("btn-reset").addEventListener("click", ()=>{
+
+document.getElementById("btn-reset").addEventListener("click", () => {
   document.getElementById("site").value = "";
   document.getElementById("year").value = "";
   document.getElementById("month").value = "";
@@ -469,15 +543,21 @@ document.getElementById("btn-reset").addEventListener("click", ()=>{
   loadAndDraw();
 });
 
-// init
+
+// ---------------------------
+// INITIAL PAGE LOAD
+// ---------------------------
 loadAndDraw();
 
-// redraw responsive
-window.addEventListener("resize", () => {
-  // small debounce
-  if (window._resizeTO) clearTimeout(window._resizeTO);
-  window._resizeTO = setTimeout(()=> loadAndDraw(), 250);
+
+// ---------------------------
+// RESPONSIVE REDRAW
+// ---------------------------
+window.addEventListener("resize", ()=>{
+  clearTimeout(window._rs);
+  window._rs = setTimeout(loadAndDraw, 250);
 });
 </script>
+
 
 {% endblock %}

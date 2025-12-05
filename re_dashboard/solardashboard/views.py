@@ -875,3 +875,182 @@ def api_generation_operating(request):
             "operating_total": round(totals["op"], 2)
         }
     })
+
+
+
+# --- WEATHER & BREAKDOWN DASHBOARD PAGE ---
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.db import connection
+
+# --- WEATHER + BREAKDOWN DASHBOARD API ---
+
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
+
+# ----------------------------
+# Helper functions
+# ----------------------------
+def _pick(col_map, *candidates):
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+def _parse_date(v):
+    if isinstance(v, datetime):
+        return v.date()
+    s = str(v)
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except:
+            pass
+    return None
+
+def _num(v):
+    if v is None:
+        return 0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except:
+        return 0
+
+
+# ---------------------------------------------------
+# PAGE VIEW
+# ---------------------------------------------------
+def solar_weather_breakdown_dashboard(request):
+    return render(request, "solar_weather_breakdown_dashboard.html")
+
+
+# ---------------------------------------------------
+# FINAL API (Weather + Breakdown)
+# ---------------------------------------------------
+@login_required
+def api_weather_breakdown(request):
+
+    site = request.GET.get("site")
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+    day = request.GET.get("day")
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES")
+        tables = [r[0] for r in cursor.fetchall()]
+
+    rows = []
+    all_sites = set()
+    all_years = set()
+
+    for table in tables:
+        if "solar" not in table.lower():
+            continue
+
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+            cols = [c[0] for c in cursor.fetchall()]
+        col_map = {c.lower(): c for c in cols}
+
+        date_col = _pick(col_map, "date", "reading_date", "day")
+        site_col = _pick(col_map, "site", "sitename", "location")
+        gen_col = _pick(col_map, "generation_hours", "generation", "daily_generation")
+        weather_col = _pick(col_map, "weather_condition", "weather")
+        breakdown_col = _pick(col_map, "breakdown_details", "breakdown")
+
+        if not date_col:
+            continue
+
+        # Build SQL filter
+        conditions = []
+        params = []
+
+        if site and site_col:
+            conditions.append(f"`{site_col}`=%s")
+            params.append(site)
+
+        if year:
+            conditions.append(f"YEAR(`{date_col}`)=%s")
+            params.append(year)
+
+        if month:
+            conditions.append(f"MONTH(`{date_col}`)=%s")
+            params.append(month)
+
+        if day:
+            conditions.append(f"DAY(`{date_col}`)=%s")
+            params.append(day)
+
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+        q = f"""
+            SELECT 
+                `{date_col}` AS dt,
+                `{site_col}` AS site,
+                `{gen_col}` AS gen,
+                `{weather_col}` AS weather,
+                `{breakdown_col}` AS breakdown
+            FROM `{table}`
+            {where};
+        """
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(q, params)
+                fetched = cursor.fetchall()
+                desc = [d[0].lower() for d in cursor.description]
+        except:
+            continue
+
+        for row in fetched:
+            r = dict(zip(desc, row))
+
+            date_val = _parse_date(r.get("dt"))
+            if not date_val:
+                continue
+
+            rows.append({
+                "date": date_val,
+                "site": r.get("site") or "Unknown",
+                "gen": _num(r.get("gen")),
+                "weather": r.get("weather") or "Unknown",
+                "breakdown": r.get("breakdown") or None,
+            })
+
+            all_sites.add(r.get("site"))
+            all_years.add(date_val.year)
+
+    # -----------------------------------
+    # AGGREGATE
+    # -----------------------------------
+    weather_sum = defaultdict(float)
+    breakdown_count = defaultdict(int)
+
+    for r in rows:
+        weather_sum[r["weather"]] += r["gen"]
+        if r["breakdown"]:
+            breakdown_count[r["breakdown"]] += 1
+
+    # Sort & Limit
+    weather_list = sorted(
+        [{"label": k, "value": v} for k, v in weather_sum.items()],
+        key=lambda x: x["value"],
+        reverse=True
+    )[:15]
+
+    breakdown_list = sorted(
+        [{"label": k, "count": v} for k, v in breakdown_count.items()],
+        key=lambda x: x["count"],
+        reverse=True
+    )[:15]
+
+    return JsonResponse({
+        "sites": sorted(all_sites),
+        "years": sorted(all_years),
+        "weather_data": weather_list,
+        "breakdown_data": breakdown_list,
+    })

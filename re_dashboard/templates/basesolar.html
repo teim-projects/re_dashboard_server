@@ -183,6 +183,26 @@
     </span>
     PLF Performance
 </a>
+<!-- Generation & Operating Dashboard -->
+<a class="nav-link navcontent {% if request.path == '/generation_operating/' %}active{% endif %}"
+   href="{% url 'generation_operating' %}">
+    <span class="sidebar-icon">
+        <i class="fa-solid fa-chart-line" style="color:#2196F3;"></i>
+    </span>
+    Generation & Operating
+</a>
+
+
+<a class="nav-link navcontent {% if request.path == '/solar_weather_breakdown_dashboard/' %}active{% endif %}"
+   href="{% url 'solar_weather_breakdown_dashboard' %}">
+    <span class="sidebar-icon">
+<i class="fa-solid fa-cloud-sun" style="color:#ffc72e;"></i>
+    </span>
+    Weather Breakdown
+</a>
+
+ 
+
 
 
 

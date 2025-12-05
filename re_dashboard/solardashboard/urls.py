@@ -13,4 +13,9 @@ urlpatterns = [
     path('api_solar_plf/', views.api_solar_plf, name='api_solar_plf'),
     path("generation_operating/", views.generation_operating, name="generation_operating"),
     path("api/generation_operating/", views.api_generation_operating, name="api_generation_operating"),
+        # Page
+    path("solar_weather_breakdown/", views.solar_weather_breakdown_dashboard, name="solar_weather_breakdown_dashboard"),
+
+    # API
+    path("api/weather_breakdown/", views.api_weather_breakdown, name="api_weather_breakdown"),
 ]
