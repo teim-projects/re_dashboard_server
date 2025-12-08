@@ -18,4 +18,19 @@ urlpatterns = [
 
     # API
     path("api/weather_breakdown/", views.api_weather_breakdown, name="api_weather_breakdown"),
+
+    # NEW DASHBOARD PAGE
+path(
+    "brekdown_genration_whether_dashboard/",
+    views.brekdown_genration_whether_dashboard,
+    name="brekdown_genration_whether_dashboard"
+),
+
+# API ENDPOINT
+path(
+    "api/brekdown_genration_whether_dashboard/",
+    views.api_brekdown_genration_whether_dashboard,
+    name="api_brekdown_genration_whether_dashboard"
+),
+
 ]

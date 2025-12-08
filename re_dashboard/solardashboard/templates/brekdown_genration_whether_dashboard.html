@@ -1,0 +1,296 @@
+{% extends "basesolar.html" %}
+{% load static %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+.page-wrapper {
+    margin-top: 80px;
+    padding: 0 20px 20px;
+    font-family: 'Poppins', sans-serif;
+}
+
+/* Top blue header */
+.header-strip {
+    background: linear-gradient(90deg, #0054a6, #0079c4);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 16px 16px 0 0;
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    letter-spacing: .5px;
+    box-shadow: 0 4px 10px rgba(0,0,0,.25);
+}
+
+/* Main layout */
+.solar-layout {
+    display: grid;
+    grid-template-columns: 230px 1fr;
+    background: #dfefff;
+    border-radius: 0 0 16px 16px;
+    box-shadow: 0 10px 20px rgba(0,0,0,.18);
+}
+
+/* FILTER PANEL */
+.filter-pane {
+    background: linear-gradient(180deg, #e7f1ff, #c7e1ff);
+    padding: 15px 10px;
+    border-radius: 0 0 0 16px;
+    border-right: 1px solid rgba(255,255,255,.6);
+}
+
+.filter-group { margin-bottom: 18px; }
+
+.filter-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #063a73;
+    margin-bottom: 4px;
+}
+
+.filter-select {
+    width: 100%;
+    border-radius: 6px;
+    border: 1px solid #a3c5ec;
+    padding: 4px 8px;
+    font-size: 13px;
+    background: #ffffff;
+}
+
+/* CHART AREA */
+.charts-pane {
+    padding: 15px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+}
+
+/* Cards */
+.chart-card {
+    background: #f7fbff;
+    border-radius: 10px;
+    padding: 14px 16px 10px;
+    border: 1px solid #c5ddf7;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.07);
+}
+
+.chart-title {
+    text-align: center;
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: #1f3965;
+}
+
+.canvas-wrap {
+    height: 260px;
+}
+
+/* MAKE SECOND CHART FULL WIDTH */
+.chart-row-2 {
+    grid-column: 1 / -1 !important;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .solar-layout {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<div class="page-wrapper">
+    <div class="header-strip">
+        HYUNDAI SOLAR ANALYSIS
+    </div>
+
+    <div class="solar-layout">
+
+        <!-- FILTERS -->
+        <div class="filter-pane">
+
+            <div class="filter-group">
+                <div class="filter-label">Year</div>
+                <select id="filter-year" class="filter-select">
+                    <option value="">All</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <div class="filter-label">Month</div>
+                <select id="filter-month" class="filter-select">
+                    <option value="">All</option>
+                    <option value="1">Jan</option>
+                    <option value="2">Feb</option>
+                    <option value="3">Mar</option>
+                    <option value="4">Apr</option>
+                    <option value="5">May</option>
+                    <option value="6">Jun</option>
+                    <option value="7">Jul</option>
+                    <option value="8">Aug</option>
+                    <option value="9">Sep</option>
+                    <option value="10">Oct</option>
+                    <option value="11">Nov</option>
+                    <option value="12">Dec</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <div class="filter-label">Day</div>
+                <select id="filter-day" class="filter-select">
+                    <option value="">All</option>
+                    {% for d in "1234567890123456789012345678901"|make_list %}
+                        <option value="{{ forloop.counter }}">{{ forloop.counter }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+        </div>
+
+        <!-- CHARTS -->
+        <div class="charts-pane">
+
+            <!-- FIRST CHART (normal width) -->
+            <div class="chart-card chart-row-1">
+                <div class="chart-title">Daily Generation and Generation Hours</div>
+                <div class="canvas-wrap">
+                    <canvas id="lineChart"></canvas>
+                </div>
+            </div>
+
+            <!-- SECOND CHART (FULL WIDTH) -->
+            <div class="chart-card chart-row-2">
+                <div class="chart-title">Daily Generation by Weather Condition</div>
+                <div class="canvas-wrap" style="height:320px;">
+                    <canvas id="weatherChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+const API_URL = "{% url 'api_brekdown_genration_whether_dashboard' %}";
+
+let lineChart = null;
+let weatherChart = null;
+let yearOptionsLoaded = false;
+
+function groupByYear(lineData) {
+    const map = {};
+    lineData.forEach(r => {
+        const year = r.date.slice(0, 4);
+        if (!map[year]) map[year] = { gen: 0, gh: 0 };
+        map[year].gen += r.gen || 0;
+        map[year].gh  += r.gh  || 0;
+    });
+
+    const years = Object.keys(map).sort();
+    return {
+        labels: years,
+        gen: years.map(y => map[y].gen),
+        gh:  years.map(y => map[y].gh),
+    };
+}
+
+async function loadDashboard() {
+    const params = new URLSearchParams();
+    ["filter-year","filter-month","filter-day"].forEach(id => {
+        const val = document.getElementById(id).value;
+        if (val) params.append(id.replace("filter-",""), val);
+    });
+
+    const res = await fetch(API_URL + "?" + params.toString());
+    const data = await res.json();
+
+    if (data.status === "no_data") {
+        if (lineChart) lineChart.destroy();
+        if (weatherChart) weatherChart.destroy();
+        return;
+    }
+
+    if (!yearOptionsLoaded) {
+        const years = [...new Set(data.line.map(r => r.date.slice(0,4)))];
+        const sel = document.getElementById("filter-year");
+        years.forEach(y => sel.innerHTML += `<option value="${y}">${y}</option>`);
+        yearOptionsLoaded = true;
+    }
+
+    updateLineChart(data.line);
+    updateWeatherChart(data.weather);
+}
+
+function updateLineChart(lineData) {
+    const ctx = document.getElementById("lineChart").getContext("2d");
+    const grouped = groupByYear(lineData);
+
+    if (lineChart) lineChart.destroy();
+
+    lineChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: grouped.labels,
+            datasets: [
+                {
+                    label: 'Sum of Daily Generation',
+                    data: grouped.gen,
+                    borderColor: '#0054a6',
+                    backgroundColor: '#0054a6',
+                    borderWidth: 3,
+                    tension: 0.35,
+                    yAxisID: 'y1'
+                },
+                {
+                    label: 'Sum of Generation Hours',
+                    data: grouped.gh,
+                    borderColor: '#29a8ff',
+                    backgroundColor: '#29a8ff',
+                    borderWidth: 3,
+                    borderDash: [6,3],
+                    tension: 0.35,
+                    yAxisID: 'y2'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y1: { position: 'left' },
+                y2: { position: 'right' }
+            }
+        }
+    });
+}
+
+function updateWeatherChart(weatherData) {
+    const ctx = document.getElementById("weatherChart").getContext("2d");
+    if (weatherChart) weatherChart.destroy();
+
+    weatherChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: weatherData.map(w => w.weather),
+            datasets: [{
+                data: weatherData.map(w => w.generation),
+                backgroundColor: '#2f80ed'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false
+        }
+    });
+}
+
+document.getElementById("filter-year").addEventListener("change", loadDashboard);
+document.getElementById("filter-month").addEventListener("change", loadDashboard);
+document.getElementById("filter-day").addEventListener("change", loadDashboard);
+
+loadDashboard();
+</script>
+
+{% endblock %}

@@ -1054,3 +1054,201 @@ def api_weather_breakdown(request):
         "weather_data": weather_list,
         "breakdown_data": breakdown_list,
     })
+
+# ----------------------- IMPORTS -----------------------
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from datetime import datetime
+from decimal import Decimal
+
+
+# ----------------------- HELPERS -----------------------
+def _pick(col_map, *candidates):
+    """Return first matching column name from DB table."""
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+
+def _parse_date(v):
+    """Safe date parsing; returns None if invalid."""
+    if v is None:
+        return None
+
+    if isinstance(v, datetime):
+        return v.date()
+
+    s = str(v).strip()
+
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except:
+            pass
+
+    return None
+
+
+def _num(v):
+    if v is None:
+        return 0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except:
+        return 0
+
+
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from datetime import datetime
+from decimal import Decimal
+
+# ---------- helpers ----------
+def _pick(col_map, *candidates):
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+def _parse_date(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d",
+                "%d-%b-%y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            pass
+    return None
+
+def _num(v):
+    if v is None:
+        return 0.0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except Exception:
+        return 0.0
+
+
+# ---------- PAGE VIEW ----------
+@login_required
+def brekdown_genration_whether_dashboard(request):
+    return render(request, "brekdown_genration_whether_dashboard.html")
+
+
+# ---------- API VIEW ----------
+@login_required
+def api_brekdown_genration_whether_dashboard(request):
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+    day = request.GET.get("day")
+
+    # list tables
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+    solar_tables = [t for t in tables if "solar" in t.lower()]
+    rows = []
+
+    for table in solar_tables:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+            cols = [c[0] for c in cursor.fetchall()]
+        col_map = {c.lower(): c for c in cols}
+
+        date_col    = _pick(col_map, "date", "reading_date", "generation_date", "day")
+        gen_col     = _pick(col_map, "generation", "daily_generation",
+                            "generation_kwh", "daily generation")
+        gh_col      = _pick(col_map, "generation_hours", "gen_hours", "generation_hours_decimal")
+        weather_col = _pick(col_map, "weather_condition", "weather")
+
+        if not date_col or not gen_col:
+            continue
+
+        conditions = []
+        params = []
+
+        if year:
+            conditions.append(f"YEAR(`{date_col}`)=%s")
+            params.append(year)
+        if month:
+            conditions.append(f"MONTH(`{date_col}`)=%s")
+            params.append(month)
+        if day:
+            conditions.append(f"DAY(`{date_col}`)=%s")
+            params.append(day)
+
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+        query = f"""
+            SELECT `{date_col}`, `{gen_col}`, `{gh_col}`, `{weather_col}`
+            FROM `{table}`
+            {where}
+            ORDER BY `{date_col}`
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            fetched = cursor.fetchall()
+
+        for dt_raw, gen, gh, weather in fetched:
+            dt = _parse_date(dt_raw)
+            if not dt:
+                continue
+
+            rows.append({
+                "date": dt,
+                "gen": _num(gen),
+                "gh": _num(gh),
+                "weather": weather or "Unknown",
+            })
+
+    if not rows:
+        return JsonResponse({"status": "no_data"})
+
+    # -------- line data (daily for now; front-end will aggregate by year) --------
+    line_data = []
+    for r in rows:
+        try:
+            dt_str = r["date"].strftime("%Y-%m-%d")
+        except Exception:
+            continue
+        line_data.append({
+            "date": dt_str,
+            "gen": r["gen"],
+            "gh": r["gh"],
+        })
+
+    # -------- weather aggregation (e.g. Rainy, Cloudy, Good Radiation) --------
+    weather_map = {}
+    for r in rows:
+        weather_map.setdefault(r["weather"], 0.0)
+        weather_map[r["weather"]] += r["gen"]
+
+    weather_data = [
+        {"weather": k, "generation": v}
+        for k, v in weather_map.items()
+    ]
+
+    # -------- KPI --------
+    avg_gen = round(sum(r["gen"] for r in rows) / len(rows), 2)
+    avg_gh  = round(sum(r["gh"]  for r in rows) / len(rows), 2)
+
+    return JsonResponse({
+        "status": "ok",
+        "line": line_data,
+        "weather": weather_data,
+        "kpi": {
+            "avg_gen": avg_gen,
+            "avg_gh": avg_gh
+        }
+    })
