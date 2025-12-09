@@ -126,64 +126,7 @@
 </style>
 
 <div class="container-fluid">
-  <!-- <div class="dashboard-header">HYUNDAI SOLAR ANALYSIS — Generation & Operating Hours</div> -->
-<div class="row" style="margin-top: 100px;">
-  <div class="col-12">
 
-    <div class="filters-kpi-row d-flex justify-content-between align-items-center flex-wrap">
-
-      <!-- FILTERS LEFT -->
-      <div class="d-flex flex-wrap gap-2 filters-left">
-
-        <div class="filter-card">
-          <div class="filter-label">Site</div>
-          <select id="site" class="filter-control"></select>
-        </div>
-
-        <div class="filter-card">
-          <div class="filter-label">Year</div>
-          <select id="year" class="filter-control"></select>
-        </div>
-
-        <div class="filter-card">
-          <div class="filter-label">Month</div>
-          <select id="month" class="filter-control">
-            <option value="">All</option>
-            <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option>
-            <option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option>
-            <option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option>
-            <option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
-          </select>
-        </div>
-
-        <div class="filter-card">
-          <div class="filter-label">Day</div>
-          <input id="day" class="filter-control" type="number" min="1" max="31" placeholder="All">
-        </div>
-
-      </div>
-
-      <!-- KPIs RIGHT -->
-      <div class="d-flex gap-3 kpis-right">
-
-        <div class="kpi-card">
-          <div class="kpi-title">Generation Hours (avg)</div>
-          <div id="kpi-gen" class="kpi-value">-</div>
-        </div>
-
-        <div class="kpi-card">
-          <div class="kpi-title">Operating Hours (avg)</div>
-          <div id="kpi-op" class="kpi-value">-</div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- FLOATING RESET BUTTON (RIGHT SIDE) -->
-    <button id="btn-reset" class="floating-reset-btn">Reset</button>
-
-  </div>
-</div>
 
 
   <div class="charts-grid mt-3">

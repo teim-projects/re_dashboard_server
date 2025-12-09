@@ -1252,3 +1252,613 @@ def api_brekdown_genration_whether_dashboard(request):
             "avg_gh": avg_gh
         }
     })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+# views.py (add or replace the api_generation_by_day view)
+import math
+from datetime import datetime
+from collections import defaultdict
+from decimal import Decimal
+import calendar
+
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+# ---------- small helpers ----------
+def _pick(col_map, *candidates):
+    for c in candidates:
+        if c and c.lower() in col_map:
+            return col_map[c.lower()]
+    return None
+
+def _parse_date(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s, fmt)
+        except Exception:
+            pass
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+def _num(v):
+    if v is None:
+        return 0.0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except Exception:
+        try:
+            return float(v)
+        except Exception:
+            return 0.0
+
+# ---------- Forecast helpers ----------
+def simple_exponential_smoothing(series, alpha=0.25):
+    """Return fitted (list) and last level. series: list of floats (historic)."""
+    if not series:
+        return [], 0.0
+    fitted = [series[0]]
+    level = series[0]
+    for t in range(1, len(series)):
+        level = alpha * series[t] + (1 - alpha) * level
+        fitted.append(level)
+    return fitted, level
+
+def forecast_ses(last_level, h):
+    """Return list of h forecasts from SES last level (simple constant forecast)."""
+    return [last_level for _ in range(h)]
+
+# ---------- API view ----------
+
+
+import calendar
+from datetime import datetime
+from django.shortcuts import render
+
+@login_required
+def solar_generation_by_day(request):
+    import calendar
+    from django.db import connection
+
+    years_set = set()
+    months_set = set()
+    days_set = set()
+
+    # 1️⃣ Fetch all table names
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [row[0] for row in cursor.fetchall()]
+
+    # 2️⃣ Filter solar tables only
+    solar_tables = [t for t in tables if "solar" in t.lower()]
+
+    # 3️⃣ Read date column and extract year/month/day
+    for table in solar_tables:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
+            cols = [c[0] for c in cursor.fetchall()]
+
+        # find date column
+        col_map = {c.lower(): c for c in cols}
+        date_col = None
+        for possible in ["date", "reading_date", "generation_date"]:
+            if possible in col_map:
+                date_col = col_map[possible]
+                break
+
+        if not date_col:
+            continue
+
+        # fetch dates
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT `{date_col}` FROM `{table}`;")
+            dates = cursor.fetchall()
+
+        for d in dates:
+            dt = _parse_date(d[0])
+            if dt:
+                years_set.add(dt.year)
+                months_set.add(dt.month)
+                days_set.add(dt.day)
+
+    # 4️⃣ Prepare dropdown lists  
+    years = sorted(years_set)
+    months = sorted(months_set)
+    days = sorted(days_set)
+
+    # convert months → (num, "MonthName")
+    month_list = [(m, calendar.month_name[m]) for m in months]
+
+    return render(request, "solar_generation_by_day.html", {
+        "years": years,
+        "months": month_list,
+        "days": days,
+    })
+
+
+@login_required
+def api_generation_by_day(request):
+    """
+    Returns JSON:
+    {
+      status: "ok"/"no_data",
+      days: [1,2,3...],
+      gen_series: [sum gen by day],
+      gh_series: [avg gen-hours by day],
+      forecast_days: H,
+      forecast_gen: { start_day, forecast: [...], upper: [...], lower: [...] },
+      forecast_gh: {...}
+    }
+    Query params:
+      year, month, day (filters, optional)
+      forecast_days (optional, default 10)
+    """
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+    day_filter = request.GET.get("day")
+    h = int(request.GET.get("forecast_days") or 10)  # default 10
+
+    # find tables
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+    solar_tables = [t for t in tables if "solar" in t.lower()]
+
+    agg_by_day = {}  # day -> {gen_sum, gh_sum, count}
+    for table in solar_tables:
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+                cols = [c[0] for c in cursor.fetchall()]
+            except Exception:
+                continue
+        col_map = {c.lower(): c for c in cols}
+
+        date_col = _pick(col_map, "date", "reading_date", "generation_date", "day")
+        gen_col  = _pick(col_map, "daily_generation", "generation", "generation_kwh", "daily_gen", "daily generation")
+        gh_col   = _pick(col_map, "generation_hours", "gen_hours", "generation_hours_decimal", "generation_hours")
+
+        if not date_col or not gen_col:
+            continue
+
+        conditions = []
+        params = []
+        if year:
+            conditions.append(f"YEAR(`{date_col}`)=%s"); params.append(year)
+        if month:
+            conditions.append(f"MONTH(`{date_col}`)=%s"); params.append(month)
+        if day_filter:
+            conditions.append(f"DAY(`{date_col}`)=%s"); params.append(day_filter)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        query = f"SELECT `{date_col}`, `{gen_col}`, {f'`{gh_col}`' if gh_col else 'NULL'} FROM `{table}` {where} ORDER BY `{date_col}`"
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                fetched = cursor.fetchall()
+        except Exception:
+            fetched = []
+
+        for dt_raw, gen_raw, gh_raw in fetched:
+            dt = _parse_date(dt_raw)
+            if not dt:
+                continue
+            d = dt.day
+            gen_v = _num(gen_raw)
+            gh_v = _num(gh_raw)
+
+            if d not in agg_by_day:
+                agg_by_day[d] = {"gen": 0.0, "gh": 0.0, "count": 0}
+            agg_by_day[d]["gen"] += gen_v
+            if gh_col:
+                agg_by_day[d]["gh"] += gh_v
+            agg_by_day[d]["count"] += 1
+
+    if not agg_by_day:
+        return JsonResponse({"status": "no_data", "rows": []})
+
+    # produce ordered lists for days present (1..max_day)
+    days_sorted = sorted(agg_by_day.keys())
+    max_day = max(days_sorted)
+
+    gen_series = []
+    gh_series = []
+    days = []
+    for d in range(1, max_day + 1):
+        rec = agg_by_day.get(d)
+        if rec:
+            days.append(d)
+            gen_series.append(round(rec["gen"], 3))
+            # average gh for that day (if count available)
+            gh_avg = (rec["gh"] / rec["count"]) if rec["count"] else 0.0
+            gh_series.append(round(gh_avg, 3))
+        else:
+            # keep zeros for missing day so chart X aligns 1..max_day
+            days.append(d)
+            gen_series.append(0.0)
+            gh_series.append(0.0)
+
+    # ---------- Forecast generation series ----------
+    # Build forecast using SES on historical gen_series (use last contiguous positive stretch)
+    hist_gen = [v for v in gen_series if v is not None]
+    # if all zeros, forecast zeros
+    if sum(hist_gen) == 0:
+        fcast = [0.0] * h
+        upper = [0.0] * h
+        lower = [0.0] * h
+    else:
+        # Use SES
+        fitted, last_level = simple_exponential_smoothing(hist_gen, alpha=0.25)
+        residuals = [hist_gen[i] - fitted[i] for i in range(len(fitted))] if fitted else []
+        # sample std of residuals
+        if len(residuals) >= 2:
+            mean_res = sum(residuals) / len(residuals)
+            var = sum((r - mean_res) ** 2 for r in residuals) / (len(residuals) - 1)
+            resid_std = math.sqrt(max(var, 0.0))
+        else:
+            resid_std = max( (abs(hist_gen[-1]) * 0.05) if hist_gen else 1.0, 1.0 )
+
+        fcast = forecast_ses(last_level, h)
+        # 95% z
+        z = 1.96
+        upper = []
+        lower = []
+        for i in range(1, h+1):
+            # widening factor: sqrt(i) to make cone open
+            widen = math.sqrt(i)
+            margin = z * resid_std * widen
+            upper.append(round(fcast[i-1] + margin, 3))
+            lower.append(round(max(fcast[i-1] - margin, 0.0), 3))
+
+    # ---------- Forecast for gen-hours series (same approach but on gh_series) ----------
+    hist_gh = [v for v in gh_series if v is not None]
+    if sum(hist_gh) == 0:
+        fcast_gh = [0.0]*h; upper_gh=[0.0]*h; lower_gh=[0.0]*h
+    else:
+        fitted_gh, last_level_gh = simple_exponential_smoothing(hist_gh, alpha=0.25)
+        residuals_gh = [hist_gh[i] - fitted_gh[i] for i in range(len(fitted_gh))] if fitted_gh else []
+        if len(residuals_gh) >= 2:
+            mean_r = sum(residuals_gh)/len(residuals_gh)
+            var_gh = sum((r-mean_r)**2 for r in residuals_gh) / max(len(residuals_gh)-1,1)
+            std_gh = math.sqrt(max(var_gh,0.0))
+        else:
+            std_gh = max((abs(hist_gh[-1])*0.02) if hist_gh else 0.5, 0.5)
+        fcast_gh = forecast_ses(last_level_gh, h)
+        z = 1.96
+        upper_gh=[]; lower_gh=[]
+        for i in range(1,h+1):
+            widen = math.sqrt(i)
+            margin = z * std_gh * widen
+            upper_gh.append(round(fcast_gh[i-1] + margin,3))
+            lower_gh.append(round(max(fcast_gh[i-1] - margin,0.0),3))
+
+    response = {
+        "status": "ok",
+        "days": days,
+        "gen_series": gen_series,
+        "gh_series": gh_series,
+        "forecast_days": h,
+        "forecast_gen": {
+            "start_day": max_day + 1,
+            "forecast": [round(x,3) for x in fcast],
+            "upper": upper,
+            "lower": lower
+        },
+        "forecast_gh": {
+            "start_day": max_day + 1,
+            "forecast": [round(x,3) for x in fcast_gh],
+            "upper": upper_gh,
+            "lower": lower_gh
+        }
+    }
+
+    return JsonResponse(response, safe=True)
+
+
+ # solardashboard/views.py  (append or place near other dashboard views)
+
+import math
+from datetime import datetime
+from collections import defaultdict
+from decimal import Decimal
+
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+# ---------------- Helpers (re-usable) ----------------
+def _pick(col_map, *candidates):
+    """Return the actual column name from DB for first matching candidate (case-insensitive)."""
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+def _parse_date(v):
+    """Return datetime.date or None."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%y", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            pass
+    try:
+        return datetime.fromisoformat(s).date()
+    except Exception:
+        return None
+
+def _num(v):
+    if v is None:
+        return 0.0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except Exception:
+        try:
+            return float(v)
+        except:
+            return 0.0
+# ---------------- REQUIRED IMPORTS ----------------
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
+
+
+# ---------------- UTILITIES ----------------
+def _pick(col_map, *names):
+    """Find matching column name ignoring case."""
+    for n in names:
+        if n.lower() in col_map:
+            return col_map[n.lower()]
+    return None
+
+def _parse_date(v):
+    if not v:
+        return None
+    try:
+        return datetime.strptime(str(v), "%Y-%m-%d")
+    except:
+        try:
+            return datetime.fromisoformat(str(v))
+        except:
+            return None
+
+def _num(v):
+    try:
+        return float(Decimal(str(v)))
+    except:
+        return None
+
+
+# ---------------- PAGE VIEW ----------------
+@login_required
+def trend_analysis(request):
+    return render(request, "trend_analysis.html", {})
+
+
+# ---------------- API ----------------
+@login_required
+def api_trend_analysis(request):
+
+    # Filters
+    site = request.GET.get("site")
+    year_filter = request.GET.get("year")
+    month_filter = request.GET.get("month")
+    day_filter = request.GET.get("day")
+
+    # Get tables
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+    solar_tables = [
+        t for t in tables
+        if "solar" in t.lower()
+        or t.lower().endswith("_solar")
+        or "_solar_" in t.lower()
+    ]
+
+    # Containers
+    gen_month_year = defaultdict(lambda: defaultdict(list))
+    availability_year = defaultdict(list)
+    plf_month_year = defaultdict(lambda: defaultdict(list))
+    radiation_points = []
+
+    all_sites = set()
+
+    # ---------------- PROCESS EACH TABLE ----------------
+    for table in solar_tables:
+        # Fetch columns
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
+                cols = [c[0] for c in cursor.fetchall()]
+        except:
+            continue
+
+        col_map = {c.lower(): c for c in cols}
+
+        # Detect columns
+        date_col = _pick(col_map, "date", "reading_date", "generation_date")
+
+        daily_gen_col = _pick(
+            col_map,
+            "daily_generation",
+            "generation",
+            "total_generation",
+            "generation_kwh",
+        )
+
+        plant_avail_col = _pick(
+            col_map,
+            "plant_availability",
+            "plant_avail",
+            "grid_ok"
+        )
+
+        plf_col = _pick(
+            col_map,
+            "daily_plf",
+            "plf",
+            "monthly_plf",
+            "yearly_plf"
+        )
+
+        # Radiation columns (corrected)
+        radiation_col = _pick(
+            col_map,
+            "horizontal_radiation_in_kwh_m2",
+            "tilted_radiation_in_kwh_m2"
+        )
+
+        site_col = _pick(col_map, "site", "location")
+
+        if not date_col:
+            continue
+
+        # Build filters
+        conditions, params = [], []
+
+        if site and site_col:
+            conditions.append(f"`{site_col}`=%s")
+            params.append(site)
+
+        if year_filter:
+            conditions.append(f"YEAR(`{date_col}`)=%s")
+            params.append(year_filter)
+
+        if month_filter:
+            conditions.append(f"MONTH(`{date_col}`)=%s")
+            params.append(month_filter)
+
+        if day_filter:
+            conditions.append(f"DAY(`{date_col}`)=%s")
+            params.append(day_filter)
+
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+        select = [
+            f"`{date_col}` as dt",
+            f"`{daily_gen_col}` as daily_gen" if daily_gen_col else "NULL as daily_gen",
+            f"`{plant_avail_col}` as avail" if plant_avail_col else "NULL as avail",
+            f"`{radiation_col}` as radiation" if radiation_col else "NULL as radiation",
+            f"`{plf_col}` as plf" if plf_col else "NULL as plf",
+            f"`{site_col}` as site" if site_col else "NULL as site",
+        ]
+
+        query = f"SELECT {','.join(select)} FROM `{table}` {where} ORDER BY `{date_col}`"
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                desc = [d[0].lower() for d in cursor.description]
+        except:
+            continue
+
+        # Process rows
+        for r in rows:
+            row = dict(zip(desc, r))
+            dt = _parse_date(row.get("dt"))
+            if not dt:
+                continue
+
+            y, m = dt.year, dt.month
+
+            gen = _num(row.get("daily_gen"))
+            avail = _num(row.get("avail"))
+            plf = _num(row.get("plf"))
+            rad = _num(row.get("radiation"))
+            site_value = row.get("site")
+
+            if site_value:
+                all_sites.add(site_value)
+
+            if gen is not None:
+                gen_month_year[y][m].append(gen)
+
+            if avail is not None:
+                availability_year[y].append(avail)
+
+            if rad is not None and gen is not None:
+                radiation_points.append({
+                    "radiation": rad,
+                    "generation": gen
+                })
+
+            if plf is not None:
+                plf_month_year[y][m].append(plf)
+
+    # ---------------- BUILD FINAL OUTPUT ----------------
+
+    years = sorted(set(gen_month_year.keys()) | set(availability_year.keys()) | set(plf_month_year.keys()))
+
+    # Yearly Generation Trend
+    gen_trend = {}
+    for y in years:
+        arr = []
+        for m in range(1, 13):
+            vals = gen_month_year[y].get(m, [])
+            arr.append(round(sum(vals)/len(vals), 3) if vals else None)
+        gen_trend[y] = arr
+
+    # Plant availability
+    availability = [
+        round(sum(availability_year[y]) / len(availability_year[y]), 3)
+        if availability_year[y] else None
+        for y in years
+    ]
+
+    # PLF chart
+    plf_chart = {}
+    for y in years:
+        arr = []
+        for m in range(1, 13):
+            vals = plf_month_year[y].get(m, [])
+            arr.append(round(sum(vals)/len(vals), 3) if vals else None)
+        plf_chart[y] = arr
+
+    # Month names
+    month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+    return JsonResponse({
+        "status": "ok",
+        "years": years,
+        "month_names": month_names,
+        "gen_trend": gen_trend,
+        "availability": availability,
+        "plf_chart": plf_chart,
+        "radiation_points": radiation_points,
+        "years_ordered": years,
+        "sites": sorted(all_sites),
+    })

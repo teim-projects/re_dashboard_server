@@ -11,10 +11,9 @@
     font-family: 'Poppins', sans-serif;
 }
 
-/* Top blue header */
 .header-strip {
-    background: linear-gradient(90deg, #0054a6, #0079c4);
-    color: #fff;
+    background: linear-gradient(280deg, #8aff8a, #ffffff);
+    color: #000000;
     padding: 10px 20px;
     border-radius: 16px 16px 0 0;
     font-size: 20px;
@@ -24,58 +23,79 @@
     box-shadow: 0 4px 10px rgba(0,0,0,.25);
 }
 
-/* Main layout */
+/* 2-column layout for filters + first chart */
 .solar-layout {
     display: grid;
     grid-template-columns: 230px 1fr;
-    background: #dfefff;
+    background: #ffffff;
     border-radius: 0 0 16px 16px;
     box-shadow: 0 10px 20px rgba(0,0,0,.18);
 }
 
-/* FILTER PANEL */
+ 
+
+
+/* NEW FILTER CARD STYLE */
 .filter-pane {
-    background: linear-gradient(180deg, #e7f1ff, #c7e1ff);
+    background: #eef5ff;
     padding: 15px 10px;
     border-radius: 0 0 0 16px;
-    border-right: 1px solid rgba(255,255,255,.6);
+    border-right: 1px solid #d5e5ff;
 }
 
-.filter-group { margin-bottom: 18px; }
+.filter-group {
+    margin-bottom: 18px;
+}
 
 .filter-label {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
-    color: #063a73;
-    margin-bottom: 4px;
+    color: #4b5c76;
+    margin-bottom: 6px;
+    margin-left: 4px;
 }
 
+/* UPDATED DROPDOWN STYLE */
 .filter-select {
     width: 100%;
-    border-radius: 6px;
-    border: 1px solid #a3c5ec;
-    padding: 4px 8px;
-    font-size: 13px;
     background: #ffffff;
+    border: 1px solid #d9e5f5;
+    padding: 10px 12px;
+    font-size: 14px;
+    border-radius: 10px;
+    appearance: none;
+    outline: none;
+    cursor: pointer;
+    color: #333;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    background-image: url("data:image/svg+xml,%3Csvg fill='%234b5c76' height='20' viewBox='0 0 24 24' width='20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 18px;
 }
 
-/* CHART AREA */
+/* Hover / Focus Effects */
+.filter-select:hover {
+    border-color: #aac8ff;
+}
+
+.filter-select:focus {
+    border-color: #4b8dff;
+    box-shadow: 0 0 6px rgba(91,135,255,0.45);
+}
+
+/* Chart card */
 .charts-pane {
     padding: 15px;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 16px;
 }
-
-/* Cards */
 .chart-card {
     background: #f7fbff;
     border-radius: 10px;
     padding: 14px 16px 10px;
     border: 1px solid #c5ddf7;
     box-shadow: 0 6px 14px rgba(0,0,0,0.07);
+    margin-bottom: 16px;
 }
-
 .chart-title {
     text-align: center;
     font-size: 15px;
@@ -83,124 +103,126 @@
     margin-bottom: 10px;
     color: #1f3965;
 }
-
 .canvas-wrap {
     height: 260px;
 }
 
-/* MAKE SECOND CHART FULL WIDTH */
-.chart-row-2 {
-    grid-column: 1 / -1 !important;
+/* Weather chart full-width below layout */
+.full-width-chart {
+    margin-top: 12px;
+    background: #f7fbff;
+    border-radius: 12px;
+    padding: 14px 16px 10px;
+    border: 1px solid #c5ddf7;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.07);
 }
 
-/* Responsive */
 @media (max-width: 900px) {
     .solar-layout {
         grid-template-columns: 1fr;
     }
 }
+
+.filter-description {
+    font-size: 11px;
+    color: #000000;
+    margin-top: 8px;
+    margin-left: 4px;
+    opacity: 0.8;
+}
+
 </style>
 
 <div class="page-wrapper">
-    <div class="header-strip">
-        HYUNDAI SOLAR ANALYSIS
+    <div class="header-strip"> SOLAR ANALYSIS</div>
+
+    <!-- Filters + first chart -->
+    <div class="solar-layout">
+        <!-- Filter Panel -->
+    <div class="filter-pane">
+
+    <div class="filter-group">
+        <div class="filter-label">Year</div>
+        <select id="filter-year" class="filter-select">
+            <option value="">All Years</option>
+        </select>
     </div>
 
-    <div class="solar-layout">
+    <div class="filter-group">
+        <div class="filter-label">Month</div>
+        <select id="filter-month" class="filter-select">
+            <option value="">All Months</option>
+            {% for m in "123456789101112"|make_list %}
+            <option value="{{ forloop.counter }}">{{ forloop.counter }}</option>
+            {% endfor %}
+        </select>
+    </div>
 
-        <!-- FILTERS -->
-        <div class="filter-pane">
+    <div class="filter-group">
+        <div class="filter-label">Day</div>
+        <select id="filter-day" class="filter-select">
+            <option value="">All Days</option>
+            {% for d in "1234567890123456789012345678901"|make_list %}
+            <option value="{{ forloop.counter }}">{{ forloop.counter }}</option>
+            {% endfor %}
+        </select>
+    </div>
 
-            <div class="filter-group">
-                <div class="filter-label">Year</div>
-                <select id="filter-year" class="filter-select">
-                    <option value="">All</option>
-                </select>
-            </div>
+    <p class="filter-description"> <i class="fa-solid fa-lightbulb" style="color: rgb(27, 160, 0);"></i>
+This is an<strong>advanced</strong>  filter-based dashboard</p>
 
-            <div class="filter-group">
-                <div class="filter-label">Month</div>
-                <select id="filter-month" class="filter-select">
-                    <option value="">All</option>
-                    <option value="1">Jan</option>
-                    <option value="2">Feb</option>
-                    <option value="3">Mar</option>
-                    <option value="4">Apr</option>
-                    <option value="5">May</option>
-                    <option value="6">Jun</option>
-                    <option value="7">Jul</option>
-                    <option value="8">Aug</option>
-                    <option value="9">Sep</option>
-                    <option value="10">Oct</option>
-                    <option value="11">Nov</option>
-                    <option value="12">Dec</option>
-                </select>
-            </div>
+</div>
 
-            <div class="filter-group">
-                <div class="filter-label">Day</div>
-                <select id="filter-day" class="filter-select">
-                    <option value="">All</option>
-                    {% for d in "1234567890123456789012345678901"|make_list %}
-                        <option value="{{ forloop.counter }}">{{ forloop.counter }}</option>
-                    {% endfor %}
-                </select>
-            </div>
 
-        </div>
-
-        <!-- CHARTS -->
+        
+        <!-- First chart only -->
         <div class="charts-pane">
-
-            <!-- FIRST CHART (normal width) -->
-            <div class="chart-card chart-row-1">
-                <div class="chart-title">Daily Generation and Generation Hours</div>
+            <div class="chart-card">
+                <div class="chart-title">Daily Generation & Generation Hours</div>
                 <div class="canvas-wrap">
                     <canvas id="lineChart"></canvas>
                 </div>
             </div>
+        </div>
+    </div>
 
-            <!-- SECOND CHART (FULL WIDTH) -->
-            <div class="chart-card chart-row-2">
-                <div class="chart-title">Daily Generation by Weather Condition</div>
-                <div class="canvas-wrap" style="height:320px;">
-                    <canvas id="weatherChart"></canvas>
-                </div>
-            </div>
-
+    <!-- Full-width Weather Chart BELOW -->
+    <div class="full-width-chart">
+        <div class="chart-title">Daily Generation by Weather Condition</div>
+        <div class="canvas-wrap" style="height:330px;">
+            <canvas id="weatherChart"></canvas>
         </div>
     </div>
 </div>
 
 <script>
 const API_URL = "{% url 'api_brekdown_genration_whether_dashboard' %}";
-
 let lineChart = null;
 let weatherChart = null;
 let yearOptionsLoaded = false;
 
-function groupByYear(lineData) {
+function groupByYear(data) {
     const map = {};
-    lineData.forEach(r => {
-        const year = r.date.slice(0, 4);
-        if (!map[year]) map[year] = { gen: 0, gh: 0 };
-        map[year].gen += r.gen || 0;
-        map[year].gh  += r.gh  || 0;
+    data.forEach(r => {
+        const y = r.date.slice(0, 4);
+        if (!map[y]) map[y] = { gen: 0, gh: 0 };
+        map[y].gen += r.gen || 0;
+        map[y].gh  += r.gh  || 0;
     });
 
-    const years = Object.keys(map).sort();
+    const labels = Object.keys(map).sort();
     return {
-        labels: years,
-        gen: years.map(y => map[y].gen),
-        gh:  years.map(y => map[y].gh),
+        labels: labels,
+        gen: labels.map(y => map[y].gen),
+        gh:  labels.map(y => map[y].gh)
     };
 }
 
 async function loadDashboard() {
     const params = new URLSearchParams();
     ["filter-year","filter-month","filter-day"].forEach(id => {
-        const val = document.getElementById(id).value;
-        if (val) params.append(id.replace("filter-",""), val);
+        const v = document.getElementById(id).value;
+        if (v) params.append(id.replace("filter-",""), v);
     });
 
     const res = await fetch(API_URL + "?" + params.toString());
@@ -220,38 +242,39 @@ async function loadDashboard() {
     }
 
     updateLineChart(data.line);
-    updateWeatherChart(data.weather);
-}
+updateWeatherChart(
+    data.weather.filter(w => w.generation > 0)
+);}
 
-function updateLineChart(lineData) {
-    const ctx = document.getElementById("lineChart").getContext("2d");
-    const grouped = groupByYear(lineData);
+function updateLineChart(data) {
+    const ctx = document.getElementById("lineChart");
+    const grouped = groupByYear(data);
 
     if (lineChart) lineChart.destroy();
 
     lineChart = new Chart(ctx, {
-        type: 'line',
+        type: "line",
         data: {
             labels: grouped.labels,
             datasets: [
                 {
-                    label: 'Sum of Daily Generation',
+                    label: "Sum of Daily Generation",
                     data: grouped.gen,
-                    borderColor: '#0054a6',
-                    backgroundColor: '#0054a6',
+                    borderColor: "#0054a6",
+                    backgroundColor: "#0054a6",
                     borderWidth: 3,
                     tension: 0.35,
-                    yAxisID: 'y1'
+                    yAxisID: "y1"
                 },
                 {
-                    label: 'Sum of Generation Hours',
+                    label: "Sum of Generation Hours",
                     data: grouped.gh,
-                    borderColor: '#29a8ff',
-                    backgroundColor: '#29a8ff',
+                    borderColor: "#29a8ff",
+                    backgroundColor: "#29a8ff",
                     borderWidth: 3,
                     borderDash: [6,3],
                     tension: 0.35,
-                    yAxisID: 'y2'
+                    yAxisID: "y2"
                 }
             ]
         },
@@ -259,38 +282,53 @@ function updateLineChart(lineData) {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y1: { position: 'left' },
-                y2: { position: 'right' }
+                y1: { position: "left" },
+                y2: { position: "right" }
             }
         }
     });
 }
 
-function updateWeatherChart(weatherData) {
-    const ctx = document.getElementById("weatherChart").getContext("2d");
+function getWeatherColor(label) {
+    const colors = {
+        "Good Radiation": "#f4c542",
+        "Cloudy": "#9fa4ad",
+        "Rain": "#3b82f6",
+        "Rainy": "#3b82f6",
+        "Intermittent Radiation": "#ff8c42",
+        "Good Radiation & Rain": "#16a34a",
+    };
+    return colors[label] || "#" + Math.floor(Math.random()*16777215).toString(16);
+}
+
+function updateWeatherChart(data) {
+    const ctx = document.getElementById("weatherChart");
     if (weatherChart) weatherChart.destroy();
 
     weatherChart = new Chart(ctx, {
-        type: 'bar',
+        type: "bar",
         data: {
-            labels: weatherData.map(w => w.weather),
+            labels: data.map(d => d.weather),
             datasets: [{
-                data: weatherData.map(w => w.generation),
-                backgroundColor: '#2f80ed'
+                label: "Generation",
+                data: data.map(d => d.generation),
+                backgroundColor: data.map(d => getWeatherColor(d.weather))
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true }
+            }
         }
     });
 }
 
-document.getElementById("filter-year").addEventListener("change", loadDashboard);
-document.getElementById("filter-month").addEventListener("change", loadDashboard);
-document.getElementById("filter-day").addEventListener("change", loadDashboard);
+["filter-year", "filter-month", "filter-day"].forEach(id => {
+    document.getElementById(id).addEventListener("change", loadDashboard);
+});
 
 loadDashboard();
 </script>
-
 {% endblock %}
