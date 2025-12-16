@@ -125,6 +125,7 @@
         padding-left: 10px;
     }
 
+
   </style>
 
   {% block style_css %}{% endblock %}
@@ -145,7 +146,7 @@
       <div class="col-md-3 col-12   col-lg-2 col-xl-2 col-xxl-3 p-0 box1">
         <div class="fixed-panel" id="dashboardPanel">
           {% block fixedcontent %}
-<h4 class="text-white mb-4 text-center mt-5 shadow mb-3" style="padding-top: 40px !important;">
+<h4 class="text-white mb-4 text-center mt-4 shadow mb-3" style="padding-top: 40px !important;">
     <i class="fa-solid fa-desktop"></i> Dashboard
 </h4>
  <style>
@@ -165,6 +166,21 @@
     </span>
     Dashboard Home
 </a>
+<a class="nav-link navcontent {% if request.path == '/solar/summary_dashboard/' %}active{% endif %}"
+   href="{% url 'summary_dashboard' %}">
+  <span class="sidebar-icon solaricon">
+      <i class="fa-solid fa-chart-pie"  ></i>
+  </span>
+  Summary Dashboard
+</a>
+<!-- Generation Report -->
+<!-- <a class="nav-link navcontent {% if request.path == '/solar/generation-report/' %}active{% endif %}"
+   href="{% url 'generation_report' %}">
+  <span class="sidebar-icon solaricon">
+    <i class="fa-solid fa-solar-panel"  ></i>
+  </span>
+  Generation Report
+</a> -->
 
 <!-- Generation Dashboard -->
 <a class="nav-link navcontent {% if request.path == '/solar/solar_dashboard_genration/' %}active{% endif %}"
@@ -189,18 +205,18 @@
     <span class="sidebar-icon solaricon">
         <i class="fa-solid fa-chart-line"  ></i>
     </span>
-    Gen & Operating
+    Gen & Operating Hours
 </a>
 
 
-<a class="nav-link navcontent {% if request.path == '/solar/solar_weather_breakdown_dashboard/' %}active{% endif %}"
+<!-- <a class="nav-link navcontent {% if request.path == '/solar/solar_weather_breakdown_dashboard/' %}active{% endif %}"
    href="{% url 'solar_weather_breakdown_dashboard' %}">
 
     <span class="sidebar-icon solaricon">
         <i class="fa-solid fa-cloud-sun"></i>
     </span>
     Weather Breakdown
-</a>
+</a> -->
 
 <style>
 .solaricon {

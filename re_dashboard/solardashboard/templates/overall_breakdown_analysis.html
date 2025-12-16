@@ -1,0 +1,376 @@
+{% extends "basesolar.html" %}
+{% block content %}
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+:root{
+  --primary:#0f4c81;
+  --accent:#ff8c2b;
+  --bg:#f4f7fb;
+}
+
+body{background:var(--bg);}
+
+.dashboard{padding:80px 26px}
+
+/* ---------- CARDS ---------- */
+.card{
+  background:#fff;
+  border-radius:16px;
+  padding:16px;
+  box-shadow:0 10px 28px rgba(0,0,0,.08);
+}
+
+/* ---------- KPI ---------- */
+.kpi{
+  font-size:52px;
+  font-weight:900;
+  color:var(--primary);
+  text-align:center;
+  letter-spacing:1px;
+}
+
+/* ---------- GRID ---------- */
+.grid{
+  display:grid;
+  grid-template-columns:64% 36%;
+  gap:18px;
+  margin-top:18px;
+}
+
+/* ---------- TABLE ---------- */
+.table-wrap{
+  max-height:320px;
+  overflow:auto;
+  border-radius:12px;
+}
+
+table{
+  width:100%;
+  font-size:13px;
+  border-collapse:collapse;
+}
+
+thead th{
+  position:sticky;
+  top:0;
+  background:#f1f5fb;
+  z-index:2;
+}
+
+th,td{
+  padding:8px 10px;
+  border-bottom:1px solid #eee;
+}
+
+tbody tr:hover{
+  background:#f8fbff;
+}
+
+/* ---------- BAR CHART ---------- */
+#weather-chart{
+  height:300px;
+}
+
+.bar-rect{
+  fill:var(--accent);
+  rx:4;
+}
+
+.trend-line{
+  fill:none;
+  stroke:var(--primary);
+  stroke-width:3;
+}
+
+.dot{
+  fill:var(--primary);
+}
+
+/* ---------- TITLES ---------- */
+.title{
+  font-weight:700;
+  margin-bottom:8px;
+  color:#243b53;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media(max-width:900px){
+  .grid{grid-template-columns:1fr}
+}
+</style>
+
+<div class="dashboard">
+
+<!-- KPI -->
+<div class="card">
+  <div class="title">% GT Breakdown</div>
+  <div class="kpi" id="kpi-breakdown">0%</div>
+</div>
+
+<!-- TABLE GRID -->
+<div class="grid">
+
+  <!-- Breakdown table -->
+  <div class="card">
+    <div class="title">Breakdown Details</div>
+    <div class="table-wrap">
+      <table id="breakdown-table"></table>
+    </div>
+  </div>
+
+  <!-- Weather table -->
+  <div class="card">
+    <div class="title">Weather Condition</div>
+    <div class="table-wrap">
+      <table id="weather-table"></table>
+    </div>
+  </div>
+
+</div>
+
+<!-- BAR + TREND -->
+<div class="card" style="margin-top:18px">
+  <div class="title">Weather Condition Count (with Trend)</div>
+  <div id="weather-chart"></div>
+</div>
+
+</div>
+
+<script>
+const API = "{% url 'api_overall_breakdown_analysis' %}";
+
+/* ================= TOOLTIP ================= */
+const tooltip = d3.select("body")
+  .append("div")
+  .attr("id","tooltip")
+  .style("position","fixed")
+  .style("background","#ffffff")
+  .style("padding","8px 12px")
+  .style("border-radius","8px")
+  .style("box-shadow","0 6px 18px rgba(0,0,0,.2)")
+  .style("font-size","13px")
+  .style("color","#0f4c81")
+  .style("pointer-events","none")
+  .style("opacity",0)
+  .style("z-index",9999);
+
+function showTip(e, html){
+  tooltip
+    .html(html)
+    .style("left",(e.pageX+14)+"px")
+    .style("top",(e.pageY+14)+"px")
+    .style("opacity",1);
+}
+function hideTip(){
+  tooltip.style("opacity",0);
+}
+
+/* ================= LOAD DATA ================= */
+async function loadData(){
+  const res = await fetch(API);
+  const data = await res.json();
+
+  // KPI
+  document.getElementById("kpi-breakdown").innerText =
+    data.kpis.gt_breakdown_percentage + "%";
+
+  renderBreakdownTable(data.breakdown_table);
+  renderWeatherTable(data.weather_table);
+  drawBarWithTrend(data.weather_chart);
+}
+
+/* ================= TABLES ================= */
+function renderBreakdownTable(rows){
+  let total = 0;
+
+  let html = `
+    <thead>
+      <tr>
+        <th>Breakdown</th>
+        <th style="text-align:right">Count</th>
+      </tr>
+    </thead>
+    <tbody>
+  `;
+
+  rows.forEach(r=>{
+    total += r.count;
+    html += `
+      <tr>
+        <td>${r.label}</td>
+        <td style="text-align:right">${r.count}</td>
+      </tr>
+    `;
+  });
+
+  html += `
+    </tbody>
+    <tfoot>
+      <tr style="
+        position:sticky;
+        bottom:0;
+        background:#f1f5fb;
+        font-weight:800;
+      ">
+        <td>Total</td>
+        <td style="text-align:right">${total}</td>
+      </tr>
+    </tfoot>
+  `;
+
+  document.getElementById("breakdown-table").innerHTML = html;
+}
+
+function renderWeatherTable(rows){
+  let total = 0;
+
+  let html = `
+    <thead>
+      <tr>
+        <th>Condition</th>
+        <th style="text-align:right">Count</th>
+      </tr>
+    </thead>
+    <tbody>
+  `;
+
+  rows.forEach(r=>{
+    total += r.count;
+    html += `
+      <tr>
+        <td>${r.condition}</td>
+        <td style="text-align:right">${r.count}</td>
+      </tr>
+    `;
+  });
+
+  html += `
+    </tbody>
+    <tfoot>
+      <tr style="
+        position:sticky;
+        bottom:0;
+        background:#f1f5fb;
+        font-weight:800;
+      ">
+        <td>Total</td>
+        <td style="text-align:right">${total}</td>
+      </tr>
+    </tfoot>
+  `;
+
+  document.getElementById("weather-table").innerHTML = html;
+}
+
+/* ================= BAR + TREND ================= */
+function drawBarWithTrend(data){
+  document.getElementById("weather-chart").innerHTML = "";
+
+  const container = document.getElementById("weather-chart");
+  const w = container.clientWidth;
+  const h = 300;
+  const margin = {top:20,right:20,bottom:80,left:60};
+
+  const svg = d3.select(container)
+    .append("svg")
+    .attr("width",w)
+    .attr("height",h);
+
+  const g = svg.append("g")
+    .attr("transform",`translate(${margin.left},${margin.top})`);
+
+  const width = w - margin.left - margin.right;
+  const height = h - margin.top - margin.bottom;
+
+  const x = d3.scaleBand()
+    .domain(data.map(d=>d.condition))
+    .range([0,width])
+    .padding(0.25);
+
+  const y = d3.scaleLinear()
+    .domain([0, d3.max(data,d=>d.count)*1.15])
+    .range([height,0]);
+
+  g.append("g")
+    .attr("transform",`translate(0,${height})`)
+    .call(d3.axisBottom(x))
+    .selectAll("text")
+    .attr("transform","rotate(-30)")
+    .style("text-anchor","end");
+
+  g.append("g").call(d3.axisLeft(y));
+
+  /* ---- Bars ---- */
+  g.selectAll(".bar")
+    .data(data)
+    .enter()
+    .append("rect")
+    .attr("x",d=>x(d.condition))
+    .attr("y",d=>y(d.count))
+    .attr("width",x.bandwidth())
+    .attr("height",d=>height-y(d.count))
+    .attr("fill","#ff8c2b")
+    .attr("rx",4)
+    .on("mousemove",(e,d)=>{
+      showTip(e, `<b>${d.condition}</b><br>Count: ${d.count}`);
+    })
+    .on("mouseleave", hideTip);
+
+  /* ---- Trend (moving average) ---- */
+  const trend = data.map((d,i)=>{
+    const slice = data.slice(Math.max(0,i-1), Math.min(data.length,i+2));
+    return {
+      condition:d.condition,
+      value:d3.mean(slice,x=>x.count)
+    };
+  });
+
+  const line = d3.line()
+    .x(d=>x(d.condition)+x.bandwidth()/2)
+    .y(d=>y(d.value));
+
+  g.append("path")
+    .datum(trend)
+    .attr("d",line)
+    .attr("fill","none")
+    .attr("stroke","#0f4c81")
+    .attr("stroke-width",3);
+
+  g.selectAll(".dot")
+    .data(trend)
+    .enter()
+    .append("circle")
+    .attr("cx",d=>x(d.condition)+x.bandwidth()/2)
+    .attr("cy",d=>y(d.value))
+    .attr("r",4)
+    .attr("fill","#0f4c81")
+    .on("mousemove",(e,d)=>{
+      showTip(e, `<b>${d.condition}</b><br>Trend Avg: ${d.value.toFixed(1)}`);
+    })
+    .on("mouseleave", hideTip);
+}
+
+/* ================= INIT ================= */
+loadData();
+</script>
+
+
+<!-- Tooltip -->
+<div id="tooltip"
+     style="
+       position:fixed;
+       background:#ffffff;
+       padding:8px 12px;
+       border-radius:8px;
+       box-shadow:0 6px 18px rgba(0,0,0,.2);
+       font-size:13px;
+       color:#0f4c81;
+       pointer-events:none;
+       opacity:0;
+       transition:opacity .15s ease;
+       z-index:9999;
+     ">
+</div>
+
+{% endblock %}

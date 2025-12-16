@@ -390,10 +390,15 @@ def upload_files(request):
 
                 # -------- COLUMN FIX (loaction → location) --------
                 alias_map = {
-                    "loaction": "location",
-                    "loc": "location",
-                    "location ": "location",
-                }
+                      "loaction": "location",
+                      "loc": "location",
+                      "location_": "location",
+                      "location ": "location",
+                      }
+                    
+                    
+                   
+                
 
                 df.rename(columns=lambda c: alias_map.get(c.lower(), c.lower()), inplace=True)
 

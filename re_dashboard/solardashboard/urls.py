@@ -32,4 +32,32 @@ urlpatterns = [
 
     path('trend-analysis/', views.trend_analysis, name='trend_analysis'),
     path('api/trend-analysis/', views.api_trend_analysis, name='api_trend_analysis'),
+
+
+
+    # NEW DASHBOARD
+path("summary_dashboard/", views.summary_dashboard, name="summary_dashboard"),
+
+# NEW API
+path("api/solar-summary-dashboard/", views.api_solar_summary_dashboard, name="api_solar_summary_dashboard"),
+
+
+
+    # ... your other paths ...
+    path("generation-report/", views.generation_report, name="generation_report"),
+    path("api/solar/generation-report/", views.api_generation_report, name="api_generation_report"),
+
+
+    path(
+    "overall-breakdown-analysis/",
+    views.overall_breakdown_analysis,
+    name="overall_breakdown_analysis"
+),
+
+path(
+    "api/solar/overall-breakdown-analysis/",
+    views.api_overall_breakdown_analysis,
+    name="api_overall_breakdown_analysis"
+),
+
 ]

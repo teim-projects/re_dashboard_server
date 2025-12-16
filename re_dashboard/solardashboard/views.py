@@ -1862,3 +1862,933 @@ def api_trend_analysis(request):
         "years_ordered": years,
         "sites": sorted(all_sites),
     })
+
+
+
+
+
+
+
+
+# --------------------------------------------------------------------------
+# 🔥 NEW: Solar Summary Dashboard (KPIs + Monthly Chart + GF/FM/S/U Pie)
+# --------------------------------------------------------------------------
+from django.http import JsonResponse
+from django.db import connection
+from datetime import datetime
+from collections import defaultdict
+from decimal import Decimal
+
+def _pick(col_map, *names):
+    for n in names:
+        if n and n.lower() in col_map:
+            return col_map[n.lower()]
+    return None
+
+def _num(v):
+    if v is None:
+        return 0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except:
+        return 0
+
+def _parse_date(v):
+    try:
+        return datetime.strptime(str(v), "%Y-%m-%d").date()
+    except:
+        try:
+            return datetime.fromisoformat(str(v)).date()
+        except:
+            return None
+
+
+def _parse_time_to_minutes(v):
+    if not v:
+        return 0
+    v = str(v)
+    if ":" not in v:
+        return _num(v)
+    try:
+        h, m, s = v.split(":")
+        return int(h) * 60 + int(m) + int(s) / 60
+    except:
+        return 0
+
+@login_required
+def summary_dashboard(request):
+    return render(request, "solar_summary_dashboard.html")
+from django.http import JsonResponse
+from django.db import connection
+from datetime import datetime
+from collections import defaultdict
+from decimal import Decimal
+from django.contrib.auth.decorators import login_required
+
+# views.py (or appropriate file)
+from django.http import JsonResponse
+from django.db import connection
+from datetime import datetime
+from collections import defaultdict
+from decimal import Decimal
+from django.contrib.auth.decorators import login_required
+
+# helpers (reuse from your project)
+def _pick(col_map, *names):
+    for n in names:
+        if n and n.lower() in col_map:
+            return col_map[n.lower()]
+    return None
+
+def _num(v):
+    if v is None:
+        return 0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except:
+        return 0
+
+def _parse_date(v):
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(s, fmt)
+        except:
+            pass
+    try:
+        return datetime.fromisoformat(s)
+    except:
+        return None
+
+def _parse_time_to_minutes(v):
+    if not v:
+        return 0
+    s = str(v)
+    if ":" not in s:
+        return _num(s)
+    try:
+        h,m,s_ = s.split(":")
+        return int(h)*60 + int(m) + int(float(s_)/60)
+    except:
+        return 0
+
+@login_required
+def api_solar_summary_dashboard(request):
+    site = request.GET.get("site")
+    year_filter = request.GET.get("year")
+    quarter = request.GET.get("quarter")
+    month_filter = request.GET.get("month")
+
+    year_filter_int = int(year_filter) if year_filter else None
+    qmap = {"Q1":[1,2,3], "Q2":[4,5,6], "Q3":[7,8,9], "Q4":[10,11,12]}
+    allowed_months = qmap.get(quarter) if quarter else None
+    if month_filter:
+        allowed_months = [int(month_filter)]
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+    solar_tables = [
+        t for t in tables
+        if "solar" in t.lower()
+        or t.lower().endswith("_solar")
+        or "_solar_" in t.lower()
+        or t.lower().startswith("solar_")
+    ]
+
+    monthly = defaultdict(lambda: defaultdict(float))
+    sites, years = set(), set()
+
+    plf_vals = []
+    grid_vals = []
+    avail_vals = []
+    gen_daily_vals, op_daily_vals = [], []
+
+    gf_total = fm_total = s_total = u_total = 0
+
+    for table in solar_tables:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
+            cols = [c[0] for c in cursor.fetchall()]
+
+        col_map = {c.lower(): c for c in cols}
+        date_col = _pick(col_map, "date", "reading_date", "generation_date", "timestamp")
+        site_col = _pick(col_map, "site", "plant", "sitename", "location")
+
+        gen_col  = _pick(col_map, "generation_hours", "gen_hours", "gen")
+        op_col   = _pick(col_map, "operating_hours", "op_hours", "op")
+
+        plf_col   = _pick(col_map, "daily_plf", "plf")
+        grid_col  = _pick(col_map, "grid_ok", "grid_status")
+        avail_col = _pick(col_map, "plant_availability", "availability")
+
+        gf_col = _pick(col_map, "gf")
+        fm_col = _pick(col_map, "fm")
+        s_col  = _pick(col_map, "s")
+        u_col  = _pick(col_map, "u")
+
+        if not date_col:
+            continue
+
+        where = []
+        params = []
+
+        if site and site_col:
+            where.append(f"`{site_col}`=%s")
+            params.append(site)
+
+        if year_filter_int:
+            where.append(f"(YEAR(`{date_col}`)=%s OR YEAR(STR_TO_DATE(`{date_col}`, '%Y-%m-%d'))=%s)")
+            params.extend([year_filter_int, year_filter_int])
+
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+        query = f"""
+            SELECT
+                `{date_col}` AS dt,
+                `{site_col}` AS site,
+                `{gen_col}` AS gen,
+                `{op_col}` AS op,
+                `{plf_col}` AS plf,
+                `{grid_col}` AS grid_ok,
+                `{avail_col}` AS avail,
+                `{gf_col}` AS gf,
+                `{fm_col}` AS fm,
+                `{s_col}` AS s,
+                `{u_col}` AS u
+            FROM `{table}` {where_sql}
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            desc = [d[0].lower() for d in cursor.description]
+
+        for r in rows:
+            row = dict(zip(desc, r))
+            dt = _parse_date(row['dt'])
+            if not dt:
+                continue
+
+            y, m = dt.year, dt.month
+            if allowed_months and m not in allowed_months:
+                continue
+
+            years.add(y)
+            sites.add(str(row.get("site", "Unknown")))
+
+            # generation + operating
+            gen = _num(row.get("gen"))
+            op  = _num(row.get("op"))
+            monthly[y][m] += gen
+            monthly[y][m + 100] += op
+            gen_daily_vals.append(gen)
+            op_daily_vals.append(op)
+
+            # plf, grid ok, availability
+            if row.get("plf"):   plf_vals.append(_num(row["plf"]))
+            if row.get("grid_ok"): grid_vals.append(_num(row["grid_ok"]))
+            if row.get("avail"): avail_vals.append(_num(row["avail"]))
+
+            # downtime
+            gf_total += _parse_time_to_minutes(row.get("gf"))
+            fm_total += _parse_time_to_minutes(row.get("fm"))
+            s_total  += _parse_time_to_minutes(row.get("s"))
+            u_total  += _parse_time_to_minutes(row.get("u"))
+
+    # Monthly output
+    monthly_out = {}
+    for y in years:
+        arr = []
+        for m in range(1, 13):
+            arr.append({
+                "m": m,
+                "gen": round(monthly[y].get(m, 0.0), 3),
+                "op":  round(monthly[y].get(m + 100, 0.0), 3)
+            })
+        monthly_out[y] = arr
+
+    # KPI final values
+    plf_daily = round(sum(plf_vals)/len(plf_vals), 2) if plf_vals else 0
+    grid_ok_percent = round(sum(grid_vals)/len(grid_vals), 2) if grid_vals else 0
+    plant_avail = round(sum(avail_vals)/len(avail_vals), 2) if avail_vals else 0
+
+    # Downtime Pie
+    total_dt = gf_total + fm_total + s_total + u_total
+    pie = []
+    if total_dt > 0:
+        pie = [
+            {"label": "GF", "value": round(gf_total/total_dt*100, 2)},
+            {"label": "FM", "value": round(fm_total/total_dt*100, 2)},
+            {"label": "S", "value":  round(s_total/total_dt*100, 2)},
+            {"label": "U", "value":  round(u_total/total_dt*100, 2)}
+        ]
+
+    return JsonResponse({
+        "status": "ok",
+        "years": sorted(list(years)),
+        "sites": sorted(list(sites)),
+        "monthly_by_year": monthly_out,
+        "kpis": {
+            "plf_daily": plf_daily,
+            "grid_ok": grid_ok_percent,
+            "plant_availability": plant_avail,
+        },
+        "pie": pie
+    })
+
+
+
+
+
+# solardashboard/views.py  (append or integrate into existing file)
+import math
+import calendar
+from collections import defaultdict, OrderedDict
+from datetime import datetime
+from decimal import Decimal
+
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from django.http import JsonResponse
+from django.shortcuts import render
+
+# ---------------- Helpers ----------------
+def _pick(col_map, *candidates):
+    """Return actual DB column name from col_map for first matching candidate (case-insensitive)."""
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+def _parse_date(v):
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            pass
+    try:
+        return datetime.fromisoformat(s).date()
+    except Exception:
+        return None
+
+def _num(v):
+    if v is None:
+        return 0.0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except Exception:
+        try:
+            return float(v)
+        except Exception:
+            return 0.0
+
+def _time_to_minutes(v):
+    """If downtime fields are like 'hh:mm:ss' convert to minutes, else numeric fallback."""
+    if v is None:
+        return 0.0
+    s = str(v).strip()
+    if ":" in s:
+        parts = s.split(":")
+        try:
+            h = float(parts[0]); m = float(parts[1]); sec = float(parts[2]) if len(parts) > 2 else 0.0
+            return h*60 + m + sec/60.0
+        except Exception:
+            return _num(s)
+    else:
+        return _num(s)
+
+
+
+
+import calendar
+import re
+from collections import defaultdict
+from datetime import datetime
+from django.db import connection
+from django.http import JsonResponse
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+
+
+# --- Helper Functions (Missing in Original Snippet) ---
+
+def _pick(d, *keys):
+    """Picks the first key present in the dictionary d."""
+    for k in keys:
+        if k in d:
+            return d[k]
+    return None
+
+def _parse_date(val):
+    """Attempts to parse various date formats from the database."""
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, str):
+        # MySQL/PostgreSQL datetime/date formats
+        try:
+            return datetime.strptime(val.split(" ")[0], "%Y-%m-%d").date()
+        except ValueError:
+            # Fallback for other formats if needed
+            pass
+    return None
+
+def _num(val):
+    """Converts a value to a float, returning 0.0 on failure."""
+    if val is None:
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+def _time_to_minutes(val):
+    """Converts a value (assumed minutes or hours/minutes) to total minutes."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        # Assume it's already in minutes if a simple number
+        return float(val)
+    if isinstance(val, str):
+        # Try to parse HH:MM or similar formats if present, but for simplicity,
+        # we'll assume the column *should* be in minutes as implied by the field names.
+        return _num(val)
+    return 0.0
+
+
+# ---------------- Page view ----------------
+@login_required
+def generation_report(request):
+    """Render the generation report page (template below)."""
+    return render(request, "generation_report.html", {})
+
+
+# ---------------- API ----------------
+# ---------------- API ----------------
+@login_required
+def api_generation_report(request):
+    """
+    Returns:
+      - pivot_rows
+      - monthly_by_year
+      - yearly_trend (with correct PLF logic)
+      - kpis
+      - downtime_pie
+    """
+
+    site_filter = request.GET.get("site")
+    year_filter = request.GET.get("year")
+    quarter = request.GET.get("quarter")
+    month_filter = request.GET.get("month")
+    day_filter = request.GET.get("day")
+
+    qmap = {
+        "Q1":[1,2,3], 
+        "Q2":[4,5,6], 
+        "Q3":[7,8,9], 
+        "Q4":[10,11,12]
+    }
+
+    allowed_months = None
+    if quarter in qmap:
+        allowed_months = qmap[quarter]
+    if month_filter:
+        allowed_months = [int(month_filter)]
+
+    # find solar tables
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        db_tables = [r[0] for r in cursor.fetchall()]
+
+    solar_tables = [
+        t for t in db_tables
+        if re.search(r"solar|generation|_gen", t.lower())
+    ]
+
+    # containers
+    distinct_sites = set()
+    years_set = set()
+
+    monthly_by_year = defaultdict(lambda: defaultdict(float))
+    yearly_sum = defaultdict(float)
+    pivot_map = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+    all_daily_vals = []
+
+    # NEW containers for Power BI PLF formula
+    plf_yearly_generation = defaultdict(float)       # SUM(Yearly Generation)
+    plf_total_day_generation = defaultdict(float)    # SUM(Total Day Generation)
+
+    gf_total = fm_total = s_total = u_total = 0.0
+
+    # helpers
+    def pick(col_map, *names):
+        for n in names:
+            key = n.lower()
+            if key in col_map:
+                return col_map[key]
+        for n in names:
+            for k,orig in col_map.items():
+                if n.lower() in k.lower():
+                    return orig
+        return None
+
+    def num(x):
+        if x is None: return 0
+        try: return float(str(x).replace(",",""))
+        except: return 0
+
+    def parse_dt(x):
+        if not x: return None
+        try:
+            if isinstance(x, datetime):
+                return x.date()
+            return datetime.fromisoformat(str(x)).date()
+        except:
+            pass
+        for f in ("%Y-%m-%d","%d-%m-%Y","%Y/%m/%d"):
+            try: return datetime.strptime(str(x), f).date()
+            except: pass
+        return None
+
+    for table in solar_tables:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
+                cols = [c[0] for c in cursor.fetchall()]
+        except:
+            continue
+
+        col_map = {c.lower():c for c in cols}
+
+        date_col = pick(col_map, "date","reading_date","generation_date","dt")
+        site_col = pick(col_map, "site","sitename","sitecode")
+        daily_col = pick(col_map, "daily_generation","daily","generation")
+        yearly_gen_col = pick(col_map, "yearly","yearly_generation","year_gen")
+
+        gf_col = pick(col_map, "gf","grid_failure")
+        fm_col = pick(col_map, "fm","forced_maintenance")
+        s_col  = pick(col_map, "s","stoppage")
+        u_col  = pick(col_map, "u","unplanned")
+
+        if not date_col or not daily_col:
+            continue
+
+        where = []
+        params = []
+
+        if site_filter and site_col:
+            where.append(f"`{site_col}`=%s")
+            params.append(site_filter)
+
+        if year_filter:
+            where.append(f"YEAR(`{date_col}`)=%s")
+            params.append(year_filter)
+
+        if month_filter:
+            where.append(f"MONTH(`{date_col}`)=%s")
+            params.append(month_filter)
+
+        if day_filter:
+            where.append(f"DAY(`{date_col}`)=%s")
+            params.append(day_filter)
+
+        where_sql = "WHERE "+ " AND ".join(where) if where else ""
+
+        sel = [
+            f"`{date_col}` AS dt",
+            f"`{daily_col}` AS daily"
+        ]
+        if site_col: sel.append(f"`{site_col}` AS site")
+        if yearly_gen_col: sel.append(f"`{yearly_gen_col}` AS yearly")
+
+        if gf_col: sel.append(f"`{gf_col}` AS gf")
+        if fm_col: sel.append(f"`{fm_col}` AS fm")
+        if s_col: sel.append(f"`{s_col}` AS s")
+        if u_col: sel.append(f"`{u_col}` AS u")
+
+        query = f"""
+            SELECT {", ".join(sel)}
+            FROM `{table}`
+            {where_sql}
+            ORDER BY `{date_col}` ASC
+        """
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                fetched = cursor.fetchall()
+                desc = [d[0].lower() for d in cursor.description]
+        except:
+            continue
+
+        for row in fetched:
+            rec = dict(zip(desc, row))
+
+            dt = parse_dt(rec.get("dt"))
+            if not dt: continue
+
+            y = dt.year
+            m = dt.month
+
+            if allowed_months and m not in allowed_months:
+                continue
+
+            years_set.add(y)
+
+            daily_v = num(rec.get("daily"))
+            yearly_v = num(rec.get("yearly"))
+
+            # For Power BI PLF formula
+            plf_yearly_generation[y] += yearly_v
+            plf_total_day_generation[y] += daily_v
+
+            monthly_by_year[y][m] += daily_v
+            yearly_sum[y] += daily_v
+            pivot_map[y][((m-1)//3)+1][m] += daily_v
+            all_daily_vals.append(daily_v)
+
+            # site unique list
+            if site_col:
+                distinct_sites.add(str(rec.get("site")))
+
+            # downtime (optional)
+            gf_total += num(rec.get("gf"))
+            fm_total += num(rec.get("fm"))
+            s_total += num(rec.get("s"))
+            u_total += num(rec.get("u"))
+
+    # monthly output
+    month_names = [calendar.month_name[i] for i in range(1,13)]
+    monthly_out = {}
+    for y in sorted(monthly_by_year.keys()):
+        arr = []
+        for mm in range(1,13):
+            if allowed_months and mm not in allowed_months:
+                continue
+            arr.append({
+                "m":mm,
+                "month_name": month_names[mm-1],
+                "gen": round(monthly_by_year[y].get(mm,0),3),
+                "trend":0   # optional
+            })
+        # simple MA-3 trend
+        gens = [x["gen"] for x in arr]
+        for i in range(len(arr)):
+            window = gens[max(0,i-1):min(len(arr),i+2)]
+            arr[i]["trend"] = round(sum(window)/len(window),3) if window else 0
+        monthly_out[y] = arr
+
+    # pivot rows
+    pivot_rows = []
+    for y in sorted(pivot_map.keys()):
+        for q in sorted(pivot_map[y].keys()):
+            q_total = round(sum(pivot_map[y][q].values()),3)
+            pivot_rows.append({
+                "type":"quarter",
+                "year":y,
+                "quarter":f"Qtr {q}",
+                "quarter_total":q_total
+            })
+            for mm in sorted(pivot_map[y][q].keys()):
+                pivot_rows.append({
+                    "type":"month",
+                    "year":y,
+                    "quarter":f"Qtr {q}",
+                    "month":month_names[mm-1],
+                    "total_daily_generation": round(pivot_map[y][q][mm],3)
+                })
+
+    # YEARLY TREND (Power BI logic)
+    yearly_trend = []
+    for y in sorted(yearly_sum.keys()):
+        # PLF = SUM(Yearly Gen) / SUM(Total Day Gen) * 100
+        plf_val = 0
+        if plf_total_day_generation[y] > 0:
+            plf_val = (plf_yearly_generation[y] / plf_total_day_generation[y]) * 100
+        
+        yearly_trend.append({
+            "year": y,
+            "yearly_sum": round(yearly_sum[y],3),
+            "plf_yearly": round(plf_val,3)
+        })
+
+    # KPIs
+    daily_avg = round(sum(all_daily_vals)/len(all_daily_vals),2) if all_daily_vals else 0
+    monthly_avg = round(sum(yearly_sum.values())/12,2) if yearly_sum else 0
+    yearly_avg = round(sum(yearly_sum.values())/len(yearly_sum),2) if yearly_sum else 0
+
+    return JsonResponse({
+        "status":"ok",
+        "years":sorted(list(years_set)),
+        "sites":sorted(list(distinct_sites)),
+        "kpis":{
+            "daily_avg":daily_avg,
+            "monthly_avg":monthly_avg,
+            "yearly_avg":yearly_avg
+        },
+        "pivot_rows":pivot_rows,
+        "monthly_by_year":monthly_out,
+        "yearly_trend":yearly_trend
+    })
+
+
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.db import connection
+from django.http import JsonResponse
+
+@login_required
+def overall_breakdown_analysis(request):
+    return render(request, "overall_breakdown_analysis.html")
+
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
+
+# ---------------- HELPERS ---------------- #
+
+def _pick(col_map, *names):
+    for n in names:
+        if n and n.lower() in col_map:
+            return col_map[n.lower()]
+    return None
+
+def _num(v):
+    if v is None:
+        return 0.0
+    try:
+        return float(Decimal(str(v).replace(",", "")))
+    except:
+        return 0.0
+
+def _parse_date(v):
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    s = str(v).strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except:
+            pass
+    try:
+        return datetime.fromisoformat(s).date()
+    except:
+        return None
+
+def _parse_time_to_minutes(v):
+    if not v:
+        return 0.0
+    s = str(v).strip()
+    if ":" in s:
+        try:
+            h, m, sec = s.split(":")
+            return float(h) * 60 + float(m) + float(sec) / 60
+        except:
+            return _num(s)
+    return _num(s)
+
+# ---------------- API ---------------- #
+
+@login_required
+def api_overall_breakdown_analysis(request):
+
+    year_filter = request.GET.get("year")
+    quarter = request.GET.get("quarter")
+    day_filter = request.GET.get("day")
+
+    qmap = {
+        "Q1": [1,2,3],
+        "Q2": [4,5,6],
+        "Q3": [7,8,9],
+        "Q4": [10,11,12]
+    }
+    allowed_months = qmap.get(quarter)
+
+    # ---- discover solar tables dynamically ----
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW TABLES;")
+        tables = [r[0] for r in cursor.fetchall()]
+
+    solar_tables = [t for t in tables if "solar" in t.lower()]
+
+    # ---- accumulators ----
+    gf_min = fm_min = s_min = u_min = 0.0
+    generation_hours_total = 0.0
+
+    breakdown_counter = defaultdict(int)
+    weather_counter = defaultdict(int)
+    years_set = set()
+
+    # ---- process each table ----
+    for table in solar_tables:
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
+                cols = [c[0] for c in cursor.fetchall()]
+        except:
+            continue
+
+        col_map = {c.lower(): c for c in cols}
+
+        date_col = _pick(col_map, "date", "reading_date", "generation_date")
+        genh_col = _pick(col_map, "generation hours", "generation_hours", "gen_hours")
+
+        gf_col = _pick(col_map, "gf")
+        fm_col = _pick(col_map, "fm")
+        s_col  = _pick(col_map, "s")
+        u_col  = _pick(col_map, "u")
+
+        weather_col = _pick(col_map, "weather condition", "weather_condition")
+        bd_col = _pick(col_map, "breakdown details", "breakdown_details")
+
+        if not date_col or not genh_col:
+            continue
+
+        where = []
+        params = []
+
+        if year_filter:
+            where.append(f"YEAR(`{date_col}`)=%s")
+            params.append(year_filter)
+
+        if day_filter:
+            where.append(f"DAY(`{date_col}`)=%s")
+            params.append(day_filter)
+
+        where_sql = "WHERE " + " AND ".join(where) if where else ""
+
+        select_cols = [
+            f"`{date_col}` AS dt",
+            f"`{genh_col}` AS genh"
+        ]
+
+        if gf_col: select_cols.append(f"`{gf_col}` AS gf")
+        if fm_col: select_cols.append(f"`{fm_col}` AS fm")
+        if s_col:  select_cols.append(f"`{s_col}` AS s")
+        if u_col:  select_cols.append(f"`{u_col}` AS u")
+        if weather_col: select_cols.append(f"`{weather_col}` AS weather")
+        if bd_col: select_cols.append(f"`{bd_col}` AS bd")
+
+        query = f"""
+            SELECT {", ".join(select_cols)}
+            FROM `{table}`
+            {where_sql}
+        """
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                desc = [d[0].lower() for d in cursor.description]
+        except:
+            continue
+
+        for r in rows:
+            row = dict(zip(desc, r))
+
+            dt = _parse_date(row.get("dt"))
+            if not dt:
+                continue
+
+            if allowed_months and dt.month not in allowed_months:
+                continue
+
+            years_set.add(dt.year)
+
+            # ---- downtime (minutes) ----
+            gf_min += _parse_time_to_minutes(row.get("gf"))
+            fm_min += _parse_time_to_minutes(row.get("fm"))
+            s_min  += _parse_time_to_minutes(row.get("s"))
+            u_min  += _parse_time_to_minutes(row.get("u"))
+
+            # ---- generation hours (hours) ----
+            generation_hours_total += _num(row.get("genh"))
+
+            # ---- breakdown details ----
+            if row.get("bd"):
+                breakdown_counter[str(row["bd"]).strip()] += 1
+
+            # ---- weather condition ----
+            if row.get("weather"):
+                weather_counter[str(row["weather"]).strip()] += 1
+
+    # ================= KPI FIX =================
+    # Convert minutes → hours BEFORE dividing
+    breakdown_hours = (gf_min + fm_min + s_min + u_min) / 60
+
+    # Extra safety: downtime cannot exceed generation hours
+    breakdown_hours = min(breakdown_hours, generation_hours_total)
+
+    gt_breakdown_percentage = round(
+        (breakdown_hours / generation_hours_total * 100)
+        if generation_hours_total else 0,
+        2
+    )
+
+
+
+    print("---- GT BREAKDOWN DEBUG ----")
+    print("GF minutes:", gf_min)
+    print("FM minutes:", fm_min)
+    print("S  minutes:", s_min)
+    print("U  minutes:", u_min)
+    print("TOTAL downtime minutes:", gf_min + fm_min + s_min + u_min)
+    print("TOTAL downtime hours:", (gf_min + fm_min + s_min + u_min) / 60)
+    print("TOTAL generation hours:", generation_hours_total)
+    print("GT Breakdown %:", gt_breakdown_percentage)
+    print("-----------------------------")
+
+    return JsonResponse({
+        "status": "ok",
+
+        "kpis": {
+            "gt_breakdown_percentage": gt_breakdown_percentage
+        },
+
+        "filters": {
+            "years": sorted(list(years_set))
+        },
+
+        "breakdown_table": [
+            {"label": k, "count": v}
+            for k, v in sorted(
+                breakdown_counter.items(),
+                key=lambda x: -x[1]
+            )
+        ],
+
+        "weather_table": [
+            {"condition": k, "count": v}
+            for k, v in sorted(
+                weather_counter.items(),
+                key=lambda x: -x[1]
+            )
+        ],
+
+        "weather_chart": [
+            {"condition": k, "count": v}
+            for k, v in sorted(
+                weather_counter.items(),
+                key=lambda x: -x[1]
+            )
+        ]
+    })
