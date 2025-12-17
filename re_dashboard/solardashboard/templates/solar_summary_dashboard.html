@@ -253,203 +253,253 @@
 </div>
 
 <script>
+/* =========================
+   CONFIG
+========================= */
 const API = "{% url 'api_solar_summary_dashboard' %}";
+const MONTHS = ["January","February","March","April","May","June",
+                "July","August","September","October","November","December"];
 
-const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+/* =========================
+   GLOBAL STATE
+========================= */
+let state = {
+  years: [],
+  sites: [],
+  monthly_by_year: {},
+  pie: [],
+  kpis: {}
+};
 
-let state = { years:[], sites:[], monthly_by_year:{}, pie:[], kpis:{}, comparison:{} };
 let barChart = null;
 let pieChart = null;
 let gaugeCharts = {};
+let filtersInitialized = false;
 
-// small helpers
-function num(v){ return v==null ? 0 : Number(v); }
-function fmt(n,dec=2){ return (n==null ? 0 : Number(n)).toFixed(dec); }
+/* =========================
+   HELPERS
+========================= */
+const num = v => (v == null || isNaN(v)) ? 0 : Number(v);
+const fmt = (n, d = 2) => num(n).toFixed(d);
 
+/* =========================
+   FETCH DATA
+========================= */
 async function fetchData(){
-  const params = new URLSearchParams();
   const site = document.getElementById("filter-site").value;
   const year = document.getElementById("filter-year").value;
   const quarter = document.getElementById("filter-quarter").value;
   const month = document.getElementById("filter-month").value;
-  if(site) params.append("site",site);
-  if(year) params.append("year",year);
-  if(quarter) params.append("quarter",quarter);
-  if(month) params.append("month",month);
+
+  console.log("Applied Filters:", { site, year, quarter, month });
+
+  const params = new URLSearchParams();
+  if(site) params.append("site", site);
+  if(year) params.append("year", year);
+  if(quarter) params.append("quarter", quarter);
+  if(month) params.append("month", month);
 
   const res = await fetch(API + "?" + params.toString());
-  const j = await res.json();
-  if(!j || j.status !== "ok") return;
+  const json = await res.json();
 
-  state.years = j.years || [];
-  state.sites = j.sites || [];
-  state.monthly_by_year = j.monthly_by_year || {};
-  state.pie = j.pie || [{"label":"GF","value":0},{"label":"FM","value":0},{"label":"S","value":0},{"label":"U","value":0}];
-  state.kpis = j.kpis || {};
-  state.comparison = j.comparison || {};
+  if(!json || json.status !== "ok"){
+    console.error("API Error", json);
+    return;
+  }
 
-  populateFilters();
+  state.years = json.years || [];
+  state.sites = json.sites || [];
+  state.monthly_by_year = json.monthly_by_year || {};
+  state.pie = json.pie || [];
+  state.kpis = json.kpis || {};
+
+  if(!filtersInitialized){
+    populateFilters();
+    filtersInitialized = true;
+  }
+
   updateUI();
 }
 
+/* =========================
+   POPULATE FILTERS (ONCE)
+========================= */
 function populateFilters(){
   const siteSel = document.getElementById("filter-site");
   const yearSel = document.getElementById("filter-year");
-  const prevSite = siteSel.value;
-  const prevYear = yearSel.value;
 
   siteSel.innerHTML = "<option value=''>All Sites</option>";
-  state.sites.forEach(s=>{
-    const o = document.createElement("option"); o.value=s; o.text=s; siteSel.appendChild(o);
+  state.sites.forEach(s => {
+    const o = document.createElement("option");
+    o.value = s;
+    o.textContent = s;
+    siteSel.appendChild(o);
   });
 
   yearSel.innerHTML = "<option value=''>All Years</option>";
-  state.years.forEach(y=>{
-    const o = document.createElement("option"); o.value=y; o.text=y; yearSel.appendChild(o);
+  state.years.forEach(y => {
+    const o = document.createElement("option");
+    o.value = y;
+    o.textContent = y;
+    yearSel.appendChild(o);
   });
-
-  if(prevSite) siteSel.value = prevSite;
-  if(prevYear) yearSel.value = prevYear;
 }
 
+/* =========================
+   UPDATE UI
+========================= */
 function updateUI(){
-  // KPIs (Option B mapping implemented in backend)
-  document.getElementById("kpi-plf").textContent = fmt(state.kpis.plf_daily,2);
-  document.getElementById("kpi-grid").textContent = fmt(state.kpis.grid_ok,2);
-  document.getElementById("kpi-avail").textContent = fmt(state.kpis.plant_availability,2);
-
-  document.getElementById("kpi-plf-sub").textContent = "Avg";
-  document.getElementById("kpi-grid-sub").textContent = "Avg";
-  document.getElementById("kpi-avail-sub").textContent = "Avg";
+  // KPIs
+  document.getElementById("kpi-plf").textContent = fmt(state.kpis.plf_daily);
+  document.getElementById("kpi-grid").textContent = fmt(state.kpis.grid_ok);
+  document.getElementById("kpi-avail").textContent = fmt(state.kpis.plant_availability);
 
   drawBarChart();
   drawMiniGauges();
-  drawPie();
+  drawPieChart();
 }
 
-// BAR CHART (gen vs op). monthly_by_year is { year: [ {m:1,gen:...,op:...}, ... ] }
+/* =========================
+   BAR CHART
+========================= */
 function drawBarChart(){
-  const selYear = document.getElementById("filter-year").value;
-  const months = Array.from({length:12},(_,i)=>i+1);
-  const gen = [], op = [];
+  const selectedYear = document.getElementById("filter-year").value;
 
-  if(selYear && state.monthly_by_year[selYear]){
-    const arr = state.monthly_by_year[selYear];
-    months.forEach(m=>{
-      const rec = arr[m-1] || {gen:0,op:0};
+  const gen = [];
+  const op = [];
+
+  for(let m = 1; m <= 12; m++){
+    if(selectedYear && state.monthly_by_year[selectedYear]){
+      const rec = state.monthly_by_year[selectedYear][m-1] || {};
       gen.push(num(rec.gen));
       op.push(num(rec.op));
-    });
-  } else {
-    // sum across years
-    months.forEach(m=>{
-      let gsum=0, osum=0;
-      Object.keys(state.monthly_by_year).forEach(y=>{
-        const arr = state.monthly_by_year[y] || [];
-        const rec = arr[m-1] || {gen:0,op:0};
-        gsum += num(rec.gen);
-        osum += num(rec.op);
+    } else {
+      let gSum = 0, oSum = 0;
+      Object.values(state.monthly_by_year).forEach(arr => {
+        const rec = arr[m-1] || {};
+        gSum += num(rec.gen);
+        oSum += num(rec.op);
       });
-      gen.push(gsum); op.push(osum);
-    });
+      gen.push(gSum);
+      op.push(oSum);
+    }
   }
 
-  const ctx = document.getElementById("barChart").getContext("2d");
   if(barChart) barChart.destroy();
 
-  barChart = new Chart(ctx, {
-    type: 'bar',
+  barChart = new Chart(document.getElementById("barChart"), {
+    type: "bar",
     data: {
       labels: MONTHS,
       datasets: [
-        { label:'Generation Hours', data: gen, backgroundColor:'#2563eb', borderRadius:6 },
-        { label:'Operating Hours', data: op, backgroundColor:'#38bdf8', borderRadius:6 }
+        { label: "Generation Hours", data: gen, backgroundColor: "#2563eb", borderRadius: 6 },
+        { label: "Operating Hours", data: op, backgroundColor: "#38bdf8", borderRadius: 6 }
       ]
     },
     options: {
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ display:true, position:'top' } },
-      scales:{
-        x:{ ticks:{ maxRotation:0, autoSkip:true }, grid:{display:false} },
-        y:{ beginAtZero:true, grid:{ color:'rgba(2,6,23,0.03)' } }
-      },
-      interaction:{ mode:'index', intersect:false }
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { position: "top" } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true }
+      }
     }
   });
-
-  // simple legend area
-  const lw = document.getElementById("bar-legend");
-  lw.innerHTML = "";
-  [{label:"Generation Hours", color:"#2563eb"},{label:"Operating Hours", color:"#38bdf8"}].forEach(it=>{
-    const d = document.createElement("div"); d.style.display="inline-block"; d.style.marginRight="12px";
-    d.innerHTML = `<span style="display:inline-block;width:10px;height:10px;background:${it.color};margin-right:6px;border-radius:3px"></span>${it.label}`;
-    lw.appendChild(d);
-  });
 }
 
-// MINI GAUGES (small donuts showing percent)
+/* =========================
+   MINI GAUGES
+========================= */
 function drawMiniGauges(){
-  const mapping = { GF:"#1E90FF", FM:"#EF4444", S:"#F59E0B", U:"#10B981" };
-  // destroy
-  Object.values(gaugeCharts).forEach(c=>c.destroy());
+  Object.values(gaugeCharts).forEach(c => c.destroy());
   gaugeCharts = {};
 
-  // ensure we have four labels in expected order
-  const order = ["GF","FM","S","U"];
-  const byLabel = {};
-  state.pie.forEach(p => byLabel[p.label] = p.value);
+  const colors = {
+    GF: "#1E90FF",
+    FM: "#EF4444",
+    S: "#F59E0B",
+    U: "#10B981"
+  };
 
-  order.forEach(lbl=>{
-    const val = num(byLabel[lbl] ?? 0);
-    const ctx = document.getElementById("gauge_" + lbl);
-    gaugeCharts[lbl] = new Chart(ctx, {
-      type:'doughnut',
-      data:{
-        datasets:[{
-          data:[val, Math.max(0,100-val)],
-          backgroundColor:[mapping[lbl], '#e9eef8'],
-          borderWidth:0
-        }]
-      },
-      options:{
-        rotation:-135 * (Math.PI/180),
-        circumference: 270 * (Math.PI/180),
-        cutout: '75%',
-        responsive:true,
-        maintainAspectRatio:false,
-        plugins:{ legend:{display:false}, tooltip:{enabled:false} },
-        animation:{ duration:800, easing:'easeOutCubic' }
+  const values = {};
+  state.pie.forEach(p => values[p.label] = num(p.value));
+
+  ["GF","FM","S","U"].forEach(label => {
+    gaugeCharts[label] = new Chart(
+      document.getElementById("gauge_" + label),
+      {
+        type: "doughnut",
+        data: {
+          datasets: [{
+            data: [values[label] || 0, 100 - (values[label] || 0)],
+            backgroundColor: [colors[label], "#e5e7eb"],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          rotation: -135 * Math.PI / 180,
+          circumference: 270 * Math.PI / 180,
+          cutout: "75%",
+          plugins: { legend: { display: false }, tooltip: { enabled: false } }
+        }
       }
-    });
+    );
   });
 }
 
-function drawPie(){
-  const ctx = document.getElementById("pieChart").getContext("2d");
+/* =========================
+   PIE CHART
+========================= */
+function drawPieChart(){
   if(pieChart) pieChart.destroy();
-  const labels = state.pie.map(d=>d.label + " — " + d.value + "%");
-  const data = state.pie.map(d=>d.value);
-  const colors = state.pie.map(d => d.label==="GF"? "#1E90FF": d.label==="FM"? "#EF4444": d.label==="S"? "#F59E0B" : "#10B981");
 
-  pieChart = new Chart(ctx, {
-    type:'doughnut',
-    data:{ labels, datasets:[{ data, backgroundColor:colors, borderColor:'#fff', borderWidth:2 }]},
-    options:{ responsive:true, maintainAspectRatio:false, cutout:'60%', plugins:{ legend:{ display:false } }, animation:{ duration:900 } }
+  const labels = state.pie.map(d => `${d.label} ${d.value}%`);
+  const data = state.pie.map(d => d.value);
+  const colors = state.pie.map(d =>
+    d.label === "GF" ? "#1E90FF" :
+    d.label === "FM" ? "#EF4444" :
+    d.label === "S"  ? "#F59E0B" : "#10B981"
+  );
+
+  pieChart = new Chart(document.getElementById("pieChart"), {
+    type: "doughnut",
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderWidth: 2 }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "60%",
+      plugins: { legend: { display: false } }
+    }
   });
 }
 
-// events
+/* =========================
+   EVENTS
+========================= */
 document.getElementById("btn-apply").addEventListener("click", fetchData);
-document.getElementById("btn-reset").addEventListener("click", ()=>{
-  ["filter-site","filter-year","filter-quarter","filter-month"].forEach(id=>document.getElementById(id).value="");
+
+document.getElementById("btn-reset").addEventListener("click", () => {
+  ["filter-site","filter-year","filter-quarter","filter-month"]
+    .forEach(id => document.getElementById(id).value = "");
   fetchData();
 });
 
-// load on open
+/* =========================
+   INIT
+========================= */
 fetchData();
 
-// responsive resizing
-window.addEventListener("resize", ()=>{ if(barChart) barChart.resize(); if(pieChart) pieChart.resize(); Object.values(gaugeCharts).forEach(c=>c.resize && c.resize()); });
+window.addEventListener("resize", () => {
+  barChart?.resize();
+  pieChart?.resize();
+  Object.values(gaugeCharts).forEach(c => c.resize && c.resize());
+});
 </script>
+
 
 {% endblock %}
