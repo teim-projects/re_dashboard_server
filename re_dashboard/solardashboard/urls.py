@@ -55,7 +55,7 @@ path("api/solar-summary-dashboard/", views.api_solar_summary_dashboard, name="ap
 ),
 
 path(
-    "api/solar/overall-breakdown-analysis/",
+    "api/overall-breakdown-analysis/",
     views.api_overall_breakdown_analysis,
     name="api_overall_breakdown_analysis"
 ),

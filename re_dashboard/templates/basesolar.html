@@ -174,13 +174,22 @@
   Summary Dashboard
 </a>
 <!-- Generation Report -->
-<!-- <a class="nav-link navcontent {% if request.path == '/solar/generation-report/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/generation-report/' %}active{% endif %}"
    href="{% url 'generation_report' %}">
   <span class="sidebar-icon solaricon">
     <i class="fa-solid fa-solar-panel"  ></i>
   </span>
   Generation Report
-</a> -->
+</a>
+
+<a class="nav-link navcontent {% if request.path == '/solar/overall-breakdown-analysis/' %}active{% endif %}"
+   href="{% url 'overall_breakdown_analysis' %}">
+  <span class="sidebar-icon solaricon">
+    <i class="fa-solid fa-arrow-trend-down"></i>
+
+  </span>
+  Overall Breakdown
+</a>
 
 <!-- Generation Dashboard -->
 <a class="nav-link navcontent {% if request.path == '/solar/solar_dashboard_genration/' %}active{% endif %}"
@@ -209,14 +218,14 @@
 </a>
 
 
-<!-- <a class="nav-link navcontent {% if request.path == '/solar/solar_weather_breakdown_dashboard/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/solar_weather_breakdown_dashboard/' %}active{% endif %}"
    href="{% url 'solar_weather_breakdown_dashboard' %}">
 
     <span class="sidebar-icon solaricon">
         <i class="fa-solid fa-cloud-sun"></i>
     </span>
     Weather Breakdown
-</a> -->
+</a>
 
 <style>
 .solaricon {

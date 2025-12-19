@@ -389,6 +389,17 @@ body.dark-mode .nav-link.active {
   color: #ffe066 !important;
   font-weight: bold;
 }/* Fixed sidebar width on all screens */
+
+  .haddding {
+        font-weight: 600;
+        color: #718096;
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 15px;
+        border-left: 4px solid #764ba2;
+        padding-left: 10px;
+    }
   </style>
 </head>
 
@@ -430,7 +441,7 @@ body.dark-mode .nav-link.active {
 
   </div>
 
-  <h5 class="mb-0 me-3 text-dark">Hello, {{ request.user }}</h5>
+  <h5 class="mb-0 me-3 text-dark haddding">Hello, {{ request.user }}</h5>
  
   <div class="dark-mode-toggle" data-aos="zoom-in">
     <button id="themeToggleBtn" class="btn btn-light theme-btn" title="Toggle Dark Mode">

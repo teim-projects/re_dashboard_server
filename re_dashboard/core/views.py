@@ -758,7 +758,6 @@ def _ensure_pm_table_and_columns(dynamic_cols, use_user_id=True):
                     cursor.execute(f"ALTER TABLE `{PM_TABLE_NAME}` ADD COLUMN `{col}` TEXT;")
 
 def ensure_wtg_table():
-    """Ensure the preventive_maintenance_with_wtg table exists and has required columns."""
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         tables = [r[0] for r in cursor.fetchall()]
@@ -780,10 +779,12 @@ def ensure_wtg_table():
                     duration TEXT,
                     status TEXT DEFAULT 'Pending',
                     remarks TEXT,
-                    completed_on DATE,
-                    FOREIGN KEY (user_id) REFERENCES auth_user(id) ON DELETE CASCADE
+                    completed_on DATETIME,   -- ✅ FIX
+                    FOREIGN KEY (user_id) REFERENCES auth_user(id)
+                        ON DELETE CASCADE
                 );
             """)
+
 
         # 🧹 Drop any old constraints that might conflict
         for idx in ["unique_wtg_checkpoint", "unique_wtg_checkpoint_per_unit"]:

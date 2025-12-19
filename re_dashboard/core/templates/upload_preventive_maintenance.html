@@ -54,10 +54,14 @@
                 <label class="form-label">Checkpoints Period</label>
                 <select name="checkpoints_period" class="form-select" required>
                   <option value="">-- Select Period --</option>
-                  <option value="Monthly">Monthly</option>
-                  <option value="Quarterly">Quarterly</option>
-                  <option value="Half-Yearly">Half-Yearly</option>
-                  <option value="Yearly">Yearly</option>
+<option value="Hourly">Hourly</option>
+<option value="Daily">Daily</option>
+<option value="Weekly">Weekly</option>
+<option value="Monthly">Monthly</option>
+<option value="Quarterly">Quarterly</option>
+<option value="Half-Yearly">Half-Yearly</option>
+<option value="Yearly">Yearly</option>
+
                 </select>
               </div>
 
@@ -119,16 +123,26 @@
               </div>
 
               <!-- ✅ Replaced input with select -->
-              <div class="col-md-4">
-                <label class="form-label">Checkpoints Period</label>
-                <select name="checkpoints_period" class="form-select" required>
-                  <option value="">-- Select Period --</option>
-                  <option value="Monthly">Monthly</option>
-                  <option value="Quarterly">Quarterly</option>
-                  <option value="Half-Yearly">Half-Yearly</option>
-                  <option value="Yearly">Yearly</option>
-                </select>
-              </div>
+<div class="col-md-4">
+  <label class="form-label">Checkpoints Period</label>
+
+  <select name="checkpoints_period" class="form-select" required id="checkpointPeriodManual">
+    <option value="">-- Select Period --</option>
+    <option value="Hourly">Hourly</option>
+    <option value="Daily">Daily</option>
+    <option value="Weekly">Weekly</option>
+    <option value="Monthly">Monthly</option>
+    <option value="Quarterly">Quarterly</option>
+    <option value="Half-Yearly">Half-Yearly</option>
+    <option value="Yearly">Yearly</option>
+  </select>
+
+  <!-- ✅ Hint OUTSIDE select -->
+  <small id="hourlyHintManual" class="text-muted d-none">
+    ⏱ Duration examples: <b>0.5</b>, <b>1</b>, <b>01:30</b>, <b>2:15</b>
+  </small>
+</div>
+
 
               <div class="col-md-4">
                 <label class="form-label">MW</label>
@@ -172,6 +186,21 @@
       </div>
     </div>
   </div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const periodSelect = document.getElementById("checkpointPeriodManual");
+  const hourlyHint = document.getElementById("hourlyHintManual");
+
+  periodSelect.addEventListener("change", function () {
+    if (this.value === "Hourly") {
+      hourlyHint.classList.remove("d-none");
+    } else {
+      hourlyHint.classList.add("d-none");
+    }
+  });
+});
+</script>
+
 
   <!-- JS for dynamic row addition/removal -->
   <script>

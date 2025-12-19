@@ -2544,69 +2544,85 @@ def api_generation_report(request):
     })
 
 
-
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.db import connection
 from django.http import JsonResponse
-
-@login_required
-def overall_breakdown_analysis(request):
-    return render(request, "overall_breakdown_analysis.html")
-
-from django.http import JsonResponse
-from django.db import connection
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
 from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.db import connection
+from django.http import JsonResponse
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 
-# ---------------- HELPERS ---------------- #
 
+# ================= PAGE =================
+@login_required
+def overall_breakdown_analysis(request):
+    return render(request, "overall_breakdown_analysis.html", {
+        "days": range(1, 32)
+    })
+
+
+# ================= HELPERS =================
 def _pick(col_map, *names):
     for n in names:
         if n and n.lower() in col_map:
             return col_map[n.lower()]
     return None
 
-def _num(v):
-    if v is None:
-        return 0.0
-    try:
-        return float(Decimal(str(v).replace(",", "")))
-    except:
-        return 0.0
 
 def _parse_date(v):
     if not v:
         return None
     if isinstance(v, datetime):
         return v.date()
-    s = str(v).strip()
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except:
-            pass
     try:
-        return datetime.fromisoformat(s).date()
+        return datetime.fromisoformat(str(v)).date()
     except:
         return None
 
-def _parse_time_to_minutes(v):
-    if not v:
+
+def _to_hours(v):
+    """
+    Converts DB value to HOURS.
+    Handles:
+    - numeric (1.5)
+    - 'HH:MM'
+    - 'HH:MM:SS'
+    - TIME datatype
+    Matches Power BI automatic behavior.
+    """
+    if v is None:
         return 0.0
+
     s = str(v).strip()
+    if not s:
+        return 0.0
+
+    # TIME format HH:MM or HH:MM:SS
     if ":" in s:
         try:
-            h, m, sec = s.split(":")
-            return float(h) * 60 + float(m) + float(sec) / 60
+            parts = s.split(":")
+            h = float(parts[0])
+            m = float(parts[1]) if len(parts) > 1 else 0
+            sec = float(parts[2]) if len(parts) > 2 else 0
+            return h + (m / 60) + (sec / 3600)
         except:
-            return _num(s)
-    return _num(s)
+            return 0.0
 
-# ---------------- API ---------------- #
+    # Numeric hours
+    try:
+        return float(Decimal(s.replace(",", "")))
+    except:
+        return 0.0
 
+
+# ================= API =================
 @login_required
 def api_overall_breakdown_analysis(request):
 
@@ -2615,10 +2631,10 @@ def api_overall_breakdown_analysis(request):
     day_filter = request.GET.get("day")
 
     qmap = {
-        "Q1": [1,2,3],
-        "Q2": [4,5,6],
-        "Q3": [7,8,9],
-        "Q4": [10,11,12]
+        "Q1": [1, 2, 3],
+        "Q2": [4, 5, 6],
+        "Q3": [7, 8, 9],
+        "Q4": [10, 11, 12]
     }
     allowed_months = qmap.get(quarter)
 
@@ -2629,8 +2645,8 @@ def api_overall_breakdown_analysis(request):
 
     solar_tables = [t for t in tables if "solar" in t.lower()]
 
-    # ---- accumulators ----
-    gf_min = fm_min = s_min = u_min = 0.0
+    # ---- accumulators (HOURS) ----
+    gf_total = fm_total = s_total = u_total = 0.0
     generation_hours_total = 0.0
 
     breakdown_counter = defaultdict(int)
@@ -2667,11 +2683,11 @@ def api_overall_breakdown_analysis(request):
         params = []
 
         if year_filter:
-            where.append(f"YEAR(`{date_col}`)=%s")
+            where.append(f"YEAR(`{date_col}`) = %s")
             params.append(year_filter)
 
         if day_filter:
-            where.append(f"DAY(`{date_col}`)=%s")
+            where.append(f"DAY(`{date_col}`) = %s")
             params.append(day_filter)
 
         where_sql = "WHERE " + " AND ".join(where) if where else ""
@@ -2714,29 +2730,22 @@ def api_overall_breakdown_analysis(request):
 
             years_set.add(dt.year)
 
-            # ---- downtime (minutes) ----
-            gf_min += _parse_time_to_minutes(row.get("gf"))
-            fm_min += _parse_time_to_minutes(row.get("fm"))
-            s_min  += _parse_time_to_minutes(row.get("s"))
-            u_min  += _parse_time_to_minutes(row.get("u"))
+            # ===== POWER BI MATCHING LOGIC =====
+            gf_total += _to_hours(row.get("gf"))
+            fm_total += _to_hours(row.get("fm"))
+            s_total  += _to_hours(row.get("s"))
+            u_total  += _to_hours(row.get("u"))
 
-            # ---- generation hours (hours) ----
-            generation_hours_total += _num(row.get("genh"))
+            generation_hours_total += _to_hours(row.get("genh"))
 
-            # ---- breakdown details ----
             if row.get("bd"):
                 breakdown_counter[str(row["bd"]).strip()] += 1
 
-            # ---- weather condition ----
             if row.get("weather"):
                 weather_counter[str(row["weather"]).strip()] += 1
 
-    # ================= KPI FIX =================
-    # Convert minutes → hours BEFORE dividing
-    breakdown_hours = (gf_min + fm_min + s_min + u_min) / 60
-
-    # Extra safety: downtime cannot exceed generation hours
-    breakdown_hours = min(breakdown_hours, generation_hours_total)
+    # ================= KPI (EXACT POWER BI FORMULA) =================
+    breakdown_hours = gf_total + fm_total + s_total + u_total
 
     gt_breakdown_percentage = round(
         (breakdown_hours / generation_hours_total * 100)
@@ -2744,18 +2753,16 @@ def api_overall_breakdown_analysis(request):
         2
     )
 
-
-
-    print("---- GT BREAKDOWN DEBUG ----")
-    print("GF minutes:", gf_min)
-    print("FM minutes:", fm_min)
-    print("S  minutes:", s_min)
-    print("U  minutes:", u_min)
-    print("TOTAL downtime minutes:", gf_min + fm_min + s_min + u_min)
-    print("TOTAL downtime hours:", (gf_min + fm_min + s_min + u_min) / 60)
-    print("TOTAL generation hours:", generation_hours_total)
+    # ================= DEBUG =================
+    print("==== GT BREAKDOWN (FINAL) ====")
+    print("GF hours:", gf_total)
+    print("FM hours:", fm_total)
+    print("S  hours:", s_total)
+    print("U  hours:", u_total)
+    print("Total Breakdown hours:", breakdown_hours)
+    print("Total Generation hours:", generation_hours_total)
     print("GT Breakdown %:", gt_breakdown_percentage)
-    print("-----------------------------")
+    print("=============================")
 
     return JsonResponse({
         "status": "ok",
@@ -2765,30 +2772,21 @@ def api_overall_breakdown_analysis(request):
         },
 
         "filters": {
-            "years": sorted(list(years_set))
+            "years": sorted(years_set)
         },
 
         "breakdown_table": [
             {"label": k, "count": v}
-            for k, v in sorted(
-                breakdown_counter.items(),
-                key=lambda x: -x[1]
-            )
+            for k, v in sorted(breakdown_counter.items(), key=lambda x: -x[1])
         ],
 
         "weather_table": [
             {"condition": k, "count": v}
-            for k, v in sorted(
-                weather_counter.items(),
-                key=lambda x: -x[1]
-            )
+            for k, v in sorted(weather_counter.items(), key=lambda x: -x[1])
         ],
 
         "weather_chart": [
             {"condition": k, "count": v}
-            for k, v in sorted(
-                weather_counter.items(),
-                key=lambda x: -x[1]
-            )
+            for k, v in sorted(weather_counter.items(), key=lambda x: -x[1])
         ]
     })

@@ -3929,151 +3929,349 @@ from datetime import date
 
 PM_WTG_TABLE = "preventive_maintenance_with_wtg"
 
-def ensure_wtg_table():
-    """Ensure the preventive_maintenance_with_wtg table exists and has required columns."""
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.db import connection
+from datetime import date
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.db import connection
+from django.utils import timezone
+
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
+
+from django.utils import timezone
+from datetime import timedelta
+from dateutil.relativedelta import relativedelta
+
+def refresh_pm_status(username):
+    now = timezone.now()
+
     with connection.cursor() as cursor:
-        cursor.execute("SHOW TABLES;")
-        tables = [r[0] for r in cursor.fetchall()]
+        cursor.execute(f"""
+            SELECT id, completed_on, checkpoints_period, duration
+            FROM `{PM_WTG_TABLE}`
+            WHERE username=%s AND status='Completed'
+        """, [username])
+        rows = cursor.fetchall()
 
-        if PM_WTG_TABLE not in tables:
-            cursor.execute(f"""
-                CREATE TABLE `{PM_WTG_TABLE}` (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    user_id INT,
-                    username TEXT,
-                    wtg_no TEXT,
-                    site TEXT,
-                    state TEXT,
-                    energy_type TEXT,
-                    mw TEXT,
-                    checkpoints_period TEXT,
-                    category TEXT,
-                    sub_category TEXT,
-                    duration TEXT,
-                    status TEXT DEFAULT 'Pending',
-                    remarks TEXT,
-                    completed_on DATE,
-                    FOREIGN KEY (user_id) REFERENCES auth_user(id) ON DELETE CASCADE
-                );
-            """)
+    for pm_id, completed_on, period, duration in rows:
+        if not completed_on or not duration:
+            continue
 
-        # 🧹 Drop any old constraints that might conflict
-        for idx in ["unique_wtg_checkpoint", "unique_wtg_checkpoint_per_unit"]:
-            try:
-                cursor.execute(f"ALTER TABLE `{PM_WTG_TABLE}` DROP INDEX {idx};")
-            except Exception:
-                pass
+        # 🔥 MAKE completed_on TIMEZONE-AWARE
+        if timezone.is_naive(completed_on):
+            completed_on = timezone.make_aware(
+                completed_on,
+                timezone.get_current_timezone()
+            )
 
-        # ✅ Add final unique key per WTG + period + MW
-        try:
-            cursor.execute(f"""
-                ALTER TABLE `{PM_WTG_TABLE}`
-                ADD UNIQUE KEY unique_wtg_checkpoint_final
-                (`username`(50), `wtg_no`(50), `category`(100), 
-                 `sub_category`(100), `duration`(50),
-                 `checkpoints_period`(50), `mw`(50));
-            """)
-        except Exception:
-            pass
+        duration = float(duration)
 
+        # ---- calculate next due ----
+        if period == "Hourly":
+            next_due = completed_on + timedelta(hours=duration)
+
+        elif period == "Daily":
+            days = int(duration)
+            hours = (duration - days) * 24
+            next_due = completed_on + timedelta(days=days, hours=hours)
+
+        elif period == "Weekly":
+            next_due = completed_on + timedelta(weeks=duration)
+
+        elif period == "Monthly":
+            next_due = completed_on + relativedelta(months=duration)
+
+        elif period == "Quarterly":
+            next_due = completed_on + relativedelta(months=3 * duration)
+
+        elif period == "Yearly":
+            next_due = completed_on + relativedelta(years=duration)
+
+        else:
+            continue
+
+        # ---- compare safely ----
+        if now >= next_due:
+            with connection.cursor() as cursor:
+                cursor.execute(f"""
+                    UPDATE `{PM_WTG_TABLE}`
+                    SET status='Pending'
+                    WHERE id=%s
+                """, [pm_id])
+
+ 
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
+
+
+from datetime import timedelta
+from django.utils import timezone
+from dateutil.relativedelta import relativedelta
+
+def refresh_pm_status(username):
+    now = timezone.now()
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT id, completed_on, checkpoints_period, duration
+            FROM preventive_maintenance_with_wtg
+            WHERE username=%s AND status='Completed'
+        """, [username])
+        rows = cursor.fetchall()
+
+    for pm_id, completed_on, period, duration in rows:
+        if not completed_on or not duration:
+            continue
+
+        # 🔧 FIX: make completed_on timezone-aware
+        if timezone.is_naive(completed_on):
+            completed_on = timezone.make_aware(
+                completed_on,
+                timezone.get_current_timezone()
+            )
+
+        duration = float(duration)
+
+        # -------- calculate next due --------
+        if period == "Hourly":
+            next_due = completed_on + timedelta(hours=duration)
+
+        elif period == "Daily":
+            days = int(duration)
+            hours = (duration - days) * 24
+            next_due = completed_on + timedelta(days=days, hours=hours)
+
+        elif period == "Weekly":
+            next_due = completed_on + timedelta(weeks=duration)
+
+        elif period == "Monthly":
+            next_due = completed_on + relativedelta(months=duration)
+
+        elif period == "Quarterly":
+            next_due = completed_on + relativedelta(months=3 * duration)
+
+        elif period == "Yearly":
+            next_due = completed_on + relativedelta(years=duration)
+
+        else:
+            continue
+
+        # -------- overdue → Pending --------
+        if now >= next_due:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE preventive_maintenance_with_wtg
+                    SET status='Pending'
+                    WHERE id=%s
+                """, [pm_id])
+
+
+from django.utils import timezone
+from datetime import timedelta
+
+from django.utils import timezone
+
+def humanize_due_time(next_due):
+    now = timezone.now()
+    delta = next_due - now
+    seconds = int(delta.total_seconds())
+
+    overdue = seconds < 0
+    seconds = abs(seconds)
+
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+
+    if days > 0:
+        text = f"{days}d {hours}h"
+    elif hours > 0:
+        text = f"{hours}h {minutes}m"
+    else:
+        text = f"{minutes}m"
+
+    return f"Overdue by {text}" if overdue else text
+
+from django.utils import timezone
+from datetime import timedelta
+from dateutil.relativedelta import relativedelta
+
+def get_upcoming_maintenance(username, limit=10):
+    now = timezone.now()
+    upcoming = []
+
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, wtg_no, site, category, sub_category,
+                   checkpoints_period, duration, completed_on
+            FROM preventive_maintenance_with_wtg
+            WHERE username=%s
+        """, [username])
+        rows = cursor.fetchall()
+
+    for row in rows:
+        (pm_id, wtg, site, cat, sub_cat,
+         period, duration, completed_on) = row
+
+        if not completed_on or not duration:
+            continue
+
+        # ✅ timezone safety
+        if timezone.is_naive(completed_on):
+            completed_on = timezone.make_aware(
+                completed_on,
+                timezone.get_current_timezone()
+            )
+
+        duration = float(duration)
+
+        # ---------- NEXT DUE CALCULATION ----------
+        if period == "Hourly":
+            next_due = completed_on + timedelta(hours=duration)
+
+        elif period == "Daily":
+            days = int(duration)
+            hours = (duration - days) * 24
+            next_due = completed_on + timedelta(days=days, hours=hours)
+
+        elif period == "Weekly":
+            next_due = completed_on + timedelta(weeks=duration)
+
+        elif period == "Monthly":
+            next_due = completed_on + relativedelta(months=duration)
+
+        elif period == "Quarterly":
+            next_due = completed_on + relativedelta(months=3 * duration)
+
+        elif period == "Yearly":
+            next_due = completed_on + relativedelta(years=duration)
+
+        else:
+            continue
+
+        upcoming.append({
+            "id": pm_id,
+            "wtg": wtg,
+            "site": site,
+            "category": cat,
+            "sub_category": sub_cat,
+            "next_due": next_due,
+            "due_in": humanize_due_time(next_due),   # ✅ NEW
+            "status": "Overdue" if next_due < now else "Upcoming"
+        })
+
+    # sort by nearest due
+    upcoming.sort(key=lambda x: x["next_due"])
+
+    return upcoming[:limit]
+
+# --------------------------------------------------
+# MAIN VIEW
+# --------------------------------------------------
 @login_required
 def user_completed_maintenance(request):
-    """User dashboard — view and complete WTG-wise preventive maintenance."""
-    ensure_wtg_table()
     user = request.user
     username = user.username
 
-    # ---------- Filters ----------
-    energy_types, mw_list, periods, sites, wtgs = [], [], [], [], []
+    # 🔥 AUTO-CHECK DUE STATUS (THIS WAS MISSING)
+    refresh_pm_status(username)
+
+    # ---------------- Filters ----------------
     selected_energy = request.GET.get("energy_type")
     selected_mw = request.GET.get("mw")
     selected_period = request.GET.get("period")
     selected_site = request.GET.get("site")
     selected_wtg = request.GET.get("wtg_no")
 
+    energy_types, mw_list, periods, sites, wtgs = [], [], [], [], []
+    upcoming_pm = get_upcoming_maintenance(username, limit=10)
     with connection.cursor() as cursor:
-        # 1️⃣ Energy Type
-        cursor.execute(f"SELECT DISTINCT energy_type FROM `{PM_WTG_TABLE}` WHERE username=%s", [username])
+        cursor.execute(
+            f"SELECT DISTINCT energy_type FROM `{PM_WTG_TABLE}` WHERE username=%s",
+            [username]
+        )
         energy_types = [r[0] for r in cursor.fetchall() if r[0]]
 
-        # 2️⃣ MW
         if selected_energy:
-            cursor.execute(f"""
-                SELECT DISTINCT mw FROM `{PM_WTG_TABLE}` WHERE username=%s AND energy_type=%s
-            """, [username, selected_energy])
+            cursor.execute(
+                f"""SELECT DISTINCT mw FROM `{PM_WTG_TABLE}`
+                    WHERE username=%s AND energy_type=%s""",
+                [username, selected_energy]
+            )
             mw_list = [r[0] for r in cursor.fetchall() if r[0]]
 
-        # 3️⃣ Period
-        if selected_mw:
-            cursor.execute(f"""
-                SELECT DISTINCT checkpoints_period FROM `{PM_WTG_TABLE}`
-                WHERE username=%s AND energy_type=%s AND mw=%s
-            """, [username, selected_energy, selected_mw])
+        if selected_energy and selected_mw:
+            cursor.execute(
+                f"""SELECT DISTINCT checkpoints_period FROM `{PM_WTG_TABLE}`
+                    WHERE username=%s AND energy_type=%s AND mw=%s""",
+                [username, selected_energy, selected_mw]
+            )
             periods = [r[0] for r in cursor.fetchall() if r[0]]
 
-        # 4️⃣ Site (after selecting Period)
         if selected_period:
-            cursor.execute(f"""
-                SELECT DISTINCT site FROM `{PM_WTG_TABLE}`
-                WHERE username=%s AND energy_type=%s AND mw=%s AND checkpoints_period=%s
-            """, [username, selected_energy, selected_mw, selected_period])
+            cursor.execute(
+                f"""SELECT DISTINCT site FROM `{PM_WTG_TABLE}`
+                    WHERE username=%s AND energy_type=%s AND mw=%s
+                      AND checkpoints_period=%s""",
+                [username, selected_energy, selected_mw, selected_period]
+            )
             sites = [r[0] for r in cursor.fetchall() if r[0]]
 
-        # 5️⃣ WTG (after selecting Site)
         if selected_site:
-            cursor.execute(f"""
-                SELECT DISTINCT wtg_no FROM `{PM_WTG_TABLE}`
-                WHERE username=%s AND energy_type=%s AND mw=%s AND checkpoints_period=%s AND site=%s
-            """, [username, selected_energy, selected_mw, selected_period, selected_site])
+            cursor.execute(
+                f"""SELECT DISTINCT wtg_no FROM `{PM_WTG_TABLE}`
+                    WHERE username=%s AND energy_type=%s AND mw=%s
+                      AND checkpoints_period=%s AND site=%s""",
+                [username, selected_energy, selected_mw,
+                 selected_period, selected_site]
+            )
             wtgs = [r[0] for r in cursor.fetchall() if r[0]]
 
-    # ---------- Fetch filtered tasks ----------
+    # ---------------- Fetch Records ----------------
     records = []
-    if selected_energy and selected_mw and selected_period and selected_site and selected_wtg:
-        query = f"""
-            SELECT id, category, sub_category, duration, site, wtg_no, status, remarks, completed_on
-            FROM `{PM_WTG_TABLE}`
-            WHERE username=%s AND energy_type=%s AND mw=%s 
-            AND checkpoints_period=%s AND site=%s AND wtg_no=%s
-        """
-        params = [username, selected_energy, selected_mw, selected_period, selected_site, selected_wtg]
-
+    if all([selected_energy, selected_mw, selected_period, selected_site, selected_wtg]):
         with connection.cursor() as cursor:
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            columns = [col[0] for col in cursor.description]
-            records = [dict(zip(columns, r)) for r in rows]
+            cursor.execute(f"""
+                SELECT id, category, sub_category,
+                       checkpoints_period, duration,
+                       site, wtg_no, status, completed_on
+                FROM `{PM_WTG_TABLE}`
+                WHERE username=%s AND energy_type=%s AND mw=%s
+                  AND checkpoints_period=%s AND site=%s AND wtg_no=%s
+                ORDER BY category
+            """, [
+                username, selected_energy, selected_mw,
+                selected_period, selected_site, selected_wtg
+            ])
+            cols = [c[0] for c in cursor.description]
+            records = [dict(zip(cols, r)) for r in cursor.fetchall()]
 
-    # ---------- Handle task completion ----------
+    # ---------------- Completion ----------------
     if request.method == "POST" and request.POST.get("complete_id"):
         complete_id = request.POST.get("complete_id")
         remarks = request.POST.get("remarks", "").strip()
 
-        ensure_wtg_table()
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(f"""
-                    UPDATE `{PM_WTG_TABLE}`
-                    SET status='Completed', remarks=%s, completed_on=%s
-                    WHERE id=%s AND username=%s
-                """, [remarks, date.today(), complete_id, username])
-            messages.success(request, "✅ Task marked as completed successfully.")
-        except Exception as e:
-            if "Unknown column" in str(e):
-                ensure_wtg_table()
-                with connection.cursor() as cursor:
-                    cursor.execute(f"""
-                        UPDATE `{PM_WTG_TABLE}`
-                        SET status='Completed', remarks=%s, completed_on=%s
-                        WHERE id=%s AND username=%s
-                    """, [remarks, date.today(), complete_id, username])
-                messages.success(request, "✅ Task marked as completed successfully (after schema fix).")
-            else:
-                messages.error(request, f"❌ Error updating task: {e}")
+        with connection.cursor() as cursor:
+            cursor.execute(f"""
+                UPDATE `{PM_WTG_TABLE}`
+                SET status='Completed',
+                    remarks=%s,
+                    completed_on=%s
+                WHERE id=%s AND username=%s
+            """, [
+                remarks,
+                timezone.now(),
+                complete_id,
+                username
+            ])
 
+        messages.success(request, "✅ Maintenance marked as completed.")
         return redirect("user_completed_maintenance")
 
-    # ---------- Render ----------
     return render(request, "user_completed_maintenance.html", {
         "energy_types": energy_types,
         "mw_list": mw_list,
@@ -4086,10 +4284,8 @@ def user_completed_maintenance(request):
         "selected_period": selected_period,
         "selected_site": selected_site,
         "selected_wtg": selected_wtg,
+        "upcoming_pm": upcoming_pm,
     })
-
-
-
 
 
 
