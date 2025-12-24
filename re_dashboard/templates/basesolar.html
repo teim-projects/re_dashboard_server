@@ -81,19 +81,18 @@
   display: none; /* hides scrollbar */
 }
 
-    .fixed-panel .nav-link {
-      color: #000000;
-      background-color: #ffffff;
-      margin-bottom: 10px;
-       border-radius: 10px;
-      font-weight: bold;
-      padding: 10px;
-      margin-top: 10px;
-      box-shadow: 0 5px 6px rgb(0 0 0 / 30%);
-      transition: box-shadow 0.2s ease;
-      font-size: 13px;
-      max-width: 200px;
-    }
+.fixed-panel .nav-link {
+  color: #000000;
+  background-color: #ffffff;
+  margin: 10px auto;          /* ✅ center horizontally */
+  border-radius: 10px;
+  font-weight: bold;
+  padding: 10px;
+  box-shadow: 0 5px 6px rgb(0 0 0 / 30%);
+  transition: box-shadow 0.2s ease;
+  font-size: 13px;
+  max-width: 200px;
+ }
 
     .fixed-panel .nav-link:hover {
       box-shadow: 0 6px 10px rgba(255, 254, 254, 0.5);
@@ -147,14 +146,16 @@
         <div class="fixed-panel" id="dashboardPanel">
           {% block fixedcontent %}
 <h4 class="text-white mb-4 text-center mt-4 shadow mb-3" style="padding-top: 40px !important;">
-    <i class="fa-solid fa-desktop"></i> Dashboard
-</h4>
+    <i class="fa-solid fa-desktop"></i> Dashboard 
+</h4> 
  <style>
 /* Make icons perfectly aligned */
-.sidebar-icon {
-    width: 22px;        /* fixed width for perfect alignment */
-    text-align: center;
-    margin-right: 10px;
+.solaricon {
+    font-size: 18px;
+    background: linear-gradient(45deg, #00a8ff, #fbc531);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    padding-right: 10px;
 }
 </style>
 
@@ -269,7 +270,7 @@
 <!-- somewhere in your sidebar template -->
 <a class="nav-link navcontent {% if request.path == '/solar/trend-analysis/' %}active{% endif %}"
    href="{% url 'trend_analysis' %}">
-  <span class="sidebar-icon"><i class="fa-solid fa-chart-line" style="color:#00a3ff;"></i></span>
+  <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-line" style="color:#00a3ff;"></i></span>
   Trend Analysis
 </a>
 
