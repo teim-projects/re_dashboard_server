@@ -298,12 +298,14 @@
             transition:opacity 0.2s ease;
             z-index:999;">
 </div>
-
 <script>
   const apiURL = "{% url 'api_solar_data' %}";
 
-  // small helpers
+  /* -------------------------
+     HELPERS
+  ------------------------- */
   function $id(id){ return document.getElementById(id); }
+
   function formatNumber(n){
     if (n === null || n === undefined) return "-";
     if (n >= 1e9) return (n/1e9).toFixed(2) + " bn";
@@ -311,7 +313,15 @@
     return Math.round(n).toLocaleString();
   }
 
-  // animated counter (counts up)
+  /* -------------------------
+     MASTER DROPDOWN DATA (FIX)
+  ------------------------- */
+  let masterYears = null;
+  let masterSites = null;
+
+  /* -------------------------
+     KPI ANIMATION
+  ------------------------- */
   function animateCount(el, toVal){
     if(!el) return;
     const duration = 700;
@@ -337,7 +347,9 @@
     requestAnimationFrame(step);
   }
 
-  // fetch from API
+  /* -------------------------
+     FETCH API DATA
+  ------------------------- */
   async function fetchData(){
     const params = new URLSearchParams({
       site: $id('siteSelect').value,
@@ -356,34 +368,65 @@
     }
   }
 
-  // render KPI values
+  /* -------------------------
+     DROPDOWNS (FIXED)
+  ------------------------- */
+  function renderSiteOptions(sites){
+    const sel = $id('siteSelect');
+    const selected = sel.value;
+
+    if (!masterSites && sites) {
+      masterSites = [...sites];   // 🔥 store once
+    }
+
+    sel.innerHTML = '<option value="">All Sites</option>';
+    (masterSites || []).forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      sel.appendChild(opt);
+    });
+
+    sel.value = selected;
+  }
+
+  function renderYearOptions(years){
+    const sel = $id('yearSelect');
+    const selected = sel.value;
+
+    if (!masterYears && years) {
+      masterYears = [...years];   // 🔥 store once
+    }
+
+    sel.innerHTML = '<option value="">All Years</option>';
+    (masterYears || []).forEach(y => {
+      const opt = document.createElement("option");
+      opt.value = y;
+      opt.textContent = y;
+      sel.appendChild(opt);
+    });
+
+    sel.value = selected;
+  }
+
+  /* -------------------------
+     KPIs
+  ------------------------- */
   function renderKPIs(kpis){
     animateCount($id('kpiDaily'), kpis.daily || 0);
     animateCount($id('kpiMonthly'), kpis.monthly || 0);
     animateCount($id('kpiYearly'), kpis.yearly || 0);
   }
 
-  // dropdown options
-  function renderSiteOptions(sites){
-    const sel = $id('siteSelect');
-    sel.innerHTML = '<option value="">All Sites</option>';
-    (sites||[]).forEach(s => sel.innerHTML += `<option value="${s}">${s}</option>`);
-  }
-
-  function renderYearOptions(years){
-    const sel = $id('yearSelect');
-    sel.innerHTML = '<option value="">All Years</option>';
-    (years||[]).forEach(y => sel.innerHTML += `<option value="${y}">${y}</option>`);
-  }
-
-function drawTreemap(containerSelector, treedata){
+  /* -------------------------
+     TREEMAP
+  ------------------------- */
+  function drawTreemap(containerSelector, treedata){
     document.querySelector(containerSelector).innerHTML = "";
     const width = document.querySelector(containerSelector).clientWidth;
     const height = 460;
 
-    const tooltip = document.getElementById("treemapTooltip");
-
-    const root = d3.hierarchy({children: treedata})
+    const root = d3.hierarchy({children: treedata || []})
       .sum(d => d.value)
       .sort((a,b)=>b.value - a.value);
 
@@ -403,41 +446,26 @@ function drawTreemap(containerSelector, treedata){
       .enter().append("g")
       .attr("transform", d=>`translate(${d.x0},${d.y0})`);
 
-    // Rectangle block
     node.append("rect")
       .attr("width", d=>Math.max(0,d.x1-d.x0))
       .attr("height", d=>Math.max(0,d.y1-d.y0))
       .attr("fill",(d,i)=>color(i))
       .attr("rx",6);
-// Centered YEAR label
-node.append("text")
-  .attr("class", "label-year")
-  .attr("x", d => (d.x1 - d.x0) / 2)
-  .attr("y", d => (d.y1 - d.y0) / 2)
-  .attr("text-anchor", "middle")
-  .attr("dominant-baseline", "middle")
-  .text(d => d.data.name)
-  .attr("fill", "white")
-  .style("font-weight", "700")
-  .style("font-size", "18px");
 
-    // Tooltip events
-    node.on("mousemove", function(e, d) {
-        tooltip.style.opacity = 1;
-        tooltip.style.left = (e.pageX + 12) + "px";
-        tooltip.style.top  = (e.pageY + 12) + "px";
-        tooltip.innerHTML = `
-            <strong>Year:</strong> ${d.data.name}<br>
-            <strong>Generation:</strong> ${d.data.value.toLocaleString()}
-        `;
-    });
+    node.append("text")
+      .attr("x", d => (d.x1 - d.x0) / 2)
+      .attr("y", d => (d.y1 - d.y0) / 2)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .text(d => d.data.name)
+      .attr("fill", "white")
+      .style("font-weight", "700")
+      .style("font-size", "18px");
+  }
 
-    node.on("mouseleave", function() {
-        tooltip.style.opacity = 0;
-    });
-}
-
-  /* ------------------------- BAR CHART ------------------------- */
+  /* -------------------------
+     BAR CHART
+  ------------------------- */
   function drawBarChart(selector, monthly){
     document.querySelector(selector).innerHTML = "";
     const margin = {top:20, right:20, bottom:70, left:70};
@@ -476,7 +504,9 @@ node.append("text")
       .attr("rx",4);
   }
 
-  /* ------------------------- PAGINATION ------------------------- */
+  /* -------------------------
+     TABLE + PAGINATION
+  ------------------------- */
   let currentPage = 1;
   const rowsPerPage = 20;
   let fullTableData = [];
@@ -492,28 +522,28 @@ node.append("text")
     const rows = fullTableData.slice(start, start + rowsPerPage);
 
     let html = `
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Site</th>
-          <th style="text-align:right">Daily</th>
-          <th style="text-align:right">Monthly</th>
-          <th style="text-align:right">Yearly</th>
-        </tr>
-      </thead>
-      <tbody>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Site</th>
+            <th style="text-align:right">Daily</th>
+            <th style="text-align:right">Monthly</th>
+            <th style="text-align:right">Yearly</th>
+          </tr>
+        </thead>
+        <tbody>
     `;
 
     rows.forEach(r => {
       html += `
-      <tr>
-        <td>${r.date}</td>
-        <td>${r.site}</td>
-        <td style="text-align:right">${(r.daily_generation||0).toLocaleString()}</td>
-        <td style="text-align:right">${(r.monthly_generation||0).toLocaleString()}</td>
-        <td style="text-align:right">${(r.yearly_generation||0).toLocaleString()}</td>
-      </tr>`;
+        <tr>
+          <td>${r.date}</td>
+          <td>${r.site}</td>
+          <td style="text-align:right">${(r.daily_generation||0).toLocaleString()}</td>
+          <td style="text-align:right">${(r.monthly_generation||0).toLocaleString()}</td>
+          <td style="text-align:right">${(r.yearly_generation||0).toLocaleString()}</td>
+        </tr>`;
     });
 
     html += "</tbody></table>";
@@ -538,7 +568,9 @@ node.append("text")
     }
   });
 
-  /* ------------------------- REFRESH ALL ------------------------- */
+  /* -------------------------
+     REFRESH ALL
+  ------------------------- */
   async function refreshAll(){
     const data = await fetchData();
 
@@ -553,7 +585,9 @@ node.append("text")
     renderPaginatedTable(currentPage);
   }
 
-  /* ------------------------- INIT ------------------------- */
+  /* -------------------------
+     INIT
+  ------------------------- */
   (async ()=>{
     await refreshAll();
 

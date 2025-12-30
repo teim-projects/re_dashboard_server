@@ -24,12 +24,12 @@
       display: none;
       position: fixed;
       top: 15px;
-      left: 15px;
+      right: 10px;
       z-index: 1100;
-      background-color: #2196f3;
-      color: white;
+      /* background-color: #2196f3; */
+      color: rgb(0, 0, 0);
       border: none;
-      padding: 10px 15px;
+      padding: 5px 15px;
       border-radius: 5px;
     }
 
@@ -65,7 +65,7 @@
 
 
 .fixed-panel {
-  background-color: rgba(0, 0, 0);
+  background-color: rgb(31, 22, 37);
   color: white;
   padding: 20px 10px;
   overflow-y: auto;
@@ -172,7 +172,7 @@
     </span>
     Dashboard Home
 </a>
-<a class="nav-link navcontent {% if request.path == '/solar/summary_dashboard/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/solar_summary_dashboard/' %}active{% endif %}"
    href="{% url 'summary_dashboard' %}">
   <span class="sidebar-icon solaricon">
       <i class="fa-solid fa-chart-pie"  ></i>
@@ -180,7 +180,7 @@
   Summary Dashboard
 </a>
 <!-- Generation Report -->
-<a class="nav-link navcontent {% if request.path == '/solar/generation-report/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/solar_generation-report/' %}active{% endif %}"
    href="{% url 'generation_report' %}">
   <span class="sidebar-icon solaricon">
     <i class="fa-solid fa-solar-panel"  ></i>
@@ -188,7 +188,7 @@
   Generation Report
 </a>
 
-<a class="nav-link navcontent {% if request.path == '/solar/overall-breakdown-analysis/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/solar_overall-breakdown-analysis/' %}active{% endif %}"
    href="{% url 'overall_breakdown_analysis' %}">
   <span class="sidebar-icon solaricon">
     <i class="fa-solid fa-arrow-trend-down"></i>
@@ -198,7 +198,7 @@
 </a>
 
 <!-- Generation Dashboard -->
-<a class="nav-link navcontent {% if request.path == '/solar/solar_dashboard_genration/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == 'solar_dashboard_genration/' %}active{% endif %}"
    href="{% url 'solar_dashboard_genration' %}">
     <span class="sidebar-icon solaricon">
         <i class="fa-solid fa-sun"  ></i>
@@ -215,7 +215,7 @@
     PLF Performance
 </a>
 <!-- Generation & Operating Dashboard -->
-<a class="nav-link navcontent {% if request.path == '/solar/generation_operating/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/solar_generation_operating/' %}active{% endif %}"
    href="{% url 'generation_operating' %}">
     <span class="sidebar-icon solaricon">
         <i class="fa-solid fa-chart-line"  ></i>
@@ -243,7 +243,7 @@
 </style>
 
 
-<a class="nav-link navcontent {% if request.path == '/solar/brekdown_genration_whether_dashboard/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/solar_brekdown_genration_whether_dashboard/' %}active{% endif %}"
    href="{% url 'brekdown_genration_whether_dashboard' %}">
 
     <span class="sidebar-icon solaricon">
@@ -268,7 +268,7 @@
 
 
 <!-- somewhere in your sidebar template -->
-<a class="nav-link navcontent {% if request.path == '/solar/trend-analysis/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.path == '/solar/solar_trend-analysis/' %}active{% endif %}"
    href="{% url 'trend_analysis' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-line" style="color:#00a3ff;"></i></span>
   Trend Analysis

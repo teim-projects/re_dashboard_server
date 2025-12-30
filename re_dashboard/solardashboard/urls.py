@@ -45,7 +45,7 @@ path("api/solar-summary-dashboard/", views.api_solar_summary_dashboard, name="ap
 
     # ... your other paths ...
     path("generation-report/", views.generation_report, name="generation_report"),
-    path("api/solar/generation-report/", views.api_generation_report, name="api_generation_report"),
+    path("api/generation-report/", views.api_generation_report, name="api_generation_report"),
 
 
     path(

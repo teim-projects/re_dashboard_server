@@ -243,7 +243,6 @@
 <div id="tooltip" class="tooltip"></div>
 
 <script>
-
 /* ---------------- Tooltip ---------------- */
 const tooltip = d3.select("#tooltip");
 
@@ -259,34 +258,17 @@ function hideTooltip(){
 }
 
 /* ---------------- API ---------------- */
-const API = "{{ request.scheme }}://{{ request.get_host }}{% url 'api_generation_report' %}";
+// ✅ Correct URL from Django
+const API = "{% url 'api_generation_report' %}";
 
 let state = {};
 
-/* ---------------- Fetch Data ---------------- */
-async function fetchData(){
-
-    const params = new URLSearchParams();
-    if(filterYear.value) params.append("year", filterYear.value);
-    if(filterQuarter.value) params.append("quarter", filterQuarter.value);
-    if(filterDay.value) params.append("day", filterDay.value);
-
-    const res = await fetch(API+"?"+params.toString());
-    const data = await res.json();
-    state = data;
-
-    populateFilters();
-    renderKPIs();
-    renderPivot();
-    renderYearlyChart();
-    renderMonthlyChart();
-}
-
 /* ---------------- Helpers ---------------- */
 function fmtNumber(n){
+    n = Number(n) || 0;
     if(n >= 1e6) return (n/1e6).toFixed(2)+"M";
     if(n >= 1e3) return (n/1e3).toFixed(1)+"K";
-    return Number(n).toLocaleString();
+    return n.toLocaleString();
 }
 
 /* ---------------- Filters ---------------- */
@@ -295,14 +277,46 @@ const filterQuarter = document.getElementById("filter-quarter");
 const filterDay = document.getElementById("filter-day");
 
 function populateFilters(){
+    if(!state.years) return;
     filterYear.innerHTML = "<option value=''>All</option>";
     state.years.forEach(y=>{
         filterYear.innerHTML += `<option value="${y}">${y}</option>`;
     });
 }
 
+/* ---------------- Fetch Data ---------------- */
+async function fetchData(){
+    try {
+        const params = new URLSearchParams();
+        if(filterYear.value) params.append("year", filterYear.value);
+        if(filterQuarter.value) params.append("quarter", filterQuarter.value);
+        if(filterDay.value) params.append("day", filterDay.value);
+
+        const url = API + "?" + params.toString();
+        console.log("Fetching:", url);
+
+        const res = await fetch(url);
+        if(!res.ok) throw new Error("HTTP " + res.status);
+
+        const data = await res.json();
+        console.log("API DATA:", data);
+
+        state = data;
+
+        populateFilters();
+        renderKPIs();
+        renderPivot();
+        renderYearlyChart();
+        renderMonthlyChart();
+
+    } catch(err){
+        console.error("Fetch failed:", err);
+    }
+}
+
 /* ---------------- KPI Rendering ---------------- */
 function renderKPIs(){
+    if(!state.kpis) return;
     document.getElementById("kpi-daily").innerHTML = fmtNumber(state.kpis.daily_avg);
     document.getElementById("kpi-monthly").innerHTML = fmtNumber(state.kpis.monthly_avg);
     document.getElementById("kpi-yearly").innerHTML = fmtNumber(state.kpis.yearly_avg);
@@ -313,28 +327,31 @@ function renderPivot(){
     const div = document.getElementById("pivot-table");
     div.innerHTML = "";
 
+    if(!state.pivot_rows || !state.pivot_rows.length){
+        div.innerHTML = "<em>No data</em>";
+        return;
+    }
+
     const grouped = {};
 
     state.pivot_rows.forEach(row=>{
         if(!grouped[row.year]) grouped[row.year] = {};
-        if(!grouped[row.year][row.quarter]) grouped[row.year][row.quarter] = {total:0, months:[]};
+        if(!grouped[row.year][row.quarter])
+            grouped[row.year][row.quarter] = {total:0, months:[]};
 
-        if(row.type==="quarter"){
+        if(row.type === "quarter"){
             grouped[row.year][row.quarter].total = row.quarter_total;
-        }
-        if(row.type==="month"){
+        } else {
             grouped[row.year][row.quarter].months.push(row);
         }
     });
 
     Object.keys(grouped).forEach(year=>{
         div.innerHTML += `<div class="pivot-year">${year}</div>`;
-
         Object.keys(grouped[year]).forEach(q=>{
             div.innerHTML += `
                 <div class="pivot-quarter">${q} — Total: ${fmtNumber(grouped[year][q].total)}</div>
             `;
-
             grouped[year][q].months.forEach(m=>{
                 div.innerHTML += `
                     <div class="pivot-month">
@@ -348,19 +365,18 @@ function renderPivot(){
 
 /* ---------------- Yearly Chart ---------------- */
 function renderYearlyChart(){
-
     const el = document.getElementById("yearly-chart");
     el.innerHTML = "";
 
-    const data = state.yearly_trend;
-    if(!data.length) return;
+    if(!state.yearly_trend || !state.yearly_trend.length) return;
 
+    const data = state.yearly_trend;
     const width = el.clientWidth - 80;
     const height = 220;
 
     const svg = d3.select(el).append("svg")
-        .attr("width",width+100)
-        .attr("height",height+60);
+        .attr("width", width + 100)
+        .attr("height", height + 60);
 
     const g = svg.append("g").attr("transform","translate(50,20)");
 
@@ -369,17 +385,17 @@ function renderYearlyChart(){
         .range([0,width]);
 
     const yGen = d3.scaleLinear()
-        .domain([0,d3.max(data,d=>d.yearly_sum)*1.2])
+        .domain([0, d3.max(data,d=>d.yearly_sum)*1.2])
         .range([height,0]);
 
     const yPLF = d3.scaleLinear()
-        .domain([0,d3.max(data,d=>d.plf_yearly)*1.2])
+        .domain([0, d3.max(data,d=>d.plf_yearly)*1.2])
         .range([height,0]);
 
     g.append("g").attr("transform",`translate(0,${height})`).call(d3.axisBottom(x));
     g.append("g").call(d3.axisLeft(yGen).tickFormat(fmtNumber));
     g.append("g").attr("transform",`translate(${width},0)`)
-        .call(d3.axisRight(yPLF).tickFormat(d=>Number(d).toLocaleString()));
+        .call(d3.axisRight(yPLF));
 
     const genLine = d3.line()
         .x(d=>x(d.year))
@@ -389,7 +405,7 @@ function renderYearlyChart(){
         .datum(data)
         .attr("d",genLine)
         .attr("fill","none")
-        .attr("stroke", "#4a3aff")
+        .attr("stroke","#4a3aff")
         .attr("stroke-width",3);
 
     const plfLine = d3.line()
@@ -406,54 +422,34 @@ function renderYearlyChart(){
 
     g.selectAll(".gen-pt")
         .data(data)
-        .enter()
-        .append("circle")
+        .enter().append("circle")
         .attr("cx",d=>x(d.year))
         .attr("cy",d=>yGen(d.yearly_sum))
         .attr("r",5)
         .attr("fill","#4a3aff")
-        .on("mousemove",(event,d)=>{
-            showTooltip(event,`
-                <b>${d.year}</b><br>
-                Yearly Gen: ${fmtNumber(d.yearly_sum)}<br>
-                PLF: ${Number(d.plf_yearly).toLocaleString()}
-            `);
-        })
+        .on("mousemove",(e,d)=>showTooltip(e,
+            `<b>${d.year}</b><br>Gen: ${fmtNumber(d.yearly_sum)}<br>PLF: ${d.plf_yearly}%`
+        ))
         .on("mouseout",hideTooltip);
-
-    g.selectAll(".plf-pt")
-        .data(data)
-        .enter()
-        .append("circle")
-        .attr("cx",d=>x(d.year))
-        .attr("cy",d=>yPLF(d.plf_yearly))
-        .attr("r",4)
-        .attr("fill","#ff7f0e")
-        .on("mousemove",(event,d)=>{
-            showTooltip(event,`
-                <b>${d.year}</b><br>
-                PLF: ${Number(d.plf_yearly).toLocaleString()}
-            `);
-        })
-        .on("mouseout",hideTooltip);
-
 }
 
 /* ---------------- Monthly Chart ---------------- */
 function renderMonthlyChart(){
-
     const el = document.getElementById("monthly-chart");
     el.innerHTML = "";
 
-    const yearList = Object.keys(state.monthly_by_year);
-    const data = state.monthly_by_year[yearList[yearList.length-1]];
+    if(!state.monthly_by_year) return;
+    const years = Object.keys(state.monthly_by_year);
+    if(!years.length) return;
+
+    const data = state.monthly_by_year[years[years.length-1]];
 
     const width = el.clientWidth - 80;
     const height = 460;
 
     const svg = d3.select(el).append("svg")
-        .attr("width",width+100)
-        .attr("height",height+60);
+        .attr("width", width + 100)
+        .attr("height", height + 60);
 
     const g = svg.append("g").attr("transform","translate(60,20)");
 
@@ -463,33 +459,30 @@ function renderMonthlyChart(){
         .padding(0.2);
 
     const y = d3.scaleLinear()
-        .domain([0,d3.max(data,d=>d.gen)*1.2])
+        .domain([0, d3.max(data,d=>d.gen)*1.2])
         .range([height,0]);
 
     g.append("g")
         .attr("transform",`translate(0,${height})`)
         .call(d3.axisBottom(x))
-        .selectAll("text").attr("transform","rotate(-30)").style("text-anchor","end");
+        .selectAll("text")
+        .attr("transform","rotate(-30)")
+        .style("text-anchor","end");
 
     g.append("g").call(d3.axisLeft(y).tickFormat(fmtNumber));
 
     g.selectAll("rect")
         .data(data)
-        .enter()
-        .append("rect")
+        .enter().append("rect")
         .attr("x",d=>x(d.month_name))
         .attr("y",d=>y(d.gen))
         .attr("width",x.bandwidth())
         .attr("height",d=>height-y(d.gen))
         .attr("fill","#4a3aff")
-        .on("mousemove",(event,d)=>{
-            showTooltip(event,`
-                <b>${d.month_name}</b><br>
-                Generation: ${fmtNumber(d.gen)}
-            `);
-        })
+        .on("mousemove",(e,d)=>showTooltip(e,
+            `<b>${d.month_name}</b><br>Gen: ${fmtNumber(d.gen)}`
+        ))
         .on("mouseout",hideTooltip);
-
 }
 
 /* ---------------- Events ---------------- */
@@ -501,12 +494,9 @@ document.getElementById("btn-reset").onclick = ()=>{
     fetchData();
 };
 
-
-
-
 /* ---------------- Initial Load ---------------- */
 fetchData();
-
 </script>
+
 
 {% endblock %}         

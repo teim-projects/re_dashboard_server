@@ -177,26 +177,21 @@ def solar_dashboard_genration(request):
     return render(request, "solar_dashboard_genration.html", {})
 
 # -------- API endpoint --------
+from collections import defaultdict
+from datetime import datetime
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+
 @login_required
 def api_solar_data(request):
     """
-    GET params:
-      site (string)
-      year (numeric: 2024)
-      month (numeric: 1-12)
-      day (numeric: 1-31)
-      max_rows (optional)
-    Returns JSON:
-      {
-        sites: [...],
-        years: [...],
-        kpis: {daily, monthly, yearly},
-        treemap: [{name: "2024", value: 12345}, ...],
-        monthly: [{month: "January", value: 1234}, ...],
-        table_rows: [{date, site, daily_gen, monthly_gen, yearly_gen}, ...]
-      }
+    API for Solar dashboard data
+    Only fetches tables for logged-in user: username_*_solar
     """
-    user = request.user.username.lower()
+
+    username = request.user.username.lower()
 
     site_filter = request.GET.get("site")
     year_filter = request.GET.get("year")
@@ -204,40 +199,61 @@ def api_solar_data(request):
     day_filter = request.GET.get("day")
     max_rows = int(request.GET.get("max_rows") or 1000)
 
-    # collect all tables with 'solar' in name (flexible)
+    # =====================================================
+    # FETCH ONLY LOGGED-IN USER SOLAR TABLES
+    # =====================================================
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [r[0] for r in cursor.fetchall()]
 
-    solar_tables = [t for t in db_tables if "solar" in t.lower() or t.lower().endswith("_solar") or "_solar_" in t.lower()]
+    solar_tables = [
+        t for t in db_tables
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
+    ]
 
     distinct_sites = set()
-    treemap_sum = defaultdict(float)   # year -> sum daily
-    monthly_sum = defaultdict(float)   # monthname -> sum daily
+    treemap_sum = defaultdict(float)
+    monthly_sum = defaultdict(float)
+
     kpi_daily = 0.0
     kpi_monthly = 0.0
     kpi_yearly = 0.0
     rows_out = []
 
+    # =====================================================
+    # LOOP THROUGH USER SOLAR TABLES
+    # =====================================================
     for table in solar_tables:
-        # show columns
+
         with connection.cursor() as cursor:
             cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
             cols = [c[0] for c in cursor.fetchall()]
+
         col_map = {c.lower(): c for c in cols}
 
-        # flexible column selection based on your provided formats
         date_col = _pick(col_map, "date", "day", "day_date", "reading_date")
         site_col = _pick(col_map, "site", "location", "sitename", "plant", "sitecode")
-        daily_col = _pick(col_map, "daily generation", "daily_generation", "daily_gen", "daily", "dailygeneration", "daily_generation_kwh", "daily_kwh", "generation")
-        monthly_col = _pick(col_map, "monthly generation", "monthly_generation", "monthly_gen", "monthlygeneration")
-        yearly_col = _pick(col_map, "yearly generation", "yearly_generation", "yearly_gen", "yearlygeneration")
+        daily_col = _pick(
+            col_map,
+            "daily generation", "daily_generation", "daily_gen",
+            "daily", "dailygeneration", "daily_generation_kwh",
+            "daily_kwh", "generation"
+        )
+        monthly_col = _pick(
+            col_map,
+            "monthly generation", "monthly_generation",
+            "monthly_gen", "monthlygeneration"
+        )
+        yearly_col = _pick(
+            col_map,
+            "yearly generation", "yearly_generation",
+            "yearly_gen", "yearlygeneration"
+        )
 
-        # require date + daily_gen at minimum
         if not (date_col and daily_col):
             continue
 
-        # build where clause & params
         conditions = []
         params = []
 
@@ -259,36 +275,43 @@ def api_solar_data(request):
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        select_cols = [f"`{date_col}` as dt", f"`{daily_col}` as daily"]
+        select_cols = [f"`{date_col}` AS dt", f"`{daily_col}` AS daily"]
         if site_col:
-            select_cols.append(f"`{site_col}` as site")
+            select_cols.append(f"`{site_col}` AS site")
         if monthly_col:
-            select_cols.append(f"`{monthly_col}` as monthly")
+            select_cols.append(f"`{monthly_col}` AS monthly")
         if yearly_col:
-            select_cols.append(f"`{yearly_col}` as yearly")
+            select_cols.append(f"`{yearly_col}` AS yearly")
 
-        query = f"SELECT {', '.join(select_cols)} FROM `{table}` {where} ORDER BY `{date_col}` ASC LIMIT %s"
+        query = f"""
+            SELECT {', '.join(select_cols)}
+            FROM `{table}`
+            {where}
+            ORDER BY `{date_col}` ASC
+            LIMIT %s
+        """
         params.append(max_rows)
 
         with connection.cursor() as cursor:
             cursor.execute(query, params)
             fetched = cursor.fetchall()
-            # cursor.description column names mapping
             desc = [d[0].lower() for d in cursor.description]
 
+        # =====================================================
+        # PROCESS ROWS
+        # =====================================================
         for row in fetched:
-            # map by desc
             rowd = dict(zip(desc, row))
+
             dt_raw = rowd.get("dt")
             site_val = rowd.get("site") or "Unknown"
+
             daily_raw = rowd.get("daily")
             monthly_raw = rowd.get("monthly") if "monthly" in rowd else None
             yearly_raw = rowd.get("yearly") if "yearly" in rowd else None
 
-            # parse date
             dt = _parse_date(dt_raw)
-            if dt is None:
-                # skip if date can't be parsed
+            if not dt:
                 continue
 
             distinct_sites.add(str(site_val))
@@ -301,12 +324,8 @@ def api_solar_data(request):
             kpi_monthly += mval
             kpi_yearly += yval
 
-            # treemap by year
             treemap_sum[str(dt.year)] += dval
-
-            # monthly bar (month name)
-            month_name = dt.strftime("%B")
-            monthly_sum[month_name] += dval
+            monthly_sum[dt.strftime("%B")] += dval
 
             rows_out.append({
                 "date": dt.strftime("%Y-%m-%d"),
@@ -316,17 +335,20 @@ def api_solar_data(request):
                 "yearly_generation": round(yval, 2),
             })
 
-    # build JSON lists
+    # =====================================================
+    # BUILD RESPONSE
+    # =====================================================
     treemap_list = [{"name": k, "value": v} for k, v in treemap_sum.items()]
-    # sort by year ascending
     treemap_list.sort(key=lambda x: int(x["name"]))
 
-    # order months Jan..Dec
     month_order = [datetime(2000, m, 1).strftime("%B") for m in range(1, 13)]
-    monthly_list = [{"month": m, "value": monthly_sum.get(m, 0.0)} for m in month_order if monthly_sum.get(m, 0.0) > 0 or m in monthly_sum]
+    monthly_list = [
+        {"month": m, "value": round(monthly_sum.get(m, 0.0), 2)}
+        for m in month_order
+        if m in monthly_sum
+    ]
 
-    # years list for UI
-    years_list = sorted(list({int(x["name"]) for x in treemap_list})) if treemap_list else []
+    years_list = sorted({int(x["name"]) for x in treemap_list})
 
     response = {
         "sites": sorted(list(distinct_sites)),
@@ -338,7 +360,7 @@ def api_solar_data(request):
         },
         "treemap": treemap_list,
         "monthly": monthly_list,
-        "table_rows": rows_out[:2000],  # limit to 2k rows in response
+        "table_rows": rows_out[:2000],
     }
 
     return JsonResponse(response, safe=True)
@@ -357,200 +379,258 @@ from django.db import connection
 # ------------------------------
 
 def solar_plf_dashboard(request):
-    return render(request, "plf_dashboard.html")
+    return render(request, "solar_plf_dashboard.html")
 
 
 # ------------------------------  
 # SOLAR PLF API (FINAL VERSION)  
 # ------------------------------
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from datetime import datetime
 
+
+# ---------- HELPERS ----------
+def _pick(col_map, *names):
+    for n in names:
+        if n and n.lower() in col_map:
+            return col_map[n.lower()]
+    return None
+
+
+def _parse_date(v):
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    try:
+        return datetime.fromisoformat(str(v)).date()
+    except:
+        return None
+
+
+def _clean_num(v):
+    try:
+        if v is None or v == "":
+            return None
+        return float(v)
+    except:
+        return None
+
+
+def _avg(vals):
+    vals = [v for v in vals if v is not None]
+    return round(sum(vals) / len(vals), 2) if vals else 0
+
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from collections import defaultdict
+from datetime import datetime
+
+
+# ---------- helpers ----------
+def _pick(col_map, *names):
+    for n in names:
+        if n and n.lower() in col_map:
+            return col_map[n.lower()]
+    return None
+
+
+def _parse_date(v):
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    try:
+        return datetime.fromisoformat(str(v)).date()
+    except:
+        return None
+
+
+def _clean_num(v):
+    try:
+        return float(v)
+    except:
+        return 0.0
+
+
+def _avg(vals):
+    return round(sum(vals) / len(vals), 2) if vals else 0
+
+
+# ================= API =================
 @login_required
 def api_solar_plf(request):
+    username = request.user.username.lower()
+
     site_filter = request.GET.get("site")
     year_filter = request.GET.get("year")
     month_filter = request.GET.get("month")
     day_filter = request.GET.get("day")
 
-    # Get all solar tables like your reference logic
+    # -----------------------------------
+    # fetch only this user's solar tables
+    # -----------------------------------
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [r[0] for r in cursor.fetchall()]
 
     solar_tables = [
         t for t in db_tables
-        if "solar" in t.lower() or t.lower().endswith("_solar") or "_solar_" in t.lower()
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
     ]
 
-    # Storage
+    rows = []
     distinct_sites = set()
-    filtered_rows = []
 
+    # -----------------------------------
+    # collect rows
+    # -----------------------------------
     for table in solar_tables:
-
-        # Read columns
         with connection.cursor() as cursor:
             cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
             cols = [c[0] for c in cursor.fetchall()]
         col_map = {c.lower(): c for c in cols}
 
-        # Auto detect columns
         date_col = _pick(col_map, "date", "reading_date")
         site_col = _pick(col_map, "site", "location", "sitename", "plant", "sitecode")
 
-        daily_plf_col = _pick(col_map, "daily_plf", "daily plf", "plf_daily")
-        monthly_plf_col = _pick(col_map, "monthly_plf", "monthly plf", "plf_monthly")
-        yearly_plf_col = _pick(col_map, "yearly_plf", "yearly plf", "plf_yearly")
+        daily_col   = _pick(col_map, "daily_plf", "plf_daily")
+        monthly_col = _pick(col_map, "monthly_plf", "plf_monthly")
+        yearly_col  = _pick(col_map, "yearly_plf", "plf_yearly")
 
-        # Must have date + at least one PLF column
-        if not date_col or not daily_plf_col:
+        if not date_col:
             continue
 
-        # Build WHERE filters
-        conditions = []
-        params = []
+        conditions, params = [], []
 
         if site_filter and site_col:
-            conditions.append(f"`{site_col}` = %s")
+            conditions.append(f"`{site_col}`=%s")
             params.append(site_filter)
 
         if year_filter:
-            conditions.append(f"YEAR(`{date_col}`) = %s")
+            conditions.append(f"YEAR(`{date_col}`)=%s")
             params.append(year_filter)
 
         if month_filter:
-            conditions.append(f"MONTH(`{date_col}`) = %s")
+            conditions.append(f"MONTH(`{date_col}`)=%s")
             params.append(month_filter)
 
         if day_filter:
-            conditions.append(f"DAY(`{date_col}`) = %s")
+            conditions.append(f"DAY(`{date_col}`)=%s")
             params.append(day_filter)
 
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
-        query = f"""
-            SELECT `{date_col}` as dt,
-                   `{daily_plf_col}` as daily_plf,
-                   `{monthly_plf_col}` as monthly_plf,
-                   `{yearly_plf_col}` as yearly_plf,
-                   `{site_col}` as site
-            FROM `{table}`
-            {where}
-            ORDER BY `{date_col}` ASC
-        """
+        select = [
+            f"`{date_col}` as dt",
+            f"`{daily_col}` as daily_plf" if daily_col else "NULL as daily_plf",
+            f"`{monthly_col}` as monthly_plf" if monthly_col else "NULL as monthly_plf",
+            f"`{yearly_col}` as yearly_plf" if yearly_col else "NULL as yearly_plf",
+            f"`{site_col}` as site" if site_col else "NULL as site",
+        ]
+
+        q = f"SELECT {', '.join(select)} FROM `{table}` {where} ORDER BY `{date_col}`"
 
         with connection.cursor() as cursor:
-            cursor.execute(query, params)
+            cursor.execute(q, params)
             fetched = cursor.fetchall()
             desc = [d[0].lower() for d in cursor.description]
 
-        for row in fetched:
-            d = dict(zip(desc, row))
-
-            dt = _parse_date(d["dt"])
+        for r in fetched:
+            d = dict(zip(desc, r))
+            dt = _parse_date(d.get("dt"))
             if not dt:
                 continue
 
-            site = d["site"] or "Unknown"
-            distinct_sites.add(str(site))
+            site_val = d.get("site") or "Unknown"
+            distinct_sites.add(str(site_val))
 
-            filtered_rows.append({
+            rows.append({
                 "date": dt,
-                "site": site,
-                "daily_plf": _clean_num(d["daily_plf"]),
-                "monthly_plf": _clean_num(d["monthly_plf"]),
-                "yearly_plf": _clean_num(d["yearly_plf"]),
+                "site": site_val,
+                "daily_plf": _clean_num(d.get("daily_plf")),
+                "monthly_plf": _clean_num(d.get("monthly_plf")),
+                "yearly_plf": _clean_num(d.get("yearly_plf")),
             })
 
-    # ------------------------------
-    # RETURN EMPTY DATA IF NO MATCH
-    # ------------------------------
-    if not filtered_rows:
+    if not rows:
         return JsonResponse({
             "kpis": {"daily": 0, "monthly": 0, "yearly": 0},
             "plf_quarterly": [],
             "plf_yearly_chart": [],
             "plf_monthly_chart": [],
             "years": [],
-            "sites": list(distinct_sites),
+            "sites": sorted(distinct_sites),
         })
 
-    # ------------------------------
-    # KPI CALCULATIONS
-    # ------------------------------
-    kpi_daily = sum(r["daily_plf"] for r in filtered_rows) / len(filtered_rows)
-    kpi_monthly = sum(r["monthly_plf"] for r in filtered_rows) / len(filtered_rows)
-    kpi_yearly = sum(r["yearly_plf"] for r in filtered_rows) / len(filtered_rows)
+    # -----------------------------------
+    # KPIs from correct columns
+    # -----------------------------------
+    kpi_daily = _avg([r["daily_plf"] for r in rows if r["daily_plf"] > 0])
+    kpi_monthly = _avg([r["monthly_plf"] for r in rows if r["monthly_plf"] > 0])
+    kpi_yearly = _avg([r["yearly_plf"] for r in rows if r["yearly_plf"] > 0])
 
-    # ------------------------------
-    # QUARTERLY PLF
-    # ------------------------------
-    quarter_map = {1: [], 2: [], 3: [], 4: []}
-
-    for r in filtered_rows:
-        q = (r["date"].month - 1) // 3 + 1
-        quarter_map[q].append(r["daily_plf"])
+    # -----------------------------------
+    # Quarterly (from daily_plf)
+    # -----------------------------------
+    qmap = defaultdict(list)
+    for r in rows:
+        if r["daily_plf"] > 0:
+            q = (r["date"].month - 1) // 3 + 1
+            qmap[q].append(r["daily_plf"])
 
     plf_quarterly = [
-        {"quarter": f"Qtr {q}", "value": round(sum(vals)/len(vals), 4) if vals else 0}
-        for q, vals in quarter_map.items()
+        {"quarter": f"Qtr {q}", "value": _avg(v)}
+        for q, v in sorted(qmap.items())
     ]
 
-    # ------------------------------
-    # YEARLY PLF
-    # ------------------------------
-    yearly_map = {}
+    # -----------------------------------
+    # Monthly chart (from monthly_plf)
+    # -----------------------------------
+    m_map = defaultdict(list)
+    for r in rows:
+        if r["monthly_plf"] > 0:
+            m_map[r["date"].month].append(r["monthly_plf"])
 
-    for r in filtered_rows:
-        y = r["date"].year
-        yearly_map.setdefault(y, []).append(r["daily_plf"])
-
-    plf_yearly_chart = [
-        {"year": y, "value": round(sum(v)/len(v), 4)}
-        for y, v in yearly_map.items()
-    ]
-
-    # ------------------------------
-    # MONTHLY PLF
-    # ------------------------------
-    monthly_map = {m: [] for m in range(1, 13)}
-
-    for r in filtered_rows:
-        monthly_map[r["date"].month].append(r["daily_plf"])
-
-    month_names = [
-        "January","February","March","April","May","June",
-        "July","August","September","October","November","December"
-    ]
+    month_names = ["January","February","March","April","May","June",
+                   "July","August","September","October","November","December"]
 
     plf_monthly_chart = [
-        {
-            "month": month_names[m-1],
-            "value": round(sum(vals)/len(vals), 4) if vals else 0
-        }
-        for m, vals in monthly_map.items()
+        {"month": month_names[m-1], "value": _avg(v)}
+        for m, v in sorted(m_map.items())
     ]
 
-    # ------------------------------
-    # SEND JSON RESPONSE
-    # ------------------------------
-    years = sorted(list({r["date"].year for r in filtered_rows}))
+    # -----------------------------------
+    # Yearly chart (from yearly_plf)
+    # -----------------------------------
+    y_map = defaultdict(list)
+    for r in rows:
+        if r["yearly_plf"] > 0:
+            y_map[r["date"].year].append(r["yearly_plf"])
+
+    plf_yearly_chart = [
+        {"year": y, "value": _avg(v)}
+        for y, v in sorted(y_map.items())
+    ]
+
+    years = sorted({r["date"].year for r in rows})
 
     return JsonResponse({
         "kpis": {
-            "daily": round(kpi_daily, 2),
-            "monthly": round(kpi_monthly, 2),
-            "yearly": round(kpi_yearly, 2),
+            "daily": kpi_daily,
+            "monthly": kpi_monthly,
+            "yearly": kpi_yearly,
         },
         "plf_quarterly": plf_quarterly,
         "plf_yearly_chart": plf_yearly_chart,
         "plf_monthly_chart": plf_monthly_chart,
         "years": years,
-        "sites": sorted(list(distinct_sites)),
+        "sites": sorted(distinct_sites),
     })
-
-
-
-
 
 # views.py
 import math
@@ -711,9 +791,15 @@ def _clean_num(v):
 @login_required
 def generation_operating(request):
     # this page renders the template; filters handled in API
-    return render(request, "generation_operating.html")
+    return render(request, "solar_generation_operating.html")
 
 # ---------------- API ---------------- #
+from collections import defaultdict
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+
 @login_required
 def api_generation_operating(request):
     """
@@ -722,33 +808,37 @@ def api_generation_operating(request):
       "years": [2023,2024],
       "sites": ["S1","S2"],
       "kpis": {"generation_daily_avg":..., "operating_daily_avg":...},
-      "monthly_by_year": {
-         "2023": [{"m":1,"gen":..., "op":...}, ... 12],
-         "2024": [...]
-      },
+      "monthly_by_year": {...},
       "comparison": {"generation_total":..., "operating_total":...}
     }
     """
+
+    username = request.user.username.lower()
+
     site_filter = request.GET.get("site")
     year_filter = request.GET.get("year")
     month_filter = request.GET.get("month")
     day_filter = request.GET.get("day")
 
-    # fetch DB tables
+    # =====================================================
+    # FETCH ONLY LOGGED-IN USER SOLAR TABLES
+    # =====================================================
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         db_tables = [r[0] for r in cursor.fetchall()]
 
-    # pick candidate solar tables by heuristic
-    candidate_tables = []
-    for t in db_tables:
-        tl = t.lower()
-        if 'solar' in tl or tl.endswith('_solar') or '_solar_' in tl:
-            candidate_tables.append(t)
+    candidate_tables = [
+        t for t in db_tables
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
+    ]
 
     distinct_sites = set()
-    rows = []  # unified rows with keys: date, site, gen_hours, op_hours
+    rows = []  # unified rows with keys: date, site, gen, op
 
+    # =====================================================
+    # LOOP THROUGH USER SOLAR TABLES
+    # =====================================================
     for table in candidate_tables:
         with connection.cursor() as cursor:
             cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
@@ -758,50 +848,61 @@ def api_generation_operating(request):
         date_col = _pick(col_map, "date", "reading_date", "gen_date", "timestamp")
         site_col = _pick(col_map, "site", "location", "sitename", "plant", "sitecode", "location_name")
 
-        # possible names for generation and operating hours
-        gen_col = _pick(col_map,
-                        "generation_hours", "gen_hours", "gen_hour", "generation",
-                        "daily_generation", "daily generation", "generation_kwh", "daily_gen")
-        op_col = _pick(col_map,
-                       "operating_hours", "op_hours", "op_hour", "operating",
-                       "operation_hours", "operating_hours_decimal", "operating_hour")
+        gen_col = _pick(
+            col_map,
+            "generation_hours", "gen_hours", "gen_hour", "generation",
+            "daily_generation", "daily generation", "generation_kwh", "daily_gen"
+        )
+        op_col = _pick(
+            col_map,
+            "operating_hours", "op_hours", "op_hour", "operating",
+            "operation_hours", "operating_hours_decimal", "operating_hour"
+        )
 
-        # if we don't have at least date + one of gen/op, skip
         if not date_col or (not gen_col and not op_col):
             continue
 
-        # build where clauses
         conditions = []
         params = []
+
         if site_filter and site_col:
             conditions.append(f"`{site_col}` = %s")
             params.append(site_filter)
+
         if year_filter and date_col:
             conditions.append(f"YEAR(`{date_col}`) = %s")
             params.append(year_filter)
+
         if month_filter and date_col:
             conditions.append(f"MONTH(`{date_col}`) = %s")
             params.append(month_filter)
+
         if day_filter and date_col:
             conditions.append(f"DAY(`{date_col}`) = %s")
             params.append(day_filter)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        sel_cols = []
-        sel_cols.append(f"`{date_col}` as dt")
-        sel_cols.append(f"`{site_col}` as site") if site_col else sel_cols.append("NULL as site")
-        sel_cols.append(f"`{gen_col}` as gen") if gen_col else sel_cols.append("NULL as gen")
-        sel_cols.append(f"`{op_col}` as op") if op_col else sel_cols.append("NULL as op")
+        sel_cols = [
+            f"`{date_col}` as dt",
+            f"`{site_col}` as site" if site_col else "NULL as site",
+            f"`{gen_col}` as gen" if gen_col else "NULL as gen",
+            f"`{op_col}` as op" if op_col else "NULL as op",
+        ]
 
-        query = f"SELECT {', '.join(sel_cols)} FROM `{table}` {where} ORDER BY `{date_col}` ASC"
+        query = f"""
+            SELECT {', '.join(sel_cols)}
+            FROM `{table}`
+            {where}
+            ORDER BY `{date_col}` ASC
+        """
+
         try:
             with connection.cursor() as cursor:
                 cursor.execute(query, params)
                 fetched = cursor.fetchall()
                 desc = [d[0].lower() for d in cursor.description]
         except Exception:
-            # skip tables that error
             continue
 
         for row in fetched:
@@ -809,12 +910,17 @@ def api_generation_operating(request):
             dt = _parse_date(rec.get("dt"))
             if not dt:
                 continue
+
             site = rec.get("site") or "Unknown"
             gen = _clean_num(rec.get("gen"))
             op = _clean_num(rec.get("op"))
+
             distinct_sites.add(str(site))
             rows.append({"date": dt, "site": str(site), "gen": gen, "op": op})
 
+    # =====================================================
+    # NO DATA
+    # =====================================================
     if not rows:
         return JsonResponse({
             "years": [],
@@ -824,40 +930,48 @@ def api_generation_operating(request):
             "comparison": {"generation_total": 0, "operating_total": 0}
         })
 
-    # apply site_filter again if not applied in SQL (defensive)
     if site_filter:
         rows = [r for r in rows if r["site"] == site_filter]
 
-    # KPI calculations - daily average (mean of day's gen/op where available)
+    # =====================================================
+    # KPI CALCULATIONS
+    # =====================================================
     gen_values = [r["gen"] for r in rows if r["gen"] is not None]
     op_values = [r["op"] for r in rows if r["op"] is not None]
+
     generation_daily_avg = round(sum(gen_values)/len(gen_values), 2) if gen_values else 0
     operating_daily_avg = round(sum(op_values)/len(op_values), 2) if op_values else 0
 
-    # monthly-by-year aggregation: compute average per month per year for both metrics
-    monthly_by_year = defaultdict(lambda: {m: {"gen_vals": [], "op_vals": []} for m in range(1,13)})
+    # =====================================================
+    # MONTHLY BY YEAR
+    # =====================================================
+    monthly_by_year = defaultdict(lambda: {m: {"gen_vals": [], "op_vals": []} for m in range(1, 13)})
     totals = {"gen": 0.0, "op": 0.0}
 
     for r in rows:
         y = r["date"].year
         m = r["date"].month
+
         if r["gen"] is not None:
             monthly_by_year[y][m]["gen_vals"].append(r["gen"])
-            totals["gen"] += (r["gen"] or 0)
+            totals["gen"] += r["gen"]
+
         if r["op"] is not None:
             monthly_by_year[y][m]["op_vals"].append(r["op"])
-            totals["op"] += (r["op"] or 0)
+            totals["op"] += r["op"]
 
-    # build nice structure
     result_monthly = {}
     for y, months in monthly_by_year.items():
         lst = []
-        for m in range(1,13):
+        for m in range(1, 13):
             gen_vals = months[m]["gen_vals"]
             op_vals = months[m]["op_vals"]
+
             gen_avg = round(sum(gen_vals)/len(gen_vals), 3) if gen_vals else None
-            op_avg  = round(sum(op_vals)/len(op_vals), 3) if op_vals else None
+            op_avg = round(sum(op_vals)/len(op_vals), 3) if op_vals else None
+
             lst.append({"m": m, "gen": gen_avg, "op": op_avg})
+
         result_monthly[y] = lst
 
     years = sorted(result_monthly.keys())
@@ -875,7 +989,6 @@ def api_generation_operating(request):
             "operating_total": round(totals["op"], 2)
         }
     })
-
 
 
 # --- WEATHER & BREAKDOWN DASHBOARD PAGE ---
@@ -912,148 +1025,207 @@ def _parse_date(v):
             pass
     return None
 
-def _num(v):
-    if v is None:
-        return 0
-    try:
-        return float(Decimal(str(v).replace(",", "")))
-    except:
-        return 0
+import re
 
+def _norm(txt):
+    if not txt:
+        return None
+    s = str(txt).strip().lower()
+    s = re.sub(r'\s+', ' ', s)      # collapse multiple spaces
+    s = re.sub(r'[^\w\s/&-]', '', s)  # remove odd punctuation
+    return s.title()
 
 # ---------------------------------------------------
 # PAGE VIEW
 # ---------------------------------------------------
 def solar_weather_breakdown_dashboard(request):
     return render(request, "solar_weather_breakdown_dashboard.html")
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from collections import defaultdict
+from datetime import datetime
+import re
+
+# ---------------- Helpers ----------------
+def _pick(col_map, *candidates):
+    for cand in candidates:
+        if cand and cand.lower() in col_map:
+            return col_map[cand.lower()]
+    return None
+
+def _parse_date(v):
+    if isinstance(v, datetime):
+        return v.date()
+    try:
+        return datetime.strptime(str(v), "%Y-%m-%d").date()
+    except:
+        return None
+
+def _norm(txt):
+    if not txt:
+        return None
+    s = str(txt).strip().lower()
+    s = re.sub(r'\s+', ' ', s)
+    s = re.sub(r'[^\w\s/&-]', '', s)
+    return s.title()
+
+def _safe(col):
+    return f"`{col}`" if col else "NULL"
 
 
 # ---------------------------------------------------
-# FINAL API (Weather + Breakdown)
+# API
 # ---------------------------------------------------
 @login_required
 def api_weather_breakdown(request):
 
-    site = request.GET.get("site")
-    year = request.GET.get("year")
+    username = request.user.username.lower()
+
+    site  = request.GET.get("site")
+    year  = request.GET.get("year")
     month = request.GET.get("month")
-    day = request.GET.get("day")
+    day   = request.GET.get("day")
 
     with connection.cursor() as cursor:
-        cursor.execute("SHOW TABLES")
+        cursor.execute("SHOW TABLES;")
         tables = [r[0] for r in cursor.fetchall()]
 
-    rows = []
-    all_sites = set()
-    all_years = set()
+    solar_tables = [
+        t for t in tables
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
+    ]
 
-    for table in tables:
-        if "solar" not in table.lower():
-            continue
+    rows = []
+    all_sites, all_years, all_months = set(), set(), set()
+
+    weather_sum = defaultdict(float)
+    breakdown_count = defaultdict(int)
+
+    # ✅ KPI totals in hours
+    gf_total = fm_total = s_total = u_total = 0.0
+
+    for table in solar_tables:
 
         with connection.cursor() as cursor:
-            cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
             cols = [c[0] for c in cursor.fetchall()]
         col_map = {c.lower(): c for c in cols}
 
         date_col = _pick(col_map, "date", "reading_date", "day")
         site_col = _pick(col_map, "site", "sitename", "location")
-        gen_col = _pick(col_map, "generation_hours", "generation", "daily_generation")
-        weather_col = _pick(col_map, "weather_condition", "weather")
+        gen_col  = _pick(col_map, "generation_hours", "generation", "daily_generation")
+        weather_col   = _pick(col_map, "weather_condition", "weather")
         breakdown_col = _pick(col_map, "breakdown_details", "breakdown")
+
+        gf_col = _pick(col_map, "gf", "grid_failure")
+        fm_col = _pick(col_map, "fm", "forced_maintenance")
+        s_col  = _pick(col_map, "s", "shutdown")
+        u_col  = _pick(col_map, "u", "unknown")
 
         if not date_col:
             continue
 
-        # Build SQL filter
-        conditions = []
-        params = []
+        conditions, params = [], []
 
         if site and site_col:
             conditions.append(f"`{site_col}`=%s")
             params.append(site)
-
         if year:
             conditions.append(f"YEAR(`{date_col}`)=%s")
             params.append(year)
-
         if month:
             conditions.append(f"MONTH(`{date_col}`)=%s")
             params.append(month)
-
         if day:
             conditions.append(f"DAY(`{date_col}`)=%s")
             params.append(day)
 
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
+        # ---------- Data for charts ----------
         q = f"""
             SELECT 
                 `{date_col}` AS dt,
                 `{site_col}` AS site,
                 `{gen_col}` AS gen,
-                `{weather_col}` AS weather,
-                `{breakdown_col}` AS breakdown
-            FROM `{table}`
-            {where};
+                {_safe(weather_col)}   AS weather,
+                {_safe(breakdown_col)} AS breakdown
+            FROM `{table}` {where};
+        """
+
+        # ---------- KPI aggregation in SQL ----------
+        kpi_q = f"""
+            SELECT
+                SUM(TIME_TO_SEC({_safe(gf_col)}))/3600,
+                SUM(TIME_TO_SEC({_safe(fm_col)}))/3600,
+                SUM(TIME_TO_SEC({_safe(s_col)}))/3600,
+                SUM(TIME_TO_SEC({_safe(u_col)}))/3600
+            FROM `{table}` {where};
         """
 
         try:
             with connection.cursor() as cursor:
                 cursor.execute(q, params)
-                fetched = cursor.fetchall()
+                data_rows = cursor.fetchall()
                 desc = [d[0].lower() for d in cursor.description]
-        except:
+
+                cursor.execute(kpi_q, params)
+                kpi_vals = cursor.fetchone()
+        except Exception:
             continue
 
-        for row in fetched:
-            r = dict(zip(desc, row))
+        if kpi_vals:
+            gf_total += float(kpi_vals[0] or 0)
+            fm_total += float(kpi_vals[1] or 0)
+            s_total  += float(kpi_vals[2] or 0)
+            u_total  += float(kpi_vals[3] or 0)
 
+        for row in data_rows:
+            r = dict(zip(desc, row))
             date_val = _parse_date(r.get("dt"))
             if not date_val:
                 continue
 
-            rows.append({
-                "date": date_val,
-                "site": r.get("site") or "Unknown",
-                "gen": _num(r.get("gen")),
-                "weather": r.get("weather") or "Unknown",
-                "breakdown": r.get("breakdown") or None,
-            })
+            site_val = r.get("site") or "Unknown"
 
-            all_sites.add(r.get("site"))
+            gen_val = float(r.get("gen") or 0)
+            w = _norm(r.get("weather") or "Unknown")
+            b = _norm(r.get("breakdown"))
+
+            weather_sum[w] += gen_val
+            if b:
+                breakdown_count[b] += 1
+
+            all_sites.add(str(site_val))
             all_years.add(date_val.year)
+            all_months.add(date_val.month)
 
-    # -----------------------------------
-    # AGGREGATE
-    # -----------------------------------
-    weather_sum = defaultdict(float)
-    breakdown_count = defaultdict(int)
-
-    for r in rows:
-        weather_sum[r["weather"]] += r["gen"]
-        if r["breakdown"]:
-            breakdown_count[r["breakdown"]] += 1
-
-    # Sort & Limit
     weather_list = sorted(
-        [{"label": k, "value": v} for k, v in weather_sum.items()],
-        key=lambda x: x["value"],
-        reverse=True
+        [{"label": k, "value": round(v, 2)} for k, v in weather_sum.items()],
+        key=lambda x: x["value"], reverse=True
     )[:15]
 
     breakdown_list = sorted(
         [{"label": k, "count": v} for k, v in breakdown_count.items()],
-        key=lambda x: x["count"],
-        reverse=True
+        key=lambda x: x["count"], reverse=True
     )[:15]
 
     return JsonResponse({
         "sites": sorted(all_sites),
         "years": sorted(all_years),
+        "months": sorted(all_months),
         "weather_data": weather_list,
         "breakdown_data": breakdown_list,
+        "kpis": {
+            "gf": round(gf_total, 2),
+            "fm": round(fm_total, 2),
+            "s":  round(s_total, 2),
+            "u":  round(u_total, 2),
+        }
     })
+
 
 # ----------------------- IMPORTS -----------------------
 from django.shortcuts import render
@@ -1141,34 +1313,57 @@ def _num(v):
 # ---------- PAGE VIEW ----------
 @login_required
 def brekdown_genration_whether_dashboard(request):
-    return render(request, "brekdown_genration_whether_dashboard.html")
+    return render(request, "solar_brekdown_genration_whether_dashboard.html")
 
 
-# ---------- API VIEW ----------
+from collections import defaultdict
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+
 @login_required
 def api_brekdown_genration_whether_dashboard(request):
+    username = request.user.username.lower()
+
     year = request.GET.get("year")
     month = request.GET.get("month")
     day = request.GET.get("day")
 
-    # list tables
+    # =====================================================
+    # FETCH ONLY LOGGED-IN USER SOLAR TABLES
+    # =====================================================
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         tables = [r[0] for r in cursor.fetchall()]
 
-    solar_tables = [t for t in tables if "solar" in t.lower()]
+    solar_tables = [
+        t for t in tables
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
+    ]
+
     rows = []
 
+    # =====================================================
+    # LOOP THROUGH USER SOLAR TABLES
+    # =====================================================
     for table in solar_tables:
         with connection.cursor() as cursor:
-            cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+            cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
             cols = [c[0] for c in cursor.fetchall()]
         col_map = {c.lower(): c for c in cols}
 
-        date_col    = _pick(col_map, "date", "reading_date", "generation_date", "day")
-        gen_col     = _pick(col_map, "generation", "daily_generation",
-                            "generation_kwh", "daily generation")
-        gh_col      = _pick(col_map, "generation_hours", "gen_hours", "generation_hours_decimal")
+        date_col = _pick(col_map, "date", "reading_date", "generation_date", "day")
+        gen_col = _pick(
+            col_map,
+            "generation", "daily_generation",
+            "generation_kwh", "daily generation"
+        )
+        gh_col = _pick(
+            col_map,
+            "generation_hours", "gen_hours", "generation_hours_decimal"
+        )
         weather_col = _pick(col_map, "weather_condition", "weather")
 
         if not date_col or not gen_col:
@@ -1190,15 +1385,21 @@ def api_brekdown_genration_whether_dashboard(request):
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
 
         query = f"""
-            SELECT `{date_col}`, `{gen_col}`, `{gh_col}`, `{weather_col}`
+            SELECT `{date_col}` AS dt,
+                   `{gen_col}` AS gen,
+                   `{gh_col}` AS gh,
+                   `{weather_col}` AS weather
             FROM `{table}`
             {where}
             ORDER BY `{date_col}`
         """
 
-        with connection.cursor() as cursor:
-            cursor.execute(query, params)
-            fetched = cursor.fetchall()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                fetched = cursor.fetchall()
+        except Exception:
+            continue
 
         for dt_raw, gen, gh, weather in fetched:
             dt = _parse_date(dt_raw)
@@ -1215,23 +1416,19 @@ def api_brekdown_genration_whether_dashboard(request):
     if not rows:
         return JsonResponse({"status": "no_data"})
 
-    # -------- line data (daily for now; front-end will aggregate by year) --------
-    line_data = []
-    for r in rows:
-        try:
-            dt_str = r["date"].strftime("%Y-%m-%d")
-        except Exception:
-            continue
-        line_data.append({
-            "date": dt_str,
+    # -------- line data --------
+    line_data = [
+        {
+            "date": r["date"].strftime("%Y-%m-%d"),
             "gen": r["gen"],
             "gh": r["gh"],
-        })
+        }
+        for r in rows
+    ]
 
-    # -------- weather aggregation (e.g. Rainy, Cloudy, Good Radiation) --------
-    weather_map = {}
+    # -------- weather aggregation --------
+    weather_map = defaultdict(float)
     for r in rows:
-        weather_map.setdefault(r["weather"], 0.0)
         weather_map[r["weather"]] += r["gen"]
 
     weather_data = [
@@ -1241,7 +1438,7 @@ def api_brekdown_genration_whether_dashboard(request):
 
     # -------- KPI --------
     avg_gen = round(sum(r["gen"] for r in rows) / len(rows), 2)
-    avg_gh  = round(sum(r["gh"]  for r in rows) / len(rows), 2)
+    avg_gh = round(sum(r["gh"] for r in rows) / len(rows), 2)
 
     return JsonResponse({
         "status": "ok",
@@ -1252,8 +1449,6 @@ def api_brekdown_genration_whether_dashboard(request):
             "avg_gh": avg_gh
         }
     })
-
-
 
 
 
@@ -1395,6 +1590,10 @@ def solar_generation_by_day(request):
         "months": month_list,
         "days": days,
     })
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+import math
 
 
 @login_required
@@ -1404,41 +1603,54 @@ def api_generation_by_day(request):
     {
       status: "ok"/"no_data",
       days: [1,2,3...],
-      gen_series: [sum gen by day],
-      gh_series: [avg gen-hours by day],
+      gen_series: [...],
+      gh_series: [...],
       forecast_days: H,
-      forecast_gen: { start_day, forecast: [...], upper: [...], lower: [...] },
+      forecast_gen: {...},
       forecast_gh: {...}
     }
-    Query params:
-      year, month, day (filters, optional)
-      forecast_days (optional, default 10)
     """
+
+    username = request.user.username.lower()
+
     year = request.GET.get("year")
     month = request.GET.get("month")
     day_filter = request.GET.get("day")
-    h = int(request.GET.get("forecast_days") or 10)  # default 10
+    h = int(request.GET.get("forecast_days") or 10)
 
-    # find tables
+    # =====================================================
+    # FETCH ONLY LOGGED-IN USER SOLAR TABLES
+    # =====================================================
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         tables = [r[0] for r in cursor.fetchall()]
 
-    solar_tables = [t for t in tables if "solar" in t.lower()]
+    solar_tables = [
+        t for t in tables
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
+    ]
 
-    agg_by_day = {}  # day -> {gen_sum, gh_sum, count}
+    agg_by_day = {}  # day -> {gen, gh, count}
+
+    # =====================================================
+    # LOOP THROUGH USER SOLAR TABLES
+    # =====================================================
     for table in solar_tables:
         with connection.cursor() as cursor:
             try:
-                cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+                cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
                 cols = [c[0] for c in cursor.fetchall()]
             except Exception:
                 continue
+
         col_map = {c.lower(): c for c in cols}
 
         date_col = _pick(col_map, "date", "reading_date", "generation_date", "day")
-        gen_col  = _pick(col_map, "daily_generation", "generation", "generation_kwh", "daily_gen", "daily generation")
-        gh_col   = _pick(col_map, "generation_hours", "gen_hours", "generation_hours_decimal", "generation_hours")
+        gen_col  = _pick(col_map, "daily_generation", "generation",
+                         "generation_kwh", "daily_gen", "daily generation")
+        gh_col   = _pick(col_map, "generation_hours", "gen_hours",
+                         "generation_hours_decimal", "generation_hours")
 
         if not date_col or not gen_col:
             continue
@@ -1446,15 +1658,25 @@ def api_generation_by_day(request):
         conditions = []
         params = []
         if year:
-            conditions.append(f"YEAR(`{date_col}`)=%s"); params.append(year)
+            conditions.append(f"YEAR(`{date_col}`)=%s")
+            params.append(year)
         if month:
-            conditions.append(f"MONTH(`{date_col}`)=%s"); params.append(month)
+            conditions.append(f"MONTH(`{date_col}`)=%s")
+            params.append(month)
         if day_filter:
-            conditions.append(f"DAY(`{date_col}`)=%s"); params.append(day_filter)
+            conditions.append(f"DAY(`{date_col}`)=%s")
+            params.append(day_filter)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        query = f"SELECT `{date_col}`, `{gen_col}`, {f'`{gh_col}`' if gh_col else 'NULL'} FROM `{table}` {where} ORDER BY `{date_col}`"
+        query = f"""
+            SELECT `{date_col}`, `{gen_col}`,
+                   {f'`{gh_col}`' if gh_col else 'NULL'}
+            FROM `{table}`
+            {where}
+            ORDER BY `{date_col}`
+        """
+
         try:
             with connection.cursor() as cursor:
                 cursor.execute(query, params)
@@ -1466,12 +1688,14 @@ def api_generation_by_day(request):
             dt = _parse_date(dt_raw)
             if not dt:
                 continue
+
             d = dt.day
             gen_v = _num(gen_raw)
             gh_v = _num(gh_raw)
 
             if d not in agg_by_day:
                 agg_by_day[d] = {"gen": 0.0, "gh": 0.0, "count": 0}
+
             agg_by_day[d]["gen"] += gen_v
             if gh_col:
                 agg_by_day[d]["gh"] += gh_v
@@ -1480,80 +1704,85 @@ def api_generation_by_day(request):
     if not agg_by_day:
         return JsonResponse({"status": "no_data", "rows": []})
 
-    # produce ordered lists for days present (1..max_day)
+    # =====================================================
+    # BUILD SERIES
+    # =====================================================
     days_sorted = sorted(agg_by_day.keys())
     max_day = max(days_sorted)
 
     gen_series = []
     gh_series = []
     days = []
+
     for d in range(1, max_day + 1):
         rec = agg_by_day.get(d)
         if rec:
             days.append(d)
             gen_series.append(round(rec["gen"], 3))
-            # average gh for that day (if count available)
             gh_avg = (rec["gh"] / rec["count"]) if rec["count"] else 0.0
             gh_series.append(round(gh_avg, 3))
         else:
-            # keep zeros for missing day so chart X aligns 1..max_day
             days.append(d)
             gen_series.append(0.0)
             gh_series.append(0.0)
 
-    # ---------- Forecast generation series ----------
-    # Build forecast using SES on historical gen_series (use last contiguous positive stretch)
+    # =====================================================
+    # FORECAST GEN
+    # =====================================================
     hist_gen = [v for v in gen_series if v is not None]
-    # if all zeros, forecast zeros
     if sum(hist_gen) == 0:
         fcast = [0.0] * h
         upper = [0.0] * h
         lower = [0.0] * h
     else:
-        # Use SES
         fitted, last_level = simple_exponential_smoothing(hist_gen, alpha=0.25)
         residuals = [hist_gen[i] - fitted[i] for i in range(len(fitted))] if fitted else []
-        # sample std of residuals
+
         if len(residuals) >= 2:
             mean_res = sum(residuals) / len(residuals)
             var = sum((r - mean_res) ** 2 for r in residuals) / (len(residuals) - 1)
             resid_std = math.sqrt(max(var, 0.0))
         else:
-            resid_std = max( (abs(hist_gen[-1]) * 0.05) if hist_gen else 1.0, 1.0 )
+            resid_std = max((abs(hist_gen[-1]) * 0.05) if hist_gen else 1.0, 1.0)
 
         fcast = forecast_ses(last_level, h)
-        # 95% z
         z = 1.96
-        upper = []
-        lower = []
-        for i in range(1, h+1):
-            # widening factor: sqrt(i) to make cone open
+        upper, lower = [], []
+
+        for i in range(1, h + 1):
             widen = math.sqrt(i)
             margin = z * resid_std * widen
             upper.append(round(fcast[i-1] + margin, 3))
             lower.append(round(max(fcast[i-1] - margin, 0.0), 3))
 
-    # ---------- Forecast for gen-hours series (same approach but on gh_series) ----------
+    # =====================================================
+    # FORECAST GH
+    # =====================================================
     hist_gh = [v for v in gh_series if v is not None]
     if sum(hist_gh) == 0:
-        fcast_gh = [0.0]*h; upper_gh=[0.0]*h; lower_gh=[0.0]*h
+        fcast_gh = [0.0] * h
+        upper_gh = [0.0] * h
+        lower_gh = [0.0] * h
     else:
         fitted_gh, last_level_gh = simple_exponential_smoothing(hist_gh, alpha=0.25)
         residuals_gh = [hist_gh[i] - fitted_gh[i] for i in range(len(fitted_gh))] if fitted_gh else []
+
         if len(residuals_gh) >= 2:
-            mean_r = sum(residuals_gh)/len(residuals_gh)
-            var_gh = sum((r-mean_r)**2 for r in residuals_gh) / max(len(residuals_gh)-1,1)
-            std_gh = math.sqrt(max(var_gh,0.0))
+            mean_r = sum(residuals_gh) / len(residuals_gh)
+            var_gh = sum((r - mean_r) ** 2 for r in residuals_gh) / max(len(residuals_gh) - 1, 1)
+            std_gh = math.sqrt(max(var_gh, 0.0))
         else:
-            std_gh = max((abs(hist_gh[-1])*0.02) if hist_gh else 0.5, 0.5)
+            std_gh = max((abs(hist_gh[-1]) * 0.02) if hist_gh else 0.5, 0.5)
+
         fcast_gh = forecast_ses(last_level_gh, h)
         z = 1.96
-        upper_gh=[]; lower_gh=[]
-        for i in range(1,h+1):
+        upper_gh, lower_gh = [], []
+
+        for i in range(1, h + 1):
             widen = math.sqrt(i)
             margin = z * std_gh * widen
-            upper_gh.append(round(fcast_gh[i-1] + margin,3))
-            lower_gh.append(round(max(fcast_gh[i-1] - margin,0.0),3))
+            upper_gh.append(round(fcast_gh[i-1] + margin, 3))
+            lower_gh.append(round(max(fcast_gh[i-1] - margin, 0.0), 3))
 
     response = {
         "status": "ok",
@@ -1563,22 +1792,19 @@ def api_generation_by_day(request):
         "forecast_days": h,
         "forecast_gen": {
             "start_day": max_day + 1,
-            "forecast": [round(x,3) for x in fcast],
+            "forecast": [round(x, 3) for x in fcast],
             "upper": upper,
             "lower": lower
         },
         "forecast_gh": {
             "start_day": max_day + 1,
-            "forecast": [round(x,3) for x in fcast_gh],
+            "forecast": [round(x, 3) for x in fcast_gh],
             "upper": upper_gh,
             "lower": lower_gh
         }
     }
 
     return JsonResponse(response, safe=True)
-
-
- # solardashboard/views.py  (append or place near other dashboard views)
 
 import math
 from datetime import datetime
@@ -1663,12 +1889,19 @@ def _num(v):
 # ---------------- PAGE VIEW ----------------
 @login_required
 def trend_analysis(request):
-    return render(request, "trend_analysis.html", {})
+    return render(request, "solar_trend_analysis.html", {})
 
 
-# ---------------- API ----------------
+from collections import defaultdict
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
+
 @login_required
 def api_trend_analysis(request):
+
+    username = request.user.username.lower()
 
     # Filters
     site = request.GET.get("site")
@@ -1676,16 +1909,17 @@ def api_trend_analysis(request):
     month_filter = request.GET.get("month")
     day_filter = request.GET.get("day")
 
-    # Get tables
+    # =====================================================
+    # FETCH ONLY LOGGED-IN USER SOLAR TABLES
+    # =====================================================
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         tables = [r[0] for r in cursor.fetchall()]
 
     solar_tables = [
         t for t in tables
-        if "solar" in t.lower()
-        or t.lower().endswith("_solar")
-        or "_solar_" in t.lower()
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
     ]
 
     # Containers
@@ -1696,19 +1930,19 @@ def api_trend_analysis(request):
 
     all_sites = set()
 
-    # ---------------- PROCESS EACH TABLE ----------------
+    # =====================================================
+    # PROCESS EACH USER SOLAR TABLE
+    # =====================================================
     for table in solar_tables:
-        # Fetch columns
         try:
             with connection.cursor() as cursor:
                 cursor.execute(f"SHOW COLUMNS FROM `{table}`;")
                 cols = [c[0] for c in cursor.fetchall()]
-        except:
+        except Exception:
             continue
 
         col_map = {c.lower(): c for c in cols}
 
-        # Detect columns
         date_col = _pick(col_map, "date", "reading_date", "generation_date")
 
         daily_gen_col = _pick(
@@ -1734,7 +1968,6 @@ def api_trend_analysis(request):
             "yearly_plf"
         )
 
-        # Radiation columns (corrected)
         radiation_col = _pick(
             col_map,
             "horizontal_radiation_in_kwh_m2",
@@ -1746,7 +1979,6 @@ def api_trend_analysis(request):
         if not date_col:
             continue
 
-        # Build filters
         conditions, params = [], []
 
         if site and site_col:
@@ -1783,10 +2015,9 @@ def api_trend_analysis(request):
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
                 desc = [d[0].lower() for d in cursor.description]
-        except:
+        except Exception:
             continue
 
-        # Process rows
         for r in rows:
             row = dict(zip(desc, r))
             dt = _parse_date(row.get("dt"))
@@ -1802,7 +2033,7 @@ def api_trend_analysis(request):
             site_value = row.get("site")
 
             if site_value:
-                all_sites.add(site_value)
+                all_sites.add(str(site_value))
 
             if gen is not None:
                 gen_month_year[y][m].append(gen)
@@ -1819,11 +2050,11 @@ def api_trend_analysis(request):
             if plf is not None:
                 plf_month_year[y][m].append(plf)
 
-    # ---------------- BUILD FINAL OUTPUT ----------------
-
+    # =====================================================
+    # BUILD FINAL OUTPUT
+    # =====================================================
     years = sorted(set(gen_month_year.keys()) | set(availability_year.keys()) | set(plf_month_year.keys()))
 
-    # Yearly Generation Trend
     gen_trend = {}
     for y in years:
         arr = []
@@ -1832,14 +2063,12 @@ def api_trend_analysis(request):
             arr.append(round(sum(vals)/len(vals), 3) if vals else None)
         gen_trend[y] = arr
 
-    # Plant availability
     availability = [
         round(sum(availability_year[y]) / len(availability_year[y]), 3)
         if availability_year[y] else None
         for y in years
     ]
 
-    # PLF chart
     plf_chart = {}
     for y in years:
         arr = []
@@ -1848,7 +2077,6 @@ def api_trend_analysis(request):
             arr.append(round(sum(vals)/len(vals), 3) if vals else None)
         plf_chart[y] = arr
 
-    # Month names
     month_names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
     return JsonResponse({
@@ -1862,7 +2090,6 @@ def api_trend_analysis(request):
         "years_ordered": years,
         "sites": sorted(all_sites),
     })
-
 
 
 
@@ -1975,7 +2202,6 @@ def _parse_time_to_minutes(v):
         return int(h)*60 + int(m) + int(float(s_)/60)
     except:
         return 0
-
 @login_required
 def api_solar_summary_dashboard(request):
     site = request.GET.get("site")
@@ -1984,6 +2210,7 @@ def api_solar_summary_dashboard(request):
     month_filter = request.GET.get("month")
 
     year_filter_int = int(year_filter) if year_filter else None
+
     qmap = {"Q1":[1,2,3], "Q2":[4,5,6], "Q3":[7,8,9], "Q4":[10,11,12]}
     allowed_months = qmap.get(quarter) if quarter else None
     if month_filter:
@@ -1993,22 +2220,17 @@ def api_solar_summary_dashboard(request):
         cursor.execute("SHOW TABLES;")
         tables = [r[0] for r in cursor.fetchall()]
 
+    username = request.user.username.lower()
     solar_tables = [
         t for t in tables
-        if "solar" in t.lower()
-        or t.lower().endswith("_solar")
-        or "_solar_" in t.lower()
-        or t.lower().startswith("solar_")
+        if t.lower().startswith(f"{username}_")
+        and t.lower().endswith("_solar")
     ]
 
     monthly = defaultdict(lambda: defaultdict(float))
     sites, years = set(), set()
 
-    plf_vals = []
-    grid_vals = []
-    avail_vals = []
-    gen_daily_vals, op_daily_vals = [], []
-
+    plf_vals, grid_vals, avail_vals = [], [], []
     gf_total = fm_total = s_total = u_total = 0
 
     for table in solar_tables:
@@ -2042,10 +2264,6 @@ def api_solar_summary_dashboard(request):
             where.append(f"`{site_col}`=%s")
             params.append(site)
 
-        if year_filter_int:
-            where.append(f"(YEAR(`{date_col}`)=%s OR YEAR(STR_TO_DATE(`{date_col}`, '%Y-%m-%d'))=%s)")
-            params.extend([year_filter_int, year_filter_int])
-
         where_sql = "WHERE " + " AND ".join(where) if where else ""
 
         query = f"""
@@ -2071,31 +2289,31 @@ def api_solar_summary_dashboard(request):
 
         for r in rows:
             row = dict(zip(desc, r))
-            dt = _parse_date(row['dt'])
+            dt = _parse_date(row.get("dt"))
             if not dt:
                 continue
 
+            # ✅ Python-side Year filter
+            if year_filter_int and dt.year != year_filter_int:
+                continue
+
             y, m = dt.year, dt.month
+
             if allowed_months and m not in allowed_months:
                 continue
 
             years.add(y)
             sites.add(str(row.get("site", "Unknown")))
 
-            # generation + operating
             gen = _num(row.get("gen"))
             op  = _num(row.get("op"))
             monthly[y][m] += gen
             monthly[y][m + 100] += op
-            gen_daily_vals.append(gen)
-            op_daily_vals.append(op)
 
-            # plf, grid ok, availability
             if row.get("plf"):   plf_vals.append(_num(row["plf"]))
             if row.get("grid_ok"): grid_vals.append(_num(row["grid_ok"]))
             if row.get("avail"): avail_vals.append(_num(row["avail"]))
 
-            # downtime
             gf_total += _parse_time_to_minutes(row.get("gf"))
             fm_total += _parse_time_to_minutes(row.get("fm"))
             s_total  += _parse_time_to_minutes(row.get("s"))
@@ -2113,20 +2331,20 @@ def api_solar_summary_dashboard(request):
             })
         monthly_out[y] = arr
 
-    # KPI final values
+    # KPIs
     plf_daily = round(sum(plf_vals)/len(plf_vals), 2) if plf_vals else 0
     grid_ok_percent = round(sum(grid_vals)/len(grid_vals), 2) if grid_vals else 0
     plant_avail = round(sum(avail_vals)/len(avail_vals), 2) if avail_vals else 0
 
-    # Downtime Pie
+    # Downtime pie
     total_dt = gf_total + fm_total + s_total + u_total
     pie = []
     if total_dt > 0:
         pie = [
             {"label": "GF", "value": round(gf_total/total_dt*100, 2)},
             {"label": "FM", "value": round(fm_total/total_dt*100, 2)},
-            {"label": "S", "value":  round(s_total/total_dt*100, 2)},
-            {"label": "U", "value":  round(u_total/total_dt*100, 2)}
+            {"label": "S",  "value": round(s_total/total_dt*100, 2)},
+            {"label": "U",  "value": round(u_total/total_dt*100, 2)},
         ]
 
     return JsonResponse({
@@ -2141,8 +2359,6 @@ def api_solar_summary_dashboard(request):
         },
         "pie": pie
     })
-
-
 
 
 
@@ -2272,7 +2488,7 @@ def _time_to_minutes(val):
 @login_required
 def generation_report(request):
     """Render the generation report page (template below)."""
-    return render(request, "generation_report.html", {})
+    return render(request, "solar_generation_report.html", {})
 
 
 # ---------------- API ----------------
@@ -2563,7 +2779,7 @@ from decimal import Decimal
 # ================= PAGE =================
 @login_required
 def overall_breakdown_analysis(request):
-    return render(request, "overall_breakdown_analysis.html", {
+    return render(request, "solar_overall_breakdown_analysis.html", {
         "days": range(1, 32)
     })
 
@@ -2621,13 +2837,79 @@ def _to_hours(v):
     except:
         return 0.0
 
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
+from django.contrib.auth.decorators import login_required
+from django.db import connection
+from django.http import JsonResponse
 
-# ================= API =================
+
+# ================= HELPERS =================
+def _pick(col_map, *names):
+    for n in names:
+        if n and n.lower() in col_map:
+            return col_map[n.lower()]
+    return None
+
+
+def _parse_date(v):
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    try:
+        return datetime.fromisoformat(str(v)).date()
+    except:
+        return None
+
+
+def _to_hours(v):
+    """
+    Converts DB value to HOURS.
+    Handles:
+    - numeric (1.5)
+    - 'HH:MM'
+    - 'HH:MM:SS'
+    """
+    if v is None:
+        return 0.0
+
+    s = str(v).strip()
+    if not s:
+        return 0.0
+
+    if ":" in s:
+        try:
+            parts = s.split(":")
+            h = float(parts[0])
+            m = float(parts[1]) if len(parts) > 1 else 0
+            sec = float(parts[2]) if len(parts) > 2 else 0
+            return h + (m / 60) + (sec / 3600)
+        except:
+            return 0.0
+
+    try:
+        return float(Decimal(s.replace(",", "")))
+    except:
+        return 0.0
+
+
+from collections import defaultdict
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+from collections import defaultdict
+from django.http import JsonResponse
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
 @login_required
 def api_overall_breakdown_analysis(request):
 
     year_filter = request.GET.get("year")
     quarter = request.GET.get("quarter")
+    month_filter = request.GET.get("month")   # ✅ Month
     day_filter = request.GET.get("day")
 
     qmap = {
@@ -2638,12 +2920,21 @@ def api_overall_breakdown_analysis(request):
     }
     allowed_months = qmap.get(quarter)
 
-    # ---- discover solar tables dynamically ----
+    username = request.user.username.lower()
+
+    # ---- discover ONLY this user's solar tables ----
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         tables = [r[0] for r in cursor.fetchall()]
 
-    solar_tables = [t for t in tables if "solar" in t.lower()]
+    solar_tables = [
+        t for t in tables
+        if t.lower().startswith(username + "_")
+        and (
+            t.lower().endswith("_solar")
+            or "_solar_" in t.lower()
+        )
+    ]
 
     # ---- accumulators (HOURS) ----
     gf_total = fm_total = s_total = u_total = 0.0
@@ -2684,11 +2975,15 @@ def api_overall_breakdown_analysis(request):
 
         if year_filter:
             where.append(f"YEAR(`{date_col}`) = %s")
-            params.append(year_filter)
+            params.append(int(year_filter))
+
+        if month_filter:
+            where.append(f"MONTH(`{date_col}`) = %s")
+            params.append(int(month_filter))
 
         if day_filter:
             where.append(f"DAY(`{date_col}`) = %s")
-            params.append(day_filter)
+            params.append(int(day_filter))
 
         where_sql = "WHERE " + " AND ".join(where) if where else ""
 
@@ -2725,26 +3020,32 @@ def api_overall_breakdown_analysis(request):
             if not dt:
                 continue
 
+            # ✅ Quarter logic
             if allowed_months and dt.month not in allowed_months:
                 continue
 
             years_set.add(dt.year)
 
-            # ===== POWER BI MATCHING LOGIC =====
+            # ===== HOURS =====
             gf_total += _to_hours(row.get("gf"))
             fm_total += _to_hours(row.get("fm"))
             s_total  += _to_hours(row.get("s"))
             u_total  += _to_hours(row.get("u"))
-
             generation_hours_total += _to_hours(row.get("genh"))
 
+            # ✅ Normalize Breakdown
             if row.get("bd"):
-                breakdown_counter[str(row["bd"]).strip()] += 1
+                b = str(row["bd"]).strip().lower()
+                b = " ".join(b.split())
+                breakdown_counter[b] += 1
 
+            # ✅ Normalize Weather
             if row.get("weather"):
-                weather_counter[str(row["weather"]).strip()] += 1
+                w = str(row["weather"]).strip().lower()
+                w = " ".join(w.split())
+                weather_counter[w] += 1
 
-    # ================= KPI (EXACT POWER BI FORMULA) =================
+    # ================= KPI =================
     breakdown_hours = gf_total + fm_total + s_total + u_total
 
     gt_breakdown_percentage = round(
@@ -2752,17 +3053,6 @@ def api_overall_breakdown_analysis(request):
         if generation_hours_total else 0,
         2
     )
-
-    # ================= DEBUG =================
-    print("==== GT BREAKDOWN (FINAL) ====")
-    print("GF hours:", gf_total)
-    print("FM hours:", fm_total)
-    print("S  hours:", s_total)
-    print("U  hours:", u_total)
-    print("Total Breakdown hours:", breakdown_hours)
-    print("Total Generation hours:", generation_hours_total)
-    print("GT Breakdown %:", gt_breakdown_percentage)
-    print("=============================")
 
     return JsonResponse({
         "status": "ok",
@@ -2776,17 +3066,17 @@ def api_overall_breakdown_analysis(request):
         },
 
         "breakdown_table": [
-            {"label": k, "count": v}
+            {"label": k.title(), "count": v}
             for k, v in sorted(breakdown_counter.items(), key=lambda x: -x[1])
         ],
 
         "weather_table": [
-            {"condition": k, "count": v}
+            {"condition": k.title(), "count": v}
             for k, v in sorted(weather_counter.items(), key=lambda x: -x[1])
         ],
 
         "weather_chart": [
-            {"condition": k, "count": v}
+            {"condition": k.title(), "count": v}
             for k, v in sorted(weather_counter.items(), key=lambda x: -x[1])
         ]
     })

@@ -72,18 +72,18 @@
       background-color: #1a252f;
     }
 
-    .sidebar .close-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: red;
-      border: none;
-      color: white;
-      font-size: 24px;
-      padding: 0 10px;
-      cursor: pointer;
-    }
-
+.sidebar .close-btn {
+    position: absolute;
+    top: 0px;
+    right: 10px;
+    background-color: #2c3e50;
+    border: none;
+    color: rgb(255, 255, 255);
+    font-size: 34px;
+    padding: 0 10px;
+    cursor: pointer;
+    font-weight: bold;
+}
     .footer{
 border-top: 1px solid silver;
     }
@@ -399,6 +399,125 @@ body.dark-mode .nav-link.active {
         border-left: 4px solid #764ba2;
         padding-left: 10px;
     }
+
+
+
+    /* ================= AI CIRCLE ================= */
+.ai-circle{
+  width:28px;
+  height:28px;
+   border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  cursor:pointer;
+   /* margin-top: -18px; */
+  margin-left: 15px;
+}
+
+.ii{
+  font-size: 28px;
+
+  background: linear-gradient(
+    60deg,
+    #bc42f4 0%,
+    #8951e4 30%,
+    #3f183c 60%,
+    #2d00cf 100%
+  );
+
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+
+  background-clip: text;
+  color: transparent;
+
+  z-index: 2;
+}
+
+
+/* Pulsing rings */
+.ai-ring{
+  position:absolute;
+  width:100%;
+  height:100%;
+  border-radius:50%;
+  /* border:2px solid rgba(255, 255, 255, 0.897); */
+  animation:pulse 2.5s infinite;
+  font-size: 10px;
+  margin-right: -35px;
+}
+
+.ai-ring.delay{
+  animation-delay:1.2s;
+}
+
+/* @keyframes pulse{
+  0%{transform:scale(1);opacity:1;}
+  100%{transform:scale(1.6);opacity:0;}
+} */
+
+.ai-label{
+  font-size:12px;
+  color:#cbd5f5;
+  margin-top:6px;
+}
+
+/* ================= MODAL ================= */
+.ai-modal{
+  border-radius:16px;
+  background:linear-gradient(145deg,#020617,#0f172a);
+  color:#e5e7eb;
+  box-shadow:0 25px 60px rgba(0,0,0,.5);
+}
+
+.ai-modal .modal-title{
+  font-weight:600;
+  text-align: center !important;
+}
+
+.ai-option{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:14px 16px;
+  margin-bottom:10px;
+  background:rgba(255,255,255,.05);
+  border-radius:12px;
+  text-decoration:none;
+  color:#e5e7eb;
+  transition:all .3s ease;
+}
+
+.ai-option i{
+  font-size:18px;
+  color:#38bdf8;
+}
+
+.ai-option:hover{
+  background:linear-gradient(90deg,#2563eb,#06b6d4);
+  color:#fff;
+  transform:translateX(6px);
+}
+
+
+@media (max-width: 768px){
+  .ai-circle{
+    display:flex !important;
+    visibility:visible !important;
+    opacity:1 !important;
+    margin-top: -15px !important;
+  }
+  .mkk{
+    display: none !important;
+  }
+}
+
+.ddd{
+  display: none;
+}
+ 
   </style>
 </head>
 
@@ -440,8 +559,21 @@ body.dark-mode .nav-link.active {
 {% endif %}
 
   </div>
+  
 <center>
-  <h5 class="mb-0 me-3 haddding text-dark">Hello, <strong>{{ request.user }}</strong></h5>
+    <!-- AI ANALYSIS ICON -->
+<div class="nav-item    " style="display: flex;  ">
+      <h5 class="mb-0 me-3 haddding text-dark"  >Hello, <strong>{{ request.user }}</strong></h5>
+
+<div class="ai-circle d-none d-md-flex mkk"
+     data-bs-toggle="modal"
+     data-bs-target="#aiAnalysisModal">
+    
+<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#0000F5"><path d="m176-120-56-56 301-302-181-45 198-123-17-234 179 151 216-88-87 217 151 178-234-16-124 198-45-181-301 301Zm24-520-80-80 80-80 80 80-80 80Zm355 197 48-79 93 7-60-71 35-86-86 35-71-59 7 92-79 49 90 22 23 90Zm165 323-80-80 80-80 80 80-80 80ZM569-570Z"/></svg>  <span class="ai-ring delay  " style="color: #ff00ea;">AI</span>
+</div>
+
+  <!-- <div class="ai-label">AI Analysis</div> -->
+</div>
  </center>
 
   <!-- Toggle button for small devices -->
@@ -459,6 +591,16 @@ body.dark-mode .nav-link.active {
 
 <!-- Sidebar -->
 <div id="sidebar" class="sidebar" style="z-index: 1000; overflow: scroll;">
+  <!-- AI ANALYSIS ICON -->
+<div class="nav-item text-center my-3">
+  <div class="ai-circle ddd"
+       data-bs-toggle="modal"
+       data-bs-target="#aiAnalysisModal">
+       
+<svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#F19E39"><path d="m176-120-56-56 301-302-181-45 198-123-17-234 179 151 216-88-87 217 151 178-234-16-124 198-45-181-301 301Zm24-520-80-80 80-80 80 80-80 80Zm355 197 48-79 93 7-60-71 35-86-86 35-71-59 7 92-79 49 90 22 23 90Zm165 323-80-80 80-80 80 80-80 80ZM569-570Z"/></svg><span class="ai-ring delay  " style="color: #ff00ea;">AI</span>
+   </div>
+</div>
+
   <button class="close-btn" onclick="closeSidebar()">×</button>
   <center>
     <div class="text-center mt-5 bg-white pt-1" style="border-radius: 10px; width:70%;">
@@ -615,6 +757,43 @@ body.dark-mode .nav-link.active {
  
 
 
+ <!-- AI ANALYSIS MODAL -->
+<div class="modal fade" id="aiAnalysisModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content ai-modal">
+
+      <div class="modal-header border-0  ">
+        <h4 class="modal-title ">
+          🤖 AI Advanced Analysis
+        </h4>
+        <button type="button" class="btn-close  " style="color: wheat !important;" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <a href="{% url 'breakdown_analysis' %}" class="ai-option">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          Breakdown Analysis
+        </a>
+
+        <a href="{% url 'user_pm_report_dashboard' %}" class="ai-option">
+          <i class="fa-solid fa-tools"></i>
+          Preventive Maintenance
+        </a>
+
+        <a href="{% url 'calculation_history' %}" class="ai-option">
+          <i class="fa-solid fa-calculator"></i>
+          Open Access Calculator
+        </a>
+
+        <a href="#" class="ai-option">
+          <i class="fas fa-balance-scale"></i>
+          DSM Charges
+        </a>
+      </div>
+
+    </div>
+  </div>
+</div>
 
 <!-- {% if not request.user.is_superuser %} -->
   <!-- Sidebar -->

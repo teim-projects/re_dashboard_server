@@ -286,6 +286,36 @@ def convert_xls_to_xlsx(xls_path, xlsx_path):
     wb.save(xlsx_path)
     return xlsx_path
 
+import os
+import re
+import xlrd
+import pandas as pd
+from openpyxl import Workbook
+
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.core.files.storage import FileSystemStorage
+from django.db import connection
+from django.contrib.auth.models import User
+
+from accounts.models import Provider, EnergyType, UserProvider
+
+
+# --- helper: convert old .xls to .xlsx ---
+def convert_xls_to_xlsx(xls_path, xlsx_path):
+    book = xlrd.open_workbook(xls_path)
+    sheet = book.sheet_by_index(0)
+    wb = Workbook()
+    ws = wb.active
+
+    for row in range(sheet.nrows):
+        ws.append(sheet.row_values(row))
+
+    wb.save(xlsx_path)
+    return xlsx_path
+
+
 @login_required
 def add_provider_with_structure(request):
     energy_types = EnergyType.objects.all()
@@ -315,10 +345,9 @@ def add_provider_with_structure(request):
                 with connection.cursor() as cursor:
                     for energy in EnergyType.objects.all():
                         for user in staff_users:
-                            table_name = f"{user.username.lower()}_{provider_clean}_{energy.name.lower().replace(' ', '_')}"
-                            table_break = f"{table_name}_breakdowndata"
-                            cursor.execute(f"DROP TABLE IF EXISTS `{table_name}`")
-                            cursor.execute(f"DROP TABLE IF EXISTS `{table_break}`")
+                            base = f"{user.username.lower()}_{provider_clean}_{energy.name.lower().replace(' ', '_')}"
+                            cursor.execute(f"DROP TABLE IF EXISTS `{base}`")
+                            cursor.execute(f"DROP TABLE IF EXISTS `{base}_breakdowndata`")
 
                 provider.delete()
                 messages.success(request, "Provider and all related tables deleted successfully.")
@@ -326,7 +355,7 @@ def add_provider_with_structure(request):
                 messages.error(request, f"Error deleting provider: {str(e)}")
             return redirect("add_provider")
 
-        # ADD provider and create table
+        # ------------------ ADD provider & create tables ------------------
         provider_name = request.POST.get("provider_name", "").strip().lower().replace(' ', '_')
         energy_type_id = request.POST.get("energy_type")
         structure_file = request.FILES.get("structure_file")
@@ -336,7 +365,6 @@ def add_provider_with_structure(request):
             messages.error(request, "All fields are required.")
             return redirect("add_provider")
 
-        # Fetch objects
         try:
             user_obj = User.objects.get(username=selected_username)
         except:
@@ -350,10 +378,9 @@ def add_provider_with_structure(request):
             messages.error(request, "Invalid energy type selected.")
             return redirect("add_provider")
 
-        provider_obj, created = Provider.objects.get_or_create(name=provider_name)
+        provider_obj, _ = Provider.objects.get_or_create(name=provider_name)
         UserProvider.objects.get_or_create(user=user_obj, provider=provider_obj)
 
-        # Save structure file temporarily
         fs = FileSystemStorage()
         filename = fs.save(structure_file.name, structure_file)
         file_path = fs.path(filename)
@@ -381,39 +408,48 @@ def add_provider_with_structure(request):
 
             created_tables = []
 
-            # -------------------------------------------
-            # CREATE TABLES FROM STRUCTURE FILE
-            # -------------------------------------------
+            # ------------------ CREATE TABLES ------------------
             for sheet_name, df in sheets.items():
 
                 if df.empty:
                     continue
 
                 sheet_clean = sheet_name.strip().lower()
-
-                # Normal vs Breakdown table
                 if "breakdown" in sheet_clean:
                     table_name = f"{selected_username.lower()}_{provider_name}_{energy_type_name}_breakdowndata"
                 else:
                     table_name = f"{selected_username.lower()}_{provider_name}_{energy_type_name}"
 
-                # Clean column names
                 df.columns = [
                     re.sub(r'\W+', '_', str(col).strip()).lower().strip('_')
                     for col in df.columns
                 ]
 
-                # Build base column definitions
-                column_defs = [f"`{col}` TEXT" for col in df.columns]
-                column_defs += ["`provider` TEXT", "`energy_type` TEXT", "`uploaded_by` TEXT"]
-
-                # -------------------------------------------
-                # 🔥 SOLAR vs WIND UNIQUE KEY LOGIC
-                # -------------------------------------------
                 is_solar = "solar" in energy_type_name.lower()
 
+                # Ensure required cols for solar
                 if is_solar:
-                    # Solar → add UNIQUE KEY on (date, site, location)
+                    for rc in ["date", "site", "location"]:
+                        if rc not in df.columns:
+                            df[rc] = ""
+
+                # Build column defs
+                column_defs = []
+                for col in df.columns:
+                    if is_solar and col == "date":
+                        column_defs.append("`date` DATE NOT NULL")
+                    elif is_solar and col in ["site", "location"]:
+                        column_defs.append(f"`{col}` VARCHAR(255) NOT NULL")
+                    else:
+                        column_defs.append(f"`{col}` TEXT")
+
+                column_defs += [
+                    "`provider` TEXT",
+                    "`energy_type` TEXT",
+                    "`uploaded_by` TEXT"
+                ]
+
+                if is_solar:
                     create_sql = f"""
                         CREATE TABLE IF NOT EXISTS `{table_name}` (
                             `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -422,7 +458,6 @@ def add_provider_with_structure(request):
                         );
                     """
                 else:
-                    # Wind → no unique key
                     create_sql = f"""
                         CREATE TABLE IF NOT EXISTS `{table_name}` (
                             `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -430,26 +465,16 @@ def add_provider_with_structure(request):
                         );
                     """
 
-                # Execute CREATE TABLE
                 with connection.cursor() as cursor:
-                    try:
-                        cursor.execute(create_sql)
-                    except:
-                        # fallback create
-                        cursor.execute(f"""
-                            CREATE TABLE IF NOT EXISTS `{table_name}` (
-                                `id` INT AUTO_INCREMENT PRIMARY KEY,
-                                {", ".join(column_defs)}
-                            );
-                        """)
-                        # Add solar unique key ONLY if solar
-                        if is_solar:
-                            try:
-                                cursor.execute(
-                                    f"ALTER TABLE `{table_name}` ADD UNIQUE KEY uniq_record (`date`, `site`, `location`);"
-                                )
-                            except:
-                                pass
+                    cursor.execute(create_sql)
+                    if is_solar:
+                        try:
+                            cursor.execute(
+                                f"ALTER TABLE `{table_name}` "
+                                "ADD UNIQUE KEY uniq_record (`date`, `site`, `location`);"
+                            )
+                        except:
+                            pass
 
                 created_tables.append(table_name)
 
@@ -468,7 +493,6 @@ def add_provider_with_structure(request):
 
     # ------------------ GET logic ------------------
     providers = Provider.objects.all()
-
     with connection.cursor() as cursor:
         cursor.execute("SHOW TABLES;")
         all_tables = [row[0] for row in cursor.fetchall()]

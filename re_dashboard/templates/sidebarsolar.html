@@ -400,6 +400,92 @@ body.dark-mode .nav-link.active {
         border-left: 4px solid #764ba2;
         padding-left: 10px;
     }
+
+
+
+
+
+    /* ================= AI CIRCLE ================= */
+.ai-circle{
+  width:70px;
+  height:70px;
+  background:radial-gradient(circle at top,#3b82f6,#0f172a);
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  cursor:pointer;
+  box-shadow:0 0 20px rgba(59,130,246,.6);
+}
+
+.ai-circle i{
+  font-size:28px;
+  color:#fff;
+  z-index:2;
+}
+
+/* Pulsing rings */
+.ai-ring{
+  position:absolute;
+  width:100%;
+  height:100%;
+  border-radius:50%;
+  border:2px solid rgba(59,130,246,.6);
+  animation:pulse 2.5s infinite;
+}
+
+.ai-ring.delay{
+  animation-delay:1.2s;
+}
+
+@keyframes pulse{
+  0%{transform:scale(1);opacity:1;}
+  100%{transform:scale(1.6);opacity:0;}
+}
+
+.ai-label{
+  font-size:12px;
+  color:#cbd5f5;
+  margin-top:6px;
+}
+
+/* ================= MODAL ================= */
+.ai-modal{
+  border-radius:16px;
+  background:linear-gradient(145deg,#020617,#0f172a);
+  color:#e5e7eb;
+  box-shadow:0 25px 60px rgba(0,0,0,.5);
+}
+
+.ai-modal .modal-title{
+  font-weight:600;
+}
+
+.ai-option{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:14px 16px;
+  margin-bottom:10px;
+  background:rgba(255,255,255,.05);
+  border-radius:12px;
+  text-decoration:none;
+  color:#e5e7eb;
+  transition:all .3s ease;
+}
+
+.ai-option i{
+  font-size:18px;
+  color:#38bdf8;
+}
+
+.ai-option:hover{
+  background:linear-gradient(90deg,#2563eb,#06b6d4);
+  color:#fff;
+  transform:translateX(6px);
+}
+ 
   </style>
 </head>
 
@@ -504,6 +590,15 @@ body.dark-mode .nav-link.active {
         <i class="fas fa-chart-line"></i>&nbsp; Interactive Dashboard
       </a>
     </li>
+    <!-- AI ANALYSIS ICON -->
+<div class="nav-item text-center my-3">
+  <div class="ai-circle" data-bs-toggle="modal" data-bs-target="#aiAnalysisModal">
+    <i class="fa-solid fa-brain"></i>
+    <span class="ai-ring"></span>
+    <span class="ai-ring delay"></span>
+  </div>
+  <div class="ai-label">AI Analysis</div>
+</div>
     <li class="nav-item">
       <a class="nav-link" href="{% url 'user_generation_info' %}">
         <i class="fas fa-user"></i>&nbsp; Profile Information
@@ -542,6 +637,43 @@ body.dark-mode .nav-link.active {
 
 
 
+ <!-- AI ANALYSIS MODAL -->
+<div class="modal fade" id="aiAnalysisModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content ai-modal">
+
+      <div class="modal-header border-0">
+        <h5 class="modal-title">
+          🤖 AI Advanced Analysis
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <a href="{% url 'breakdown_analysis' %}" class="ai-option">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          Breakdown Analysis
+        </a>
+
+        <a href="{% url 'user_pm_report_dashboard' %}" class="ai-option">
+          <i class="fa-solid fa-tools"></i>
+          Preventive Maintenance
+        </a>
+
+        <a href="{% url 'calculation_history' %}" class="ai-option">
+          <i class="fa-solid fa-calculator"></i>
+          Open Access Calculator
+        </a>
+
+        <a href="#" class="ai-option">
+          <i class="fas fa-balance-scale"></i>
+          DSM Charges
+        </a>
+      </div>
+
+    </div>
+  </div>
+</div>
 <!-- {% if not request.user.is_superuser %} -->
   <!-- Sidebar -->
   <!-- <nav class="w3-sidebar w3-bar-block w3-collapse" style="padding-top: 100px; z-index: 100;" id="mySidebar">

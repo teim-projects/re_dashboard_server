@@ -187,58 +187,72 @@
 const API = "{% url 'api_generation_operating' %}";
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const colorForYear = (y, idx) => ["#0b69a3", "#e66726", "#2ca02c", "#8b5cf6", "#ef476f"][idx % 5];
+const colorForYear = (y, idx) =>
+  ["#0b69a3", "#e66726", "#2ca02c", "#8b5cf6", "#ef476f"][idx % 5];
 
+/* ---------------------------
+   GLOBAL STATE
+--------------------------- */
 let state = {
-  years: [],
+  years: [],                 // filtered years (from API)
   monthly_by_year: {},
   sites: [],
   selectedYearsGen: new Set(),
   selectedYearsOp: new Set()
 };
 
+/* 🔥 MASTER DATA (FIX) */
+let masterYears = null;
+let masterSites = null;
+
 let firstLoad = true;
 const tooltip = d3.select("#tooltip");
 
-
-// ---------------------------
-// MAIN LOAD FUNCTION
-// ---------------------------
+/* ---------------------------
+   MAIN LOAD
+--------------------------- */
 async function loadAndDraw() {
   const params = new URLSearchParams();
 
-  // Read filters (ALL EMPTY BY DEFAULT)
-  const site = document.getElementById("site").value;
-  const year = document.getElementById("year").value;
+  const site  = document.getElementById("site").value;
+  const year  = document.getElementById("year").value;
   const month = document.getElementById("month").value;
-  const day = document.getElementById("day").value;
+  const day   = document.getElementById("day").value;
 
-  if (site) params.append("site", site);
-  if (year) params.append("year", year);
+  if (site)  params.append("site", site);
+  if (year)  params.append("year", year);
   if (month) params.append("month", month);
-  if (day) params.append("day", day);
+  if (day)   params.append("day", day);
 
-  const res = await fetch(API + "?" + params.toString());
+  const res  = await fetch(API + "?" + params.toString());
   const data = await res.json();
 
+  /* ---- STORE MASTER DATA ONCE ---- */
+  if (!masterYears && data.years) {
+    masterYears = [...data.years];
+  }
+  if (!masterSites && data.sites) {
+    masterSites = [...data.sites];
+  }
+
+  /* ---- FILTERED DATA FOR CHARTS ---- */
   state.years = data.years || [];
   state.monthly_by_year = data.monthly_by_year || {};
   state.sites = data.sites || [];
 
-  // Update dropdowns without resetting user choices
   setOptions();
 
-  // Set KPIs
+  /* ---- KPIs ---- */
   document.getElementById("kpi-gen").textContent =
-      data.kpis ? (data.kpis.generation_daily_avg || 0) : 0;
+    data.kpis ? (data.kpis.generation_daily_avg || 0) : 0;
 
   document.getElementById("kpi-op").textContent =
-      data.kpis ? (data.kpis.operating_daily_avg || 0) : 0;
+    data.kpis ? (data.kpis.operating_daily_avg || 0) : 0;
 
-  // Default all years selected ONCE only
+  /* ---- DEFAULT SELECT ALL YEARS (ONCE) ---- */
   if (firstLoad) {
-    state.selectedYearsGen = new Set(state.years);
-    state.selectedYearsOp = new Set(state.years);
+    state.selectedYearsGen = new Set(masterYears || []);
+    state.selectedYearsOp  = new Set(masterYears || []);
     firstLoad = false;
   }
 
@@ -246,11 +260,9 @@ async function loadAndDraw() {
   drawComparison(data.comparison || {});
 }
 
-
-
-// ---------------------------
-// PRESERVE FILTER SELECTIONS
-// ---------------------------
+/* ---------------------------
+   DROPDOWNS (FIXED)
+--------------------------- */
 function setOptions() {
   const siteSel = document.getElementById("site");
   const yearSel = document.getElementById("year");
@@ -258,47 +270,42 @@ function setOptions() {
   const prevSite = siteSel.value;
   const prevYear = yearSel.value;
 
-  // Sites
+  /* ---- Sites (MASTER) ---- */
   siteSel.innerHTML = "<option value=''>All Sites</option>";
-  state.sites.forEach(s => {
+  (masterSites || []).forEach(s => {
     const opt = document.createElement("option");
     opt.value = s;
-    opt.text = s;
+    opt.text  = s;
     siteSel.appendChild(opt);
   });
 
-  // Years
+  /* ---- Years (MASTER) ---- */
   yearSel.innerHTML = "<option value=''>All Years</option>";
-  state.years.forEach(y => {
+  (masterYears || []).forEach(y => {
     const opt = document.createElement("option");
     opt.value = y;
-    opt.text = y;
+    opt.text  = y;
     yearSel.appendChild(opt);
   });
 
-  // Restore old values
   siteSel.value = prevSite;
   yearSel.value = prevYear;
 }
 
-
-
-// ---------------------------
-// DRAW BOTH LINE CHARTS
-// ---------------------------
+/* ---------------------------
+   DRAW BOTH LINE CHARTS
+--------------------------- */
 function drawLineCharts(){
   drawSingleLine("#chart-op", "op", "#legend-op");
   drawSingleLine("#chart-gen", "gen", "#legend-gen");
 }
-
-
 
 function drawSingleLine(containerSelector, metricKey, legendSelector){
 
   const container = d3.select(containerSelector);
   container.selectAll("*").remove();
 
-  const width = container.node().clientWidth;
+  const width  = container.node().clientWidth;
   const height = container.node().clientHeight || 320;
 
   const margin = {top:20, right:24, bottom:36, left:48};
@@ -316,14 +323,12 @@ function drawSingleLine(containerSelector, metricKey, legendSelector){
       const v = metricKey === "gen" ? item.gen : item.op;
       values.push(v === null ? null : +v);
     }
-
     return {year: y, values, color: colorForYear(y, idx)};
   });
 
   const allVals = series.flatMap(s => s.values.filter(v => v != null));
   const yMax = allVals.length ? d3.max(allVals) : 1;
   const yMin = allVals.length ? d3.min(allVals) : 0;
-
   const yPad = Math.max((yMax - yMin) * 0.12, 0.2);
 
   const x = d3.scaleLinear().domain([1,12]).range([0, innerW]);
@@ -332,18 +337,10 @@ function drawSingleLine(containerSelector, metricKey, legendSelector){
   const svg = container.append("svg").attr("width", width).attr("height", height);
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-  const xAxis = d3.axisBottom(x).ticks(12).tickFormat(i => MONTHS[i-1]);
-  const yAxis = d3.axisLeft(y).ticks(6);
-
-  g.append("g").call(yAxis);
-  g.append("g").attr("transform", `translate(0,${innerH})`).call(xAxis);
-
-  g.append("g").selectAll("line.grid")
-    .data(y.ticks(6)).enter()
-    .append("line")
-    .attr("x1",0).attr("x2",innerW)
-    .attr("y1",d=>y(d)).attr("y2",d=>y(d))
-    .style("stroke", "#e6f0f8");
+  g.append("g").call(d3.axisLeft(y).ticks(6));
+  g.append("g")
+    .attr("transform", `translate(0,${innerH})`)
+    .call(d3.axisBottom(x).ticks(12).tickFormat(i => MONTHS[i-1]));
 
   const line = d3.line()
     .defined(d => d != null)
@@ -354,68 +351,44 @@ function drawSingleLine(containerSelector, metricKey, legendSelector){
   const seriesGroup = g.append("g");
 
   series.forEach((s, idx) => {
-
-    const path = seriesGroup.append("path")
+    seriesGroup.append("path")
       .datum(s.values)
       .attr("fill","none")
       .attr("stroke", s.color)
       .attr("stroke-width", 2.5)
-      .attr("d", line);
-
-    const total = path.node().getTotalLength();
-    path.attr("stroke-dasharray", total)
-        .attr("stroke-dashoffset", total)
-        .transition().duration(800)
-        .attr("stroke-dashoffset", 0);
-
-    seriesGroup.selectAll(".p"+idx)
-      .data(s.values.map((v,i)=>({v,i})).filter(d=>d.v!=null))
-      .enter().append("circle")
-      .attr("cx", d=>x(d.i+1))
-      .attr("cy", d=>y(d.v))
-      .attr("r",3.5)
-      .attr("fill", s.color)
-      .attr("stroke","#fff")
-      .on("mousemove",(evt,d)=>{
-        tooltip.style("opacity",1)
-          .style("left",(evt.pageX+10)+"px")
-          .style("top",(evt.pageY+10)+"px")
-          .html(`<strong>${s.year} - ${MONTHS[d.i]}</strong><br>${metricKey==='gen' ? 'Gen' : 'Op'}: ${d.v}`);
-      })
-      .on("mouseleave",()=>tooltip.style("opacity",0));
+      .attr("d", line)
+      .style("opacity",
+        (metricKey==="gen" ? state.selectedYearsGen : state.selectedYearsOp).has(s.year)
+        ? 1 : 0.1
+      );
   });
 
-  // ---- Legend
+  /* ---- Legend ---- */
   const legend = d3.select(legendSelector);
   legend.html("");
 
   years.forEach((y,idx)=>{
-    const it = legend.append("div")
-      .attr("class","legend-item")
+    const item = legend.append("div")
+      .style("display","inline-flex")
+      .style("align-items","center")
+      .style("margin-right","12px")
+      .style("cursor","pointer")
       .on("click",()=>toggleYear(y, metricKey));
 
-    it.append("div")
-      .attr("class","legend-color")
-      .style("background", colorForYear(y,idx));
+    item.append("div")
+      .style("width","10px")
+      .style("height","10px")
+      .style("border-radius","50%")
+      .style("background", colorForYear(y,idx))
+      .style("margin-right","6px");
 
-    it.append("div").text(y);
+    item.append("span").text(y);
   });
-
-  const selectedSet = (metricKey==="gen") ? state.selectedYearsGen : state.selectedYearsOp;
-
-  seriesGroup.selectAll("path")
-    .each(function(d,i){
-      const yr = years[i];
-      d3.select(this).style("opacity", selectedSet.has(yr) ? 0.95 : 0.1);
-    });
-
 }
 
-
-
-// ---------------------------
-// TOGGLE YEAR VISIBILITY
-// ---------------------------
+/* ---------------------------
+   TOGGLE YEAR
+--------------------------- */
 function toggleYear(year, key){
   const setRef = key === "gen" ? state.selectedYearsGen : state.selectedYearsOp;
   if(setRef.has(year)) setRef.delete(year);
@@ -423,88 +396,48 @@ function toggleYear(year, key){
   drawLineCharts();
 }
 
-
-
-// ---------------------------
-// BOTTOM COMPARISON BARS
-// ---------------------------
+/* ---------------------------
+   COMPARISON BARS
+--------------------------- */
 function drawComparison(comparison){
-    const container = d3.select("#chart-compare");
-    container.selectAll("*").remove();
+  const container = d3.select("#chart-compare");
+  container.selectAll("*").remove();
 
-    const w = container.node().clientWidth;
-    const h = 160;
+  const w = container.node().clientWidth;
+  const h = 160;
 
-    const svg = container.append("svg").attr("width", w).attr("height", h);
+  const svg = container.append("svg").attr("width", w).attr("height", h);
+  const g = svg.append("g").attr("transform", "translate(120,20)");
 
-    const margin = {left:120, right:20, top:20, bottom:20};
-    const innerW = w - margin.left - margin.right;
+  const gen = +comparison.generation_total || 0;
+  const op  = +comparison.operating_total  || 0;
+  const max = Math.max(gen, op, 1);
 
-    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+  const x = d3.scaleLinear().domain([0,max]).range([0, w-160]);
 
-    const gen = +comparison.generation_total || 0;
-    const op  = +comparison.operating_total || 0;
+  const data = [
+    {label:"Generation", value:gen, color:"#1f6fb6"},
+    {label:"Operating",  value:op,  color:"#002f6c"}
+  ];
 
-    const max = Math.max(gen, op, 1);
-
-    const barH = 26;
-    const gap = 24;
-
-    const x = d3.scaleLinear().domain([0,max]).range([0, innerW]);
-
-    const data = [
-      {label:"Generation", value:gen, color:"#1f6fb6"},
-      {label:"Operating",  value:op,  color:"#002f6c"}
-    ];
-
-    g.selectAll("bars")
-      .data(data)
-      .enter()
-      .append("rect")
-      .attr("x",0)
-      .attr("y",(d,i)=>i*(barH+gap))
-      .attr("width",d=>x(d.value))
-      .attr("height",barH)
-      .attr("rx",8)
-      .attr("fill",d=>d.color);
-
-    // left labels
-    g.selectAll("labels")
-      .data(data)
-      .enter()
-      .append("text")
-      .attr("x",-10)
-      .attr("y",(d,i)=>i*(barH+gap)+barH/2+4)
-      .attr("text-anchor","end")
-      .style("font-size","14px")
-      .style("fill","#203a55")
-      .text(d=>d.label);
-
-    // value inside
-    g.selectAll("values")
-      .data(data)
-      .enter()
-      .append("text")
-      .attr("x",d=>x(d.value)-12)
-      .attr("y",(d,i)=>i*(barH+gap)+barH/2+4)
-      .attr("text-anchor","end")
-      .style("font-size","14px")
-      .style("fill","white")
-      .style("font-weight",600)
-      .text(d=>d.value.toLocaleString());
+  g.selectAll("rect")
+    .data(data)
+    .enter().append("rect")
+    .attr("y",(d,i)=>i*50)
+    .attr("width",d=>x(d.value))
+    .attr("height",26)
+    .attr("rx",8)
+    .attr("fill",d=>d.color);
 }
 
+/* ---------------------------
+   EVENTS
+--------------------------- */
+["site","year","month","day"].forEach(id=>{
+  document.getElementById(id).addEventListener("change", loadAndDraw);
+});
 
-
-// ---------------------------
-// FILTER CHANGE EVENTS
-// ---------------------------
-document.getElementById("site").addEventListener("change", loadAndDraw);
-document.getElementById("year").addEventListener("change", loadAndDraw);
-document.getElementById("month").addEventListener("change", loadAndDraw);
-document.getElementById("day").addEventListener("change", loadAndDraw);
-
-document.getElementById("btn-reset").addEventListener("click", () => {
+document.getElementById("btn-reset").addEventListener("click", ()=>{
   document.getElementById("site").value = "";
   document.getElementById("year").value = "";
   document.getElementById("month").value = "";
@@ -512,16 +445,11 @@ document.getElementById("btn-reset").addEventListener("click", () => {
   loadAndDraw();
 });
 
-
-// ---------------------------
-// INITIAL PAGE LOAD
-// ---------------------------
+/* ---------------------------
+   INIT
+--------------------------- */
 loadAndDraw();
 
-
-// ---------------------------
-// RESPONSIVE REDRAW
-// ---------------------------
 window.addEventListener("resize", ()=>{
   clearTimeout(window._rs);
   window._rs = setTimeout(loadAndDraw, 250);

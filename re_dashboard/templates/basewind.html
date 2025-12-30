@@ -1,7 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -24,12 +23,12 @@
       display: none;
       position: fixed;
       top: 15px;
-      left: 15px;
+      right: 10px;
       z-index: 1100;
-      background-color: #2196f3;
-      color: white;
+      /* background-color: #2196f3; */
+      color: rgb(0, 0, 0);
       border: none;
-      padding: 10px 15px;
+      padding: 5px 15px;
       border-radius: 5px;
     }
 
@@ -46,8 +45,7 @@
         left: 0 !important;
         height: 100%;
         z-index: 1050;
-align-self: center !important;
-
+        align-self: center !important;
       }
 
       .fixed-panel.active {
@@ -66,7 +64,7 @@ align-self: center !important;
 
 
 .fixed-panel {
-  background-color: rgba(0, 0, 0);
+  background-color: rgb(31, 22, 37);
   color: white;
   padding: 20px 10px;
   overflow-y: auto;

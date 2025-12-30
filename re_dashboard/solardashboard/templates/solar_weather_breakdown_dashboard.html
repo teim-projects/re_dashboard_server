@@ -49,17 +49,22 @@
 }
 .chart-svg { width:100%; }
 
-/* Tooltip */
 .d3-tooltip {
-    position:absolute;
-    pointer-events:none;
-    background:#000;
-    color:white;
-    padding:8px 10px;
-    border-radius:6px;
-    font-size:12px;
-    opacity:0;
+    position: fixed;          /* ⭐ important */
+    pointer-events: none;
+    background: linear-gradient(135deg, #1e3a8a, #2563eb);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+    white-space: nowrap;
+    z-index: 9999;
 }
+
 
 .filter-kpi-grid {
     margin-top: 80px;
@@ -228,16 +233,22 @@
 const API = "{% url 'api_weather_breakdown' %}";
 const tooltip = d3.select("#tooltip");
 
+// cache elements
+const siteEl  = document.getElementById("site");
+const yearEl  = document.getElementById("year");
+const monthEl = document.getElementById("month");
+const dayEl   = document.getElementById("day");
+const resetBtn = document.getElementById("btn-reset");
 
 /* ---------------------------
    LOAD PAGE DATA
 --------------------------- */
 async function loadPage() {
-
     const params = new URLSearchParams();
+
     ["site","year","month","day"].forEach(id => {
-        const val = document.getElementById(id).value;
-        if (val) params.append(id, val);
+        const v = document.getElementById(id).value;
+        if (v) params.append(id, v);
     });
 
     const res = await fetch(API + "?" + params.toString());
@@ -247,47 +258,63 @@ async function loadPage() {
 
     drawWeatherChart(data.weather_data);
     drawBreakdownChart(data.breakdown_data);
+
+    // ✅ Update KPIs
+    if (data.kpis) {
+        document.getElementById("kpi-gf").innerText = data.kpis.gf || 0;
+        document.getElementById("kpi-fm").innerText = data.kpis.fm || 0;
+        document.getElementById("kpi-s").innerText  = data.kpis.s  || 0;
+        document.getElementById("kpi-u").innerText  = data.kpis.u  || 0;
+
+        ["kpi-gf","kpi-fm","kpi-s","kpi-u"].forEach(animateKPI);
+    }
+
+    checkResetVisibility();
 }
 
+function animateKPI(id) {
+    const el = document.getElementById(id);
+    el.classList.add("kpi-animate");
+    setTimeout(() => el.classList.remove("kpi-animate"), 400);
+}
 
 function checkResetVisibility() {
-    if (site.value || year.value || month.value || day.value) {
+    if (siteEl.value || yearEl.value || monthEl.value || dayEl.value) {
         resetBtn.classList.add("active");
     } else {
         resetBtn.classList.remove("active");
     }
 }
 
-function animateKPI(id) {
-    let el = document.getElementById(id);
-    el.classList.add("kpi-animate");
-    setTimeout(()=> el.classList.remove("kpi-animate"), 400);
-}
-
 /* ---------------------------
    FILL FILTER DROPDOWNS
 --------------------------- */
 function setFilterOptions(data){
-    const siteSel = document.getElementById("site");
-    const yearSel = document.getElementById("year");
+    const prevSite  = siteEl.value;
+    const prevYear  = yearEl.value;
+    const prevMonth = monthEl.value;
 
-    const prevSite = siteSel.value;
-    const prevYear = yearSel.value;
-
-    siteSel.innerHTML = "<option value=''>All Sites</option>";
+    siteEl.innerHTML = "<option value=''>All Sites</option>";
     data.sites.forEach(s => {
-        siteSel.innerHTML += `<option value="${s}">${s}</option>`;
+        siteEl.innerHTML += `<option value="${s}">${s}</option>`;
     });
 
-    yearSel.innerHTML = "<option value=''>All Years</option>";
+    yearEl.innerHTML = "<option value=''>All Years</option>";
     data.years.forEach(y => {
-        yearSel.innerHTML += `<option value="${y}">${y}</option>`;
+        yearEl.innerHTML += `<option value="${y}">${y}</option>`;
     });
 
-    siteSel.value = prevSite;
-    yearSel.value = prevYear;
-}
+    monthEl.innerHTML = "<option value=''>All</option>";
+    if (data.months) {
+        data.months.forEach(m => {
+            monthEl.innerHTML += `<option value="${m}">${m}</option>`;
+        });
+    }
 
+    siteEl.value  = prevSite;
+    yearEl.value  = prevYear;
+    monthEl.value = prevMonth;
+}
 
 /* ---------------------------
    WEATHER CHART
@@ -295,11 +322,10 @@ function setFilterOptions(data){
 function drawWeatherChart(data){
     const container = d3.select("#weather-chart");
     container.selectAll("*").remove();
-    if (!data || data.length === 0) return;
+    if (!data || !data.length) return;
 
     const width = container.node().clientWidth;
     const height = data.length * 30 + 50;
-
     const margin = {top:20, right:20, bottom:40, left:200};
 
     const svg = container.append("svg")
@@ -310,7 +336,7 @@ function drawWeatherChart(data){
     const g = svg.append("g")
         .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    const sorted = data.sort((a,b) => b.value - a.value);
+    const sorted = [...data].sort((a,b) => b.value - a.value);
 
     const y = d3.scaleBand()
         .domain(sorted.map(d => d.label))
@@ -336,15 +362,17 @@ function drawWeatherChart(data){
         .attr("width", d => x(d.value))
         .attr("fill", "#1f6fb6")
         .attr("rx", 6)
-        .on("mousemove", (ev,d)=>{
-            tooltip.style("opacity",1)
-                .style("left",(ev.pageX+10)+"px")
-                .style("top",(ev.pageY+10)+"px")
-                .html(`<b>${d.label}</b><br>${d.value}`);
-        })
-        .on("mouseleave",()=>tooltip.style("opacity",0));
-}
+.on("mousemove", (ev,d)=>{
+    const val = Number(d.value).toFixed(2);
+    tooltip
+        .style("opacity",1)
+        .style("left",(ev.clientX + 15) + "px")
+        .style("top",(ev.clientY + 15) + "px")
+        .html(`<div>${d.label}</div><div>${val} hrs</div>`);
+})
+.on("mouseleave",()=>tooltip.style("opacity",0));
 
+}
 
 /* ---------------------------
    BREAKDOWN CHART
@@ -352,11 +380,10 @@ function drawWeatherChart(data){
 function drawBreakdownChart(data){
     const container = d3.select("#breakdown-chart");
     container.selectAll("*").remove();
-    if (!data || data.length === 0) return;
+    if (!data || !data.length) return;
 
     const width = container.node().clientWidth;
     const height = data.length * 30 + 50;
-
     const margin = {top:20, right:20, bottom:40, left:300};
 
     const svg = container.append("svg")
@@ -367,7 +394,7 @@ function drawBreakdownChart(data){
     const g = svg.append("g")
         .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    const sorted = data.sort((a,b)=>b.count - a.count);
+    const sorted = [...data].sort((a,b)=>b.count - a.count);
 
     const y = d3.scaleBand()
         .domain(sorted.map(d => d.label))
@@ -379,7 +406,7 @@ function drawBreakdownChart(data){
         .range([0, width - margin.left - margin.right]);
 
     g.append("g").call(
-        d3.axisLeft(y).tickFormat(d => d.length > 45 ? d.substring(0,45)+"..." : d)
+        d3.axisLeft(y).tickFormat(d => d.length > 45 ? d.slice(0,45)+"..." : d)
     );
 
     g.append("g")
@@ -395,25 +422,28 @@ function drawBreakdownChart(data){
         .attr("width", d => x(d.count))
         .attr("fill", "#003366")
         .attr("rx", 6)
-        .on("mousemove", (ev,d)=>{
-            tooltip.style("opacity",1)
-                .style("left",(ev.pageX+10)+"px")
-                .style("top",(ev.pageY+10)+"px")
-                .html(`<b>${d.label}</b><br>${d.count} times`);
-        })
-        .on("mouseleave",()=>tooltip.style("opacity",0));
+.on("mousemove", (ev,d)=>{
+    tooltip
+        .style("opacity",1)
+        .style("left",(ev.clientX + 15) + "px")
+        .style("top",(ev.clientY + 15) + "px")
+        .html(`<div>${d.label}</div><div>${d.count} times</div>`);
+})
+.on("mouseleave",()=>tooltip.style("opacity",0));
+
 }
 
-
 /* ---------------------------
-   FILTER EVENTS
+   EVENTS
 --------------------------- */
 ["site","year","month","day"].forEach(id=>{
     document.getElementById(id).addEventListener("change", loadPage);
 });
 
-document.getElementById("btn-reset").addEventListener("click", ()=>{
-    ["site","year","month","day"].forEach(id=>document.getElementById(id).value="");
+resetBtn.addEventListener("click", ()=>{
+    ["site","year","month","day"].forEach(id=>{
+        document.getElementById(id).value = "";
+    });
     loadPage();
 });
 
@@ -422,7 +452,9 @@ window.addEventListener("resize", ()=>{
     window._rs = setTimeout(loadPage,200);
 });
 
+// initial load
 loadPage();
 </script>
+
 
 {% endblock %}

@@ -274,7 +274,6 @@ let state = {
 let barChart = null;
 let pieChart = null;
 let gaugeCharts = {};
-let filtersInitialized = false;
 
 /* =========================
    HELPERS
@@ -307,32 +306,34 @@ async function fetchData(){
     return;
   }
 
-  state.years = json.years || [];
-  state.sites = json.sites || [];
-  state.monthly_by_year = json.monthly_by_year || {};
-  state.pie = json.pie || [];
-  state.kpis = json.kpis || {};
+  state = {
+    years: json.years || [],
+    sites: json.sites || [],
+    monthly_by_year: json.monthly_by_year || {},
+    pie: json.pie || [],
+    kpis: json.kpis || {}
+  };
 
-  if(!filtersInitialized){
-    populateFilters();
-    filtersInitialized = true;
-  }
-
+  populateFilters();
   updateUI();
 }
 
 /* =========================
-   POPULATE FILTERS (ONCE)
+   POPULATE FILTERS (KEEP SELECTION)
 ========================= */
 function populateFilters(){
   const siteSel = document.getElementById("filter-site");
   const yearSel = document.getElementById("filter-year");
+
+  const curSite = siteSel.value;
+  const curYear = yearSel.value;
 
   siteSel.innerHTML = "<option value=''>All Sites</option>";
   state.sites.forEach(s => {
     const o = document.createElement("option");
     o.value = s;
     o.textContent = s;
+    if(s === curSite) o.selected = true;
     siteSel.appendChild(o);
   });
 
@@ -341,6 +342,7 @@ function populateFilters(){
     const o = document.createElement("option");
     o.value = y;
     o.textContent = y;
+    if(String(y) === curYear) o.selected = true;
     yearSel.appendChild(o);
   });
 }
@@ -349,7 +351,6 @@ function populateFilters(){
    UPDATE UI
 ========================= */
 function updateUI(){
-  // KPIs
   document.getElementById("kpi-plf").textContent = fmt(state.kpis.plf_daily);
   document.getElementById("kpi-grid").textContent = fmt(state.kpis.grid_ok);
   document.getElementById("kpi-avail").textContent = fmt(state.kpis.plant_availability);
@@ -359,33 +360,30 @@ function updateUI(){
   drawPieChart();
 }
 
-/* =========================
-   BAR CHART
-========================= */
 function drawBarChart(){
   const selectedYear = document.getElementById("filter-year").value;
 
-  const gen = [];
-  const op = [];
+  let gen = new Array(12).fill(0);
+  let op  = new Array(12).fill(0);
 
-  for(let m = 1; m <= 12; m++){
-    if(selectedYear && state.monthly_by_year[selectedYear]){
-      const rec = state.monthly_by_year[selectedYear][m-1] || {};
-      gen.push(num(rec.gen));
-      op.push(num(rec.op));
-    } else {
-      let gSum = 0, oSum = 0;
-      Object.values(state.monthly_by_year).forEach(arr => {
-        const rec = arr[m-1] || {};
-        gSum += num(rec.gen);
-        oSum += num(rec.op);
+  if (selectedYear && state.monthly_by_year[selectedYear]) {
+    // 👉 Specific year selected (e.g., 2024)
+    const arr = state.monthly_by_year[selectedYear] || [];
+    arr.forEach((r, i) => {
+      gen[i] = num(r.gen);
+      op[i]  = num(r.op);
+    });
+  } else {
+    // 👉 All Years selected → sum all years
+    Object.values(state.monthly_by_year).forEach(arr => {
+      arr.forEach((r, i) => {
+        gen[i] += num(r.gen);
+        op[i]  += num(r.op);
       });
-      gen.push(gSum);
-      op.push(oSum);
-    }
+    });
   }
 
-  if(barChart) barChart.destroy();
+  if (barChart) barChart.destroy();
 
   barChart = new Chart(document.getElementById("barChart"), {
     type: "bar",
@@ -416,36 +414,27 @@ function drawMiniGauges(){
   Object.values(gaugeCharts).forEach(c => c.destroy());
   gaugeCharts = {};
 
-  const colors = {
-    GF: "#1E90FF",
-    FM: "#EF4444",
-    S: "#F59E0B",
-    U: "#10B981"
-  };
-
+  const colors = { GF:"#1E90FF", FM:"#EF4444", S:"#F59E0B", U:"#10B981" };
   const values = {};
   state.pie.forEach(p => values[p.label] = num(p.value));
 
   ["GF","FM","S","U"].forEach(label => {
-    gaugeCharts[label] = new Chart(
-      document.getElementById("gauge_" + label),
-      {
-        type: "doughnut",
-        data: {
-          datasets: [{
-            data: [values[label] || 0, 100 - (values[label] || 0)],
-            backgroundColor: [colors[label], "#e5e7eb"],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          rotation: -135 * Math.PI / 180,
-          circumference: 270 * Math.PI / 180,
-          cutout: "75%",
-          plugins: { legend: { display: false }, tooltip: { enabled: false } }
-        }
+    gaugeCharts[label] = new Chart(document.getElementById("gauge_" + label), {
+      type: "doughnut",
+      data: {
+        datasets: [{
+          data: [values[label] || 0, 100 - (values[label] || 0)],
+          backgroundColor: [colors[label], "#e5e7eb"],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        rotation: -135 * Math.PI / 180,
+        circumference: 270 * Math.PI / 180,
+        cutout: "75%",
+        plugins: { legend: { display: false }, tooltip: { enabled: false } }
       }
-    );
+    });
   });
 }
 
@@ -481,6 +470,9 @@ function drawPieChart(){
 /* =========================
    EVENTS
 ========================= */
+["filter-site","filter-year","filter-quarter","filter-month"]
+  .forEach(id => document.getElementById(id).addEventListener("change", fetchData));
+
 document.getElementById("btn-apply").addEventListener("click", fetchData);
 
 document.getElementById("btn-reset").addEventListener("click", () => {
@@ -493,13 +485,8 @@ document.getElementById("btn-reset").addEventListener("click", () => {
    INIT
 ========================= */
 fetchData();
-
-window.addEventListener("resize", () => {
-  barChart?.resize();
-  pieChart?.resize();
-  Object.values(gaugeCharts).forEach(c => c.resize && c.resize());
-});
 </script>
+
 
 
 {% endblock %}

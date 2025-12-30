@@ -1944,7 +1944,6 @@ def normalize_percentage(val):
 
 
 
-
 @login_required
 def customer_upload(request):
     username = request.user.username.lower()
@@ -1980,7 +1979,6 @@ def customer_upload(request):
             messages.error(request, "❌ Table, provider and file are required.")
             return redirect("customer_upload")
 
-        # Save uploaded file
         fs = FileSystemStorage()
         filename = fs.save(data_file.name, data_file)
         file_path = fs.path(filename)
@@ -1990,9 +1988,6 @@ def customer_upload(request):
             sheets = read_excel_multi(file_path, ext)
             uploaded_sheets = []
 
-            # =====================================================
-            # LOOP THROUGH ALL SHEETS
-            # =====================================================
             for sheet_name, df in sheets.items():
 
                 if df.empty:
@@ -2002,12 +1997,11 @@ def customer_upload(request):
                 df.columns = [clean_col(c) for c in df.columns]
 
                 # =====================================================
-                # NORMALIZATION (DATE, %, HOURS)
+                # NORMALIZATION
                 # =====================================================
                 for col in df.columns:
                     col_l = col.lower().strip()
 
-                    # DATE FIELDS
                     if any(k in col_l for k in ["date", "gen_date", "generation_date", "dt"]):
                         df[col] = df[col].apply(normalize_date)
                         df[col] = df[col].apply(
@@ -2016,18 +2010,16 @@ def customer_upload(request):
                         )
                         continue
 
-                    # PERCENTAGE FIELDS
                     if any(k in col_l for k in ["plf", "availability", "grid", "%", "gf", "pa"]):
                         df[col] = df[col].apply(normalize_percentage)
                         continue
 
-                    # HOURS FIELDS
                     if any(k in col_l for k in ["hr", "hour", "hrs", "duration", "time"]):
                         df[col] = df[col].apply(normalize_hours)
                         continue
 
                 # =====================================================
-                # SANITIZE & REMOVE EMPTY ROWS
+                # SANITIZE
                 # =====================================================
                 df = df.replace({
                     pd.NaT: None,
@@ -2038,14 +2030,12 @@ def customer_upload(request):
                     np.inf: None,
                     -np.inf: None
                 })
-
-                df = df.dropna(how="all")   # ❗ prevents NULL rows
+                df = df.dropna(how="all")
 
                 # =====================================================
-                # DETECT TARGET TABLE (BREAKDOWN / MONTHLY)
+                # TARGET TABLE
                 # =====================================================
                 sname = sheet_name.lower()
-
                 if "breakdown" in sname:
                     target_table = f"{table_name}_breakdowndata"
                 elif "month" in sname or "monthly" in sname:
@@ -2063,37 +2053,12 @@ def customer_upload(request):
                     cursor.execute(f"SHOW COLUMNS FROM `{target_table}`")
                     table_columns = [c[0].lower() for c in cursor.fetchall()]
 
-                # =====================================================
-                # FIX COMMON WRONG COLUMN NAMES
-                # =====================================================
                 alias_map = {
                     "loaction": "location",
                     "loc": "location",
                     "location ": "location",
                 }
                 df.rename(columns=lambda c: alias_map.get(c.lower(), c.lower()), inplace=True)
-
-                # =====================================================
-                # SOLAR MERGED COLUMN FIX
-                # =====================================================
-                if "solar" in table_name.lower():
-                    merge_cols = [
-                        "weather_condition_breakdown_details",
-                        "weather_condition__breakdown_details",
-                        "breakdown_details_weather_condition",
-                        "breakdown_details__weather_condition",
-                    ]
-                    for mc in merge_cols:
-                        if mc in df.columns:
-                            df["weather_condition"] = df[mc].apply(
-                                lambda x: x if isinstance(x, str) and not any(ch.isdigit() for ch in x)
-                                else "Nil"
-                            )
-                            df["breakdown_details"] = df[mc].apply(
-                                lambda x: x if isinstance(x, str) and any(ch.isdigit() for ch in x)
-                                else "Nil"
-                            )
-                            df.drop(columns=[mc], errors="ignore")
 
                 # =====================================================
                 # FILTER VALID COLUMNS
@@ -2112,15 +2077,34 @@ def customer_upload(request):
                     df["energy_type"] = energy_type_name
 
                 # =====================================================
-                # UPSERT LOGIC
+                # 🔥 SOLAR SAFETY: DROP NULLS + DEDUPE
                 # =====================================================
                 is_solar = "solar" in table_name.lower()
 
+                if is_solar:
+                    required = ["date", "site", "location"]
+                    existing = [c for c in required if c in df.columns]
+
+                    if len(existing) == 3:
+                        df = df.dropna(subset=existing)
+                        df = df.drop_duplicates(subset=existing, keep="last")
+                    else:
+                        messages.error(
+                            request,
+                            f"❌ Solar table missing required columns: {required}"
+                        )
+                        continue
+
+                if df.empty:
+                    continue
+
+                # =====================================================
+                # UPSERT / INSERT
+                # =====================================================
                 final_cols = list(df.columns)
                 col_sql = ", ".join(f"`{c}`" for c in final_cols)
                 placeholder_sql = ", ".join(["%s"] * len(final_cols))
 
-                # SOLAR UPSERT UNIQUE KEY: date + site + location
                 if is_solar:
                     update_cols = [
                         c for c in final_cols
@@ -2129,26 +2113,22 @@ def customer_upload(request):
                     update_clause = ", ".join(
                         f"`{c}` = VALUES(`{c}`)" for c in update_cols
                     )
-
                     sql = f"""
                         INSERT INTO `{target_table}` ({col_sql})
                         VALUES ({placeholder_sql})
                         ON DUPLICATE KEY UPDATE {update_clause};
                     """
                 else:
-                    # WIND → normal insert
                     sql = f"""
                         INSERT INTO `{target_table}` ({col_sql})
                         VALUES ({placeholder_sql});
                     """
 
-                # Prepare row values
                 values = [
                     tuple(sanitize_value(v) for v in row)
                     for row in df.values
                 ]
 
-                # Execute SQL
                 with connection.cursor() as cursor:
                     cursor.executemany(sql, values)
                     affected = cursor.rowcount
@@ -2160,15 +2140,13 @@ def customer_upload(request):
                     )
                     uploaded_sheets.append(f"{sheet_name} → {affected} rows")
 
-            # =====================================================
-            # RESULT MESSAGES
-            # =====================================================
             if uploaded_sheets:
                 messages.success(request, "✔ Upload Success:\n" + "\n".join(uploaded_sheets))
             else:
                 messages.error(request, "❌ No sheets uploaded. Check Excel format.")
 
         except Exception as e:
+            traceback.print_exc()
             messages.error(request, f"❌ Upload failed: {e}")
 
         finally:
@@ -2176,9 +2154,6 @@ def customer_upload(request):
 
         return redirect("customer_upload")
 
-    # =====================================================
-    # GET REQUEST
-    # =====================================================
     return render(request, "customer_upload.html", {
         "user_tables": user_tables,
         "providers": providers,
