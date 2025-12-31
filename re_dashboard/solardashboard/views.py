@@ -789,7 +789,7 @@ def _clean_num(v):
 
 # ---------------- page view ---------------- #
 @login_required
-def generation_operating(request):
+def solar_generation_operating(request):
     # this page renders the template; filters handled in API
     return render(request, "solar_generation_operating.html")
 
@@ -1312,7 +1312,7 @@ def _num(v):
 
 # ---------- PAGE VIEW ----------
 @login_required
-def brekdown_genration_whether_dashboard(request):
+def solar_brekdown_genration_whether_dashboard(request):
     return render(request, "solar_brekdown_genration_whether_dashboard.html")
 
 
@@ -1888,7 +1888,7 @@ def _num(v):
 
 # ---------------- PAGE VIEW ----------------
 @login_required
-def trend_analysis(request):
+def solar_trend_analysis(request):
     return render(request, "solar_trend_analysis.html", {})
 
 
@@ -2143,7 +2143,7 @@ def _parse_time_to_minutes(v):
         return 0
 
 @login_required
-def summary_dashboard(request):
+def solar_summary_dashboard(request):
     return render(request, "solar_summary_dashboard.html")
 from django.http import JsonResponse
 from django.db import connection
@@ -2486,7 +2486,7 @@ def _time_to_minutes(val):
 
 # ---------------- Page view ----------------
 @login_required
-def generation_report(request):
+def solar_generation_report(request):
     """Render the generation report page (template below)."""
     return render(request, "solar_generation_report.html", {})
 
@@ -2778,7 +2778,7 @@ from decimal import Decimal
 
 # ================= PAGE =================
 @login_required
-def overall_breakdown_analysis(request):
+def solar_overall_breakdown_analysis(request):
     return render(request, "solar_overall_breakdown_analysis.html", {
         "days": range(1, 32)
     })

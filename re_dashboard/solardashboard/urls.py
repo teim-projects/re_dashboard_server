@@ -12,14 +12,14 @@ urlpatterns = [
     path('solar_plf_dashboard/', views.solar_plf_dashboard, name='solar_plf_dashboard'),
     path('api_solar_plf/', views.api_solar_plf, name='api_solar_plf'),
 
-    path("generation_operating/", views.generation_operating, name="generation_operating"),
+    path("solar_generation_operating/", views.solar_generation_operating, name="solar_generation_operating"),
     path("api/generation_operating/", views.api_generation_operating, name="api_generation_operating"),
 
     path("solar_weather_breakdown/", views.solar_weather_breakdown_dashboard, name="solar_weather_breakdown_dashboard"),
     path("api/weather_breakdown/", views.api_weather_breakdown, name="api_weather_breakdown"),
 
-    path("brekdown_genration_whether_dashboard/", views.brekdown_genration_whether_dashboard,
-         name="brekdown_genration_whether_dashboard"),
+    path("solar_brekdown_genration_whether_dashboard/", views.solar_brekdown_genration_whether_dashboard,
+         name="solar_brekdown_genration_whether_dashboard"),
 
     path("api/brekdown_genration_whether_dashboard/",
          views.api_brekdown_genration_whether_dashboard,
@@ -30,13 +30,13 @@ urlpatterns = [
     path('solar/api/generation_by_day/', views.api_generation_by_day, name='api_generation_by_day'
     ),
 
-    path('trend-analysis/', views.trend_analysis, name='trend_analysis'),
+    path('solar_trend_analysis/', views.solar_trend_analysis, name='solar_trend_analysis'),
     path('api/trend-analysis/', views.api_trend_analysis, name='api_trend_analysis'),
 
 
 
     # NEW DASHBOARD
-path("summary_dashboard/", views.summary_dashboard, name="summary_dashboard"),
+path("solar_summary_dashboard/", views.solar_summary_dashboard, name="solar_summary_dashboard"),
 
 # NEW API
 path("api/solar-summary-dashboard/", views.api_solar_summary_dashboard, name="api_solar_summary_dashboard"),
@@ -44,14 +44,14 @@ path("api/solar-summary-dashboard/", views.api_solar_summary_dashboard, name="ap
 
 
     # ... your other paths ...
-    path("generation-report/", views.generation_report, name="generation_report"),
+    path("solar_generation_report/", views.solar_generation_report, name="solar_generation_report"),
     path("api/generation-report/", views.api_generation_report, name="api_generation_report"),
 
 
     path(
-    "overall-breakdown-analysis/",
-    views.overall_breakdown_analysis,
-    name="overall_breakdown_analysis"
+    "solar_overall_breakdown_analysis/",
+    views.solar_overall_breakdown_analysis,
+    name="solar_overall_breakdown_analysis"
 ),
 
 path(

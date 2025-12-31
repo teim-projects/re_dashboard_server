@@ -257,19 +257,25 @@
    CONFIG
 ========================= */
 const API = "{% url 'api_solar_summary_dashboard' %}";
-const MONTHS = ["January","February","March","April","May","June",
-                "July","August","September","October","November","December"];
+const MONTHS = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December"
+];
 
 /* =========================
    GLOBAL STATE
 ========================= */
 let state = {
-  years: [],
+  years: [],                 // filtered years (for charts)
   sites: [],
   monthly_by_year: {},
   pie: [],
   kpis: {}
 };
+
+/* 🔥 MASTER DATA (FIX) */
+let masterYears = null;
+let masterSites = null;
 
 let barChart = null;
 let pieChart = null;
@@ -285,20 +291,18 @@ const fmt = (n, d = 2) => num(n).toFixed(d);
    FETCH DATA
 ========================= */
 async function fetchData(){
-  const site = document.getElementById("filter-site").value;
-  const year = document.getElementById("filter-year").value;
+  const site    = document.getElementById("filter-site").value;
+  const year    = document.getElementById("filter-year").value;
   const quarter = document.getElementById("filter-quarter").value;
-  const month = document.getElementById("filter-month").value;
-
-  console.log("Applied Filters:", { site, year, quarter, month });
+  const month   = document.getElementById("filter-month").value;
 
   const params = new URLSearchParams();
-  if(site) params.append("site", site);
-  if(year) params.append("year", year);
+  if(site)    params.append("site", site);
+  if(year)    params.append("year", year);
   if(quarter) params.append("quarter", quarter);
-  if(month) params.append("month", month);
+  if(month)   params.append("month", month);
 
-  const res = await fetch(API + "?" + params.toString());
+  const res  = await fetch(API + "?" + params.toString());
   const json = await res.json();
 
   if(!json || json.status !== "ok"){
@@ -306,8 +310,17 @@ async function fetchData(){
     return;
   }
 
+  /* ---------- STORE MASTER DATA ONCE ---------- */
+  if (!masterYears && json.years) {
+    masterYears = json.years.map(y => String(y));
+  }
+  if (!masterSites && json.sites) {
+    masterSites = [...json.sites];
+  }
+
+  /* ---------- FILTERED DATA ---------- */
   state = {
-    years: json.years || [],
+    years: (json.years || []).map(y => String(y)),  // 🔑 FORCE STRING
     sites: json.sites || [],
     monthly_by_year: json.monthly_by_year || {},
     pie: json.pie || [],
@@ -319,7 +332,7 @@ async function fetchData(){
 }
 
 /* =========================
-   POPULATE FILTERS (KEEP SELECTION)
+   POPULATE FILTERS (MASTER-BASED)
 ========================= */
 function populateFilters(){
   const siteSel = document.getElementById("filter-site");
@@ -328,38 +341,43 @@ function populateFilters(){
   const curSite = siteSel.value;
   const curYear = yearSel.value;
 
+  /* ---- SITES ---- */
   siteSel.innerHTML = "<option value=''>All Sites</option>";
-  state.sites.forEach(s => {
+  (masterSites || []).forEach(s => {
     const o = document.createElement("option");
     o.value = s;
     o.textContent = s;
-    if(s === curSite) o.selected = true;
     siteSel.appendChild(o);
   });
+  siteSel.value = curSite;
 
+  /* ---- YEARS (🔥 FIX) ---- */
   yearSel.innerHTML = "<option value=''>All Years</option>";
-  state.years.forEach(y => {
+  (masterYears || []).forEach(y => {
     const o = document.createElement("option");
     o.value = y;
     o.textContent = y;
-    if(String(y) === curYear) o.selected = true;
     yearSel.appendChild(o);
   });
+  yearSel.value = curYear;
 }
 
 /* =========================
    UPDATE UI
 ========================= */
 function updateUI(){
-  document.getElementById("kpi-plf").textContent = fmt(state.kpis.plf_daily);
+  document.getElementById("kpi-plf").textContent   = fmt(state.kpis.plf_daily);
   document.getElementById("kpi-grid").textContent = fmt(state.kpis.grid_ok);
-  document.getElementById("kpi-avail").textContent = fmt(state.kpis.plant_availability);
+  document.getElementById("kpi-avail").textContent= fmt(state.kpis.plant_availability);
 
   drawBarChart();
   drawMiniGauges();
   drawPieChart();
 }
 
+/* =========================
+   BAR CHART (FIXED)
+========================= */
 function drawBarChart(){
   const selectedYear = document.getElementById("filter-year").value;
 
@@ -367,15 +385,16 @@ function drawBarChart(){
   let op  = new Array(12).fill(0);
 
   if (selectedYear && state.monthly_by_year[selectedYear]) {
-    // 👉 Specific year selected (e.g., 2024)
-    const arr = state.monthly_by_year[selectedYear] || [];
+    // ✅ SINGLE YEAR
+    const arr = state.monthly_by_year[selectedYear];
     arr.forEach((r, i) => {
       gen[i] = num(r.gen);
       op[i]  = num(r.op);
     });
   } else {
-    // 👉 All Years selected → sum all years
-    Object.values(state.monthly_by_year).forEach(arr => {
+    // ✅ ALL YEARS
+    Object.keys(state.monthly_by_year).forEach(y => {
+      const arr = state.monthly_by_year[y];
       arr.forEach((r, i) => {
         gen[i] += num(r.gen);
         op[i]  += num(r.op);
@@ -391,7 +410,7 @@ function drawBarChart(){
       labels: MONTHS,
       datasets: [
         { label: "Generation Hours", data: gen, backgroundColor: "#2563eb", borderRadius: 6 },
-        { label: "Operating Hours", data: op, backgroundColor: "#38bdf8", borderRadius: 6 }
+        { label: "Operating Hours",  data: op,  backgroundColor: "#38bdf8", borderRadius: 6 }
       ]
     },
     options: {
@@ -444,25 +463,24 @@ function drawMiniGauges(){
 function drawPieChart(){
   if(pieChart) pieChart.destroy();
 
-  const labels = state.pie.map(d => `${d.label} ${d.value}%`);
-  const data = state.pie.map(d => d.value);
-  const colors = state.pie.map(d =>
-    d.label === "GF" ? "#1E90FF" :
-    d.label === "FM" ? "#EF4444" :
-    d.label === "S"  ? "#F59E0B" : "#10B981"
-  );
-
   pieChart = new Chart(document.getElementById("pieChart"), {
     type: "doughnut",
     data: {
-      labels,
-      datasets: [{ data, backgroundColor: colors, borderWidth: 2 }]
+      labels: state.pie.map(d => `${d.label} ${d.value}%`),
+      datasets: [{
+        data: state.pie.map(d => d.value),
+        backgroundColor: state.pie.map(d =>
+          d.label==="GF"?"#1E90FF":
+          d.label==="FM"?"#EF4444":
+          d.label==="S" ?"#F59E0B":"#10B981"
+        )
+      }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: "60%",
-      plugins: { legend: { display: false } }
+      responsive:true,
+      maintainAspectRatio:false,
+      cutout:"60%",
+      plugins:{ legend:{ display:false } }
     }
   });
 }
@@ -475,7 +493,7 @@ function drawPieChart(){
 
 document.getElementById("btn-apply").addEventListener("click", fetchData);
 
-document.getElementById("btn-reset").addEventListener("click", () => {
+document.getElementById("btn-reset").addEventListener("click", ()=>{
   ["filter-site","filter-year","filter-quarter","filter-month"]
     .forEach(id => document.getElementById(id).value = "");
   fetchData();
@@ -486,7 +504,6 @@ document.getElementById("btn-reset").addEventListener("click", () => {
 ========================= */
 fetchData();
 </script>
-
 
 
 {% endblock %}
