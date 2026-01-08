@@ -4742,3 +4742,412 @@ def email_breakdown_alerts(request):
 
     except Exception as e:
         return JsonResponse({"status": "error", "message": str(e)})
+
+
+
+
+
+
+
+
+
+
+
+
+
+import os, re
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")  # REQUIRED for Django
+import matplotlib.pyplot as plt
+
+import os, re
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")  # REQUIRED for Django
+import matplotlib.pyplot as plt
+
+from django.conf import settings
+from django.shortcuts import render
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import os, re
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+import os, re
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from django.conf import settings
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+from accounts.models import DSMData, DSMResult
+
+
+# =====================
+# CONFIG
+# =====================
+USE_DUMMY_DATA = True
+
+
+# =====================
+# HELPERS
+# =====================
+def clean(v):
+    if v is None:
+        return None
+    if isinstance(v, float) and pd.isna(v):
+        return None
+    return float(v)
+
+
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+
+from accounts.models import DSMResult  # <-- Ensure imported
+
+import os
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from django.conf import settings
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+
+
+# =====================
+# CONFIG
+# =====================
+USE_DUMMY_DATA = True
+
+
+
+# =====================
+# DSM RATE FUNCTION
+# =====================
+def dsm_rate(error_pct, energy):
+    energy = str(energy).lower()
+
+    if energy == "solar":
+        if error_pct <= 10: return 0
+        elif error_pct <= 12: return 0.25
+        elif error_pct <= 15: return 0.50
+        elif error_pct <= 25: return 0.75
+        else: return 1.00
+    else:  # wind
+        if error_pct <= 10: return 0
+        elif error_pct <= 12: return 0
+        elif error_pct <= 15: return 0.25
+        elif error_pct <= 25: return 0.50
+        else: return 1.00
+
+
+
+# =====================
+# MAIN DASHBOARD VIEW
+# =====================
+@login_required
+def dsm_dashboard(request):
+
+    # ==========================================================
+    # 1) SAVE BUTTON LOGIC (NO FILE UPLOAD, ONLY SAVE RESULT)
+    # ==========================================================
+    if request.method == "POST" and request.POST.get("action") == "save":
+        DSMResult.objects.create(
+            user=request.user,
+            total_dsm=request.POST.get("total_dsm"),
+            next_month_dsm=request.POST.get("next_month_dsm"),
+            mae=request.POST.get("mae"),
+            rmse=request.POST.get("rmse"),
+            r2=request.POST.get("r2"),
+            forecast_total=request.POST.get("forecast_total"),
+            forecast_avg=request.POST.get("forecast_avg"),
+            forecast_max=request.POST.get("forecast_max"),
+        )
+        messages.success(request, "DSM result saved successfully!")
+        return redirect("dsm_dashboard")
+
+
+
+    # ==========================================================
+    # 2) GET REQUEST → LOAD PAGE + HISTORY
+    # ==========================================================
+    if request.method == "GET":
+        history = DSMResult.objects.filter(user=request.user).order_by("-created_at")
+        return render(request, "dsm.html", {"history": history})
+
+
+
+    # ==========================================================
+    # 3) FILE UPLOAD PROCESS
+    # ==========================================================
+    if "dsm_file" not in request.FILES:
+        messages.error(request, "Please upload DSM Excel file")
+        return render(request, "dsm.html")
+
+    try:
+        df = pd.read_excel(request.FILES["dsm_file"])
+    except Exception as e:
+        messages.error(request, f"Excel read error: {e}")
+        return render(request, "dsm.html")
+
+
+
+    # =====================
+    # COLUMN CLEANUP
+    # =====================
+    df.columns = df.columns.str.strip()
+
+
+
+    # =====================
+    # DATETIME PARSING
+    # =====================
+    df[['Date', 'TimeBlock']] = df['Date and Time Block'].str.split(
+        r'\s{2,}', expand=True
+    )
+    df['Block_Start'] = df['TimeBlock'].str.split('-').str[0].str.strip()
+
+    df['DateTime'] = pd.to_datetime(
+        df['Date'] + ' ' + df['Block_Start'],
+        dayfirst=True,
+        errors="coerce"
+    )
+    df = df.dropna(subset=["DateTime"])
+
+
+
+    # =====================
+    # BLOCK OF DAY
+    # =====================
+    df['block_of_day'] = (
+        (df['DateTime'].dt.hour * 60 + df['DateTime'].dt.minute) // 15
+    ) + 1
+
+
+
+    # =====================
+    # ACTUAL GENERATION
+    # =====================
+    np.random.seed(42)
+    if USE_DUMMY_DATA:
+        df['Actual_Generation'] = (
+            df['Forecasted Schedule (MAL)']
+            * (1 + np.random.uniform(-0.2, 0.2, len(df)))
+        )
+    else:
+        df['Actual_Generation'] = df['SEM Final']
+
+    df = df[df['Forecasted Schedule (MAL)'] != 0]
+
+
+
+    # =====================
+    # DSM CALCULATION
+    # =====================
+    df['Deviation_kW'] = df['Actual_Generation'] - df['Forecasted Schedule (MAL)']
+    df['Error_pct'] = abs(df['Deviation_kW']) / df['Forecasted Schedule (MAL)'] * 100
+
+    df['DSM_Rate'] = df.apply(lambda r: dsm_rate(r['Error_pct'], r['Energy type']), axis=1)
+    df['DSM_Charge_Rs'] = df['DSM_Rate'] * abs(df['Deviation_kW']) * 0.25
+
+    total_dsm = round(df['DSM_Charge_Rs'].sum(), 2)
+
+
+
+    # =====================
+    # FORECAST SUMMARY
+    # =====================
+    forecast = {
+        "total_forecast": round(df['Forecasted Schedule (MAL)'].sum(), 2),
+        "avg_forecast": round(df['Forecasted Schedule (MAL)'].mean(), 2),
+        "max_forecast": round(df['Forecasted Schedule (MAL)'].max(), 2),
+    }
+
+
+
+    # =====================
+    # LABEL ENCODING
+    # =====================
+    le_pool = LabelEncoder()
+    le_energy = LabelEncoder()
+
+    df['pool_code'] = le_pool.fit_transform(df['Pooling Station'])
+    df['energy_code'] = le_energy.fit_transform(df['Energy type'])
+
+
+
+    # =====================
+    # ML MODEL
+    # =====================
+    X = df[['Forecasted Schedule (MAL)', 'AVC', 'block_of_day', 'pool_code', 'energy_code']]
+    y = df['Deviation_kW']
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    model = RandomForestRegressor(n_estimators=120, random_state=42)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+
+    model_metrics = {
+        "mae": round(mean_absolute_error(y_test, y_pred), 2),
+        "rmse": round(np.sqrt(mean_squared_error(y_test, y_pred)), 2),
+        "r2": round(r2_score(y_test, y_pred), 3),
+    }
+
+
+
+    # =====================
+    # NEXT MONTH FORECAST
+    # =====================
+    days = 30
+    blocks = days * 96
+
+    future = pd.DataFrame({
+        'Forecasted Schedule (MAL)': [df['Forecasted Schedule (MAL)'].mean()] * blocks,
+        'AVC': [df['AVC'].mean()] * blocks,
+        'block_of_day': list(range(1, 97)) * days,
+        'pool_code': [df['pool_code'].mode()[0]] * blocks,
+        'energy_code': [df['energy_code'].mode()[0]] * blocks
+    })
+
+    future['predicted_deviation_kw'] = model.predict(future)
+    future['error_pct'] = abs(future['predicted_deviation_kw']) / future['Forecasted Schedule (MAL)'] * 100
+
+    future['dsm_rate'] = future['error_pct'].apply(lambda x: dsm_rate(x, 'solar'))
+    future['predicted_dsm_rs'] = future['dsm_rate'] * abs(future['predicted_deviation_kw']) * 0.25
+
+    next_month_dsm = round(future['predicted_dsm_rs'].sum(), 2)
+
+
+
+    # =====================
+    # CHARTS
+    # =====================
+    os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+
+    # current month
+    plt.figure(figsize=(9, 4))
+    df.groupby(df['DateTime'].dt.date)['Deviation_kW'].mean().plot()
+    plt.title("Daily Deviation Trend")
+    plt.tight_layout()
+    plt.savefig(os.path.join(settings.MEDIA_ROOT, "dsm_trend.png"))
+    plt.close()
+
+    # next month
+    future["day"] = np.repeat(range(1, days + 1), 96)
+    plt.figure(figsize=(9, 4))
+    future.groupby("day")["predicted_deviation_kw"].mean().plot()
+    plt.title("Predicted Deviation – Next Month")
+    plt.tight_layout()
+    plt.savefig(os.path.join(settings.MEDIA_ROOT, "next_month_deviation.png"))
+    plt.close()
+
+    # weekly
+    df['Week'] = df['DateTime'].dt.isocalendar().week
+    plt.figure(figsize=(7, 4))
+    df.groupby("Week")["DSM_Charge_Rs"].sum().plot(kind="bar")
+    plt.title("Weekly DSM Charges")
+    plt.tight_layout()
+    plt.savefig(os.path.join(settings.MEDIA_ROOT, "weekly_dsm.png"))
+    plt.close()
+
+
+
+    # =====================
+    # HISTORY for modal
+    # =====================
+    history = DSMResult.objects.filter(user=request.user).order_by("-created_at")
+
+
+
+    messages.success(request, "DSM analytics processed successfully!")
+
+    return render(request, "dsm.html", {
+        "total_dsm": total_dsm,
+        "forecast": forecast,
+        "model_metrics": model_metrics,
+        "next_month_dsm": next_month_dsm,
+        "img_url": settings.MEDIA_URL + "dsm_trend.png",
+        "next_img_url": settings.MEDIA_URL + "next_month_deviation.png",
+        "weekly_img_url": settings.MEDIA_URL + "weekly_dsm.png",
+        "history": history,
+    })
+
+
+
+# ======================
+# HISTORY PAGE
+# ======================
+@login_required
+def dsm_history(request):
+    results = DSMResult.objects.filter(user=request.user).order_by("-created_at")
+    return render(request, "dsm_history.html", {"results": results})
+
+
+@login_required
+def export_dsm_history(request):
+    results = DSMResult.objects.filter(user=request.user).order_by("-created_at")
+
+    if not results.exists():
+        messages.error(request, "No history available to export.")
+        return redirect("dsm_dashboard")
+
+    # Convert queryset → DataFrame
+    df = pd.DataFrame(list(results.values()))
+
+    # Remove timezone from datetime columns
+    for col in df.columns:
+        if "date" in col or "time" in col or "created" in col:
+            try:
+                df[col] = pd.to_datetime(df[col]).dt.tz_localize(None)
+            except:
+                pass
+
+    # Remove unneeded fields
+    drop_cols = ["id", "user_id"]
+    df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore")
+
+    file_path = os.path.join(settings.MEDIA_ROOT, "dsm_history_export.xlsx")
+    df.to_excel(file_path, index=False)
+
+    with open(file_path, "rb") as f:
+        file_data = f.read()
+
+    response = HttpResponse(
+        file_data,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response["Content-Disposition"] = "attachment; filename=dsm_history.xlsx"
+    return response

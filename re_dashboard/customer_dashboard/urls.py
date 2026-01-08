@@ -24,9 +24,12 @@ urlpatterns = [
     path('wind_wtg_plf/', cd_views.wind_wtg_plf, name="wind_wtg_plf"),
     path('wind_Grid_Availability/', cd_views.wind_Grid_Availability, name="wind_Grid_Availability"),
     path('wind_breakdown_hours/', cd_views.wind_breakdown_hours, name="wind_breakdown_hours"),
+    path("dsm_dashboard/",cd_views.dsm_dashboard, name="dsm_dashboard"),
 
-path('dashboard_breakdown', cd_views.dashboard_breakdown, name='dashboard_breakdown'),
+    path('dashboard_breakdown', cd_views.dashboard_breakdown, name='dashboard_breakdown'),
  
+    path("dsm_history/", cd_views.dsm_history, name="dsm_history"),
+    path("export_dsm_history/", cd_views.export_dsm_history, name="export_dsm_history"),
 
 
     path('my_preventive_maintenance', cd_views.my_preventive_maintenance, name='my_preventive_maintenance'),
@@ -37,4 +40,3 @@ path('dashboard_breakdown', cd_views.dashboard_breakdown, name='dashboard_breakd
 path("email_breakdown_alerts/", cd_views.email_breakdown_alerts, name="email_breakdown_alerts"),
 
 ]
- 

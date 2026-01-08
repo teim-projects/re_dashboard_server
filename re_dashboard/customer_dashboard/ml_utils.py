@@ -139,3 +139,26 @@ class BreakdownMLAnalyzer:
 
 
 
+
+
+
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+
+def train_dsm_model(X, y):
+    """
+    Train RandomForest model for DSM deviation prediction
+    """
+    model = RandomForestRegressor(
+        n_estimators=100,
+        random_state=42
+    )
+    model.fit(X, y)
+    return model
+
+
+def predict_deviation(model, X_future):
+    """
+    Predict deviation using trained model
+    """
+    return model.predict(X_future)
