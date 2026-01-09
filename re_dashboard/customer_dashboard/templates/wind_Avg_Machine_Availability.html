@@ -25,8 +25,9 @@
     <i class="fas fa-filter"></i> WTG NUMBER
   </button>
     {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
-      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
-    {% endif %}
+     <a href="?clear_filters=1" class="    text-danger small    ">
+    Clear ✕
+</a>    {% endif %}
   </div>
 
   <!-- ===== Active Filters Chips ===== -->

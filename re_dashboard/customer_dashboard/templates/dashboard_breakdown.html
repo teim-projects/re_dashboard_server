@@ -4,13 +4,13 @@
 
 <div class="container-fluid px-3" style="margin-top: 80px;">
  <!-- FILTER BAR -->
- <div class="d-flex justify-content-end mb-1" style="margin-top: 35px;">
-  <button id="toggleFilters" class="btn btn-primary">
-    <i class="fas fa-sliders-h"></i> filters 
-  </button>
-</div>
-  <div id="filterSection" class="d-flex flex-wrap gap-2 hidden" >
- <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
+ 
+
+
+
+               <!-- Filter Buttons -->
+  <div class="d-flex flex-wrap gap-2 mb-4">
+    <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
       <i class="fas fa-filter"></i> DATE RANGE
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
@@ -29,12 +29,22 @@
       <i class="fas fa-filter"></i> WTG NUMBER
     </button>
 
-
+      <!-- Active filters chips -->
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3" >
     {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
-      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
+      <span class="badge bg-secondary">Active filters:</span>
+      {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
+      {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
+      {% for x in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ x }}</span>{% endfor %}
+      {% for x in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ x }}</span>{% endfor %}
+      {% for x in selected_states %}<span class="badge bg-info text-dark">State: {{ x }}</span>{% endfor %}
+      {% for x in selected_sites %}<span class="badge bg-info text-dark">Site: {{ x }}</span>{% endfor %}
+      {% for x in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ x }}</span>{% endfor %}
+      <a class="btn btn-sm btn-outline-danger ms-2" href="?clear_filters=1">Clear all</a>
     {% endif %}
   </div>
-
+  </div>
+ 
   <!-- SUMMARY CARDS -->
   <div class="row text-center mt-1 g-3 mb-3">
     <div class="col-md-3 col-6">

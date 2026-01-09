@@ -7,36 +7,43 @@
  
 
   <!-- ===== Filter Buttons ===== --><div class="row mb-4">
-    <div class="d-flex justify-content-end mb-1" style="margin-top: 55px;">
-  <button id="toggleFilters" class="btn btn-primary">
-    <i class="fas fa-sliders-h"></i> filters 
-  </button>
-</div>
-  <div id="filterSection" class="d-flex flex-wrap gap-2  mb-3 hidden" >
+   <!-- ===== Filter Buttons ===== -->
+  <div class="d-flex flex-wrap gap-2 " style="margin-top: 70px;">
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#dateRangeModal">
       <i class="fas fa-filter"></i> DATE RANGE
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#providerModal">
-      Provider
+      <i class="fas fa-filter"></i> OEM PROVIDER
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#customerModal">
-      Customer
+      <i class="fas fa-filter"></i> CUSTOMER
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#stateModal">
-      State
+      <i class="fas fa-filter"></i> STATE NAME
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#siteModal">
-      Site
+      <i class="fas fa-filter"></i> SITE NAME
     </button>
     <button type="button" class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#wtgModal">
-      WTG
+      <i class="fas fa-filter"></i> WTG NUMBER
     </button>
-
     {% if date_from or date_to or selected_providers or selected_customers or selected_states or selected_sites or selected_wtgs %}
-      <a class="btn btn-sm btn-outline-danger ms-2" href="?">Clear all</a>
+      <a class="btn btn-sm btn-outline-danger ms-2" href="?clear_filters=1">Clear all</a>
     {% endif %}
   </div>
 
+  <!-- ===== Active Filters Chips ===== -->
+  <div class="d-flex flex-wrap gap-2 mb-3 mt-2">
+    {% if date_from %}<span class="badge bg-light text-dark">From: {{ date_from }}</span>{% endif %}
+    {% if date_to %}<span class="badge bg-light text-dark">To: {{ date_to }}</span>{% endif %}
+    {% for p in selected_providers %}<span class="badge bg-info text-dark">Provider: {{ p }}</span>{% endfor %}
+    {% for c in selected_customers %}<span class="badge bg-info text-dark">Customer: {{ c }}</span>{% endfor %}
+    {% for s in selected_states %}<span class="badge bg-info text-dark">State: {{ s }}</span>{% endfor %}
+    {% for s in selected_sites %}<span class="badge bg-info text-dark">Site: {{ s }}</span>{% endfor %}
+    {% for w in selected_wtgs %}<span class="badge bg-info text-dark">WTG: {{ w }}</span>{% endfor %}
+  </div>
+
+  
   <!-- ===== Overall Cards ===== -->
   
     <div class="col-md-6">
