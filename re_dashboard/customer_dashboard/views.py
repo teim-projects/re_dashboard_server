@@ -5361,9 +5361,7 @@ def dsm_rate(error_pct, energy):
 @login_required
 def dsm_dashboard(request):
 
-    # ==========================================================
-    # 1) SAVE BUTTON LOGIC (NO FILE UPLOAD, ONLY SAVE RESULT)
-    # ==========================================================
+    # ------------------- SAVE BUTTON -------------------
     if request.method == "POST" and request.POST.get("action") == "save":
         DSMResult.objects.create(
             user=request.user,
@@ -5379,20 +5377,41 @@ def dsm_dashboard(request):
         messages.success(request, "DSM result saved successfully!")
         return redirect("dsm_dashboard")
 
-
-
-    # ==========================================================
-    # 2) GET REQUEST → LOAD PAGE + HISTORY
-    # ==========================================================
+    # ===================== UPDATED GET BLOCK =====================
     if request.method == "GET":
         history = DSMResult.objects.filter(user=request.user).order_by("-created_at")
+        last = history.first()
+
+        # If last saved result exists → Load dashboard with previous data
+        if last:
+            context = {
+                "history": history,
+                "total_dsm": last.total_dsm,
+                "next_month_dsm": last.next_month_dsm,
+                "model_metrics": {
+                    "mae": last.mae,
+                    "rmse": last.rmse,
+                    "r2": last.r2,
+                },
+                "forecast": {
+                    "total_forecast": last.forecast_total,
+                    "avg_forecast": last.forecast_avg,
+                    "max_forecast": last.forecast_max,
+                },
+                "last_loaded": True,
+                "last_date": last.created_at,
+
+                
+                "img_url": settings.MEDIA_URL + "dsm_trend.png",
+                "next_img_url": settings.MEDIA_URL + "next_month_deviation.png",
+                "weekly_img_url": settings.MEDIA_URL + "weekly_dsm.png",
+            }
+            return render(request, "dsm.html", context)
+
+        # No past result → blank dashboard
         return render(request, "dsm.html", {"history": history})
 
-
-
-    # ==========================================================
-    # 3) FILE UPLOAD PROCESS
-    # ==========================================================
+    # ===================== FILE UPLOAD PROCESS =====================
     if "dsm_file" not in request.FILES:
         messages.error(request, "Please upload DSM Excel file")
         return render(request, "dsm.html")
@@ -5403,21 +5422,9 @@ def dsm_dashboard(request):
         messages.error(request, f"Excel read error: {e}")
         return render(request, "dsm.html")
 
-
-
-    # =====================
-    # COLUMN CLEANUP
-    # =====================
     df.columns = df.columns.str.strip()
 
-
-
-    # =====================
-    # DATETIME PARSING
-    # =====================
-    df[['Date', 'TimeBlock']] = df['Date and Time Block'].str.split(
-        r'\s{2,}', expand=True
-    )
+    df[['Date', 'TimeBlock']] = df['Date and Time Block'].str.split(r'\s{2,}', expand=True)
     df['Block_Start'] = df['TimeBlock'].str.split('-').str[0].str.strip()
 
     df['DateTime'] = pd.to_datetime(
@@ -5427,36 +5434,16 @@ def dsm_dashboard(request):
     )
     df = df.dropna(subset=["DateTime"])
 
+    df['block_of_day'] = ((df['DateTime'].dt.hour * 60 + df['DateTime'].dt.minute) // 15) + 1
 
-
-    # =====================
-    # BLOCK OF DAY
-    # =====================
-    df['block_of_day'] = (
-        (df['DateTime'].dt.hour * 60 + df['DateTime'].dt.minute) // 15
-    ) + 1
-
-
-
-    # =====================
-    # ACTUAL GENERATION
-    # =====================
     np.random.seed(42)
     if USE_DUMMY_DATA:
-        df['Actual_Generation'] = (
-            df['Forecasted Schedule (MAL)']
-            * (1 + np.random.uniform(-0.2, 0.2, len(df)))
-        )
+        df['Actual_Generation'] = df['Forecasted Schedule (MAL)'] * (1 + np.random.uniform(-0.2, 0.2, len(df)))
     else:
         df['Actual_Generation'] = df['SEM Final']
 
     df = df[df['Forecasted Schedule (MAL)'] != 0]
 
-
-
-    # =====================
-    # DSM CALCULATION
-    # =====================
     df['Deviation_kW'] = df['Actual_Generation'] - df['Forecasted Schedule (MAL)']
     df['Error_pct'] = abs(df['Deviation_kW']) / df['Forecasted Schedule (MAL)'] * 100
 
@@ -5465,39 +5452,21 @@ def dsm_dashboard(request):
 
     total_dsm = round(df['DSM_Charge_Rs'].sum(), 2)
 
-
-
-    # =====================
-    # FORECAST SUMMARY
-    # =====================
     forecast = {
         "total_forecast": round(df['Forecasted Schedule (MAL)'].sum(), 2),
         "avg_forecast": round(df['Forecasted Schedule (MAL)'].mean(), 2),
         "max_forecast": round(df['Forecasted Schedule (MAL)'].max(), 2),
     }
 
-
-
-    # =====================
-    # LABEL ENCODING
-    # =====================
     le_pool = LabelEncoder()
     le_energy = LabelEncoder()
-
     df['pool_code'] = le_pool.fit_transform(df['Pooling Station'])
     df['energy_code'] = le_energy.fit_transform(df['Energy type'])
 
-
-
-    # =====================
-    # ML MODEL
-    # =====================
     X = df[['Forecasted Schedule (MAL)', 'AVC', 'block_of_day', 'pool_code', 'energy_code']]
     y = df['Deviation_kW']
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
     model = RandomForestRegressor(n_estimators=120, random_state=42)
     model.fit(X_train, y_train)
@@ -5509,11 +5478,7 @@ def dsm_dashboard(request):
         "r2": round(r2_score(y_test, y_pred), 3),
     }
 
-
-
-    # =====================
-    # NEXT MONTH FORECAST
-    # =====================
+    # ===================== NEXT MONTH FORECAST =====================
     days = 30
     blocks = days * 96
 
@@ -5533,14 +5498,9 @@ def dsm_dashboard(request):
 
     next_month_dsm = round(future['predicted_dsm_rs'].sum(), 2)
 
-
-
-    # =====================
-    # CHARTS
-    # =====================
+    # ===================== CHARTS =====================
     os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
 
-    # current month
     plt.figure(figsize=(9, 4))
     df.groupby(df['DateTime'].dt.date)['Deviation_kW'].mean().plot()
     plt.title("Daily Deviation Trend")
@@ -5548,7 +5508,6 @@ def dsm_dashboard(request):
     plt.savefig(os.path.join(settings.MEDIA_ROOT, "dsm_trend.png"))
     plt.close()
 
-    # next month
     future["day"] = np.repeat(range(1, days + 1), 96)
     plt.figure(figsize=(9, 4))
     future.groupby("day")["predicted_deviation_kw"].mean().plot()
@@ -5557,7 +5516,6 @@ def dsm_dashboard(request):
     plt.savefig(os.path.join(settings.MEDIA_ROOT, "next_month_deviation.png"))
     plt.close()
 
-    # weekly
     df['Week'] = df['DateTime'].dt.isocalendar().week
     plt.figure(figsize=(7, 4))
     df.groupby("Week")["DSM_Charge_Rs"].sum().plot(kind="bar")
@@ -5566,15 +5524,7 @@ def dsm_dashboard(request):
     plt.savefig(os.path.join(settings.MEDIA_ROOT, "weekly_dsm.png"))
     plt.close()
 
-
-
-    # =====================
-    # HISTORY for modal
-    # =====================
     history = DSMResult.objects.filter(user=request.user).order_by("-created_at")
-
-
-
     messages.success(request, "DSM analytics processed successfully!")
 
     return render(request, "dsm.html", {
@@ -5587,9 +5537,6 @@ def dsm_dashboard(request):
         "weekly_img_url": settings.MEDIA_URL + "weekly_dsm.png",
         "history": history,
     })
-
-
-
 # ======================
 # HISTORY PAGE
 # ======================

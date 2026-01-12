@@ -161,100 +161,99 @@
 }
 </style>
 
-
-<!-- Dashboard Home -->
-<a class="nav-link navcontent  {% if request.path == '/wind_dashboard/' or request.path == '/' %}active{% endif %}"
+ <!-- Dashboard Home -->
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_dashboard' %}active{% endif %}"
    href="{% url 'wind_dashboard' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-house"></i></span>
   Dashboard Home
 </a>
 
 <!-- Installation Summary 1 -->
-<a class="nav-link navcontent {% if request.path == '/installation-summary-1/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_summary1' %}active{% endif %}"
    href="{% url 'wind_summary1' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-pie"></i></span>
   Install Summary
 </a>
 
 <!-- Installation Summary 2 -->
-<a class="nav-link navcontent {% if request.path == '/installation-summary-2/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_installation_summary2' %}active{% endif %}"
    href="{% url 'wind_installation_summary2' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-layer-group"></i></span>
   Capacity View
 </a>
 
-<!-- Generation Kwh -->
-<a class="nav-link navcontent {% if request.path == '/generation-kwh/' %}active{% endif %}"
+<!-- Generation kWh -->
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_generation_kwh' %}active{% endif %}"
    href="{% url 'wind_generation_kwh' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-bolt"></i></span>
   Energy (kWh)
 </a>
 
 <!-- Generation Hours -->
-<a class="nav-link navcontent {% if request.path == '/generation-hours/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_generation_hours' %}active{% endif %}"
    href="{% url 'wind_generation_hours' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-clock"></i></span>
   Gen Hours
 </a>
 
-<!-- Average Generation & Operating -->
-<a class="nav-link navcontent {% if request.path == '/avg-generation/' %}active{% endif %}"
+<!-- Average Performance -->
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_avg_genration' %}active{% endif %}"
    href="{% url 'wind_avg_genration' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-gauge-high"></i></span>
   Avg Performance
 </a>
 
 <!-- Grid Failure & Availability -->
-<a class="nav-link navcontent {% if request.path == '/grid-failure/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_Grid_Availability_and_Machine' %}active{% endif %}"
    href="{% url 'wind_Grid_Availability_and_Machine' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-plug-circle-xmark"></i></span>
   Grid & Machine
 </a>
 
 <!-- Drill Down -->
-<a class="nav-link navcontent {% if request.path == '/drill-down/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_drill_down' %}active{% endif %}"
    href="{% url 'wind_drill_down' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-magnifying-glass-chart"></i></span>
   Drill Down
 </a>
 
 <!-- Total Breakdown Hours -->
-<a class="nav-link navcontent {% if request.path == '/total-breakdown/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_breakdown_hours' %}active{% endif %}"
    href="{% url 'wind_breakdown_hours' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-screwdriver-wrench"></i></span>
   Breakdown Hrs
 </a>
 
 <!-- Breakdown Analysis -->
-<a class="nav-link navcontent {% if request.path == '/breakdown-2/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_breakdown_log' %}active{% endif %}"
    href="{% url 'wind_breakdown_log' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-calendar-check"></i></span>
   Breakdown Log
 </a>
 
 <!-- Overall Breakdown -->
-<a class="nav-link navcontent {% if request.path == '/overall-breakdown/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'dashboard_breakdown' %}active{% endif %}"
    href="{% url 'dashboard_breakdown' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-area"></i></span>
   Overall Breakdown
 </a>
 
 <!-- Avg Machine Availability -->
-<a class="nav-link navcontent {% if request.path == '/avg-machine-availability-2/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_Avg_Machine_Availability' %}active{% endif %}"
    href="{% url 'wind_Avg_Machine_Availability' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-gear"></i></span>
   Machine Avg
 </a>
 
 <!-- Avg Grid Availability -->
-<a class="nav-link navcontent {% if request.path == '/avg-grid-availability/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_Grid_Availability' %}active{% endif %}"
    href="{% url 'wind_Grid_Availability' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-tower-broadcast"></i></span>
   Grid Avg
 </a>
 
 <!-- PLF -->
-<a class="nav-link navcontent {% if request.path == '/plf/' %}active{% endif %}"
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_wtg_plf' %}active{% endif %}"
    href="{% url 'wind_wtg_plf' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-percent"></i></span>
   PLF

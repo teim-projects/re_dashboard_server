@@ -53,10 +53,10 @@
 
 /* KPI */
 .kpi {
-    padding: 28px;
+    padding: 10px;
     text-align: center;
     color: #fff;
-    border-radius: 20px;
+    border-radius: 10px;
     transition: all .25s ease;
 }
 
@@ -114,43 +114,53 @@
 </style>
 
 
-<div class="dashboard-wrapper">
+<div class="dashboard-wrapper mt-5">
+
 
     <!-- ============== HEADER ============== -->
-    <div class="dashboard-header mt-5">
+    <div class="dashboard-header mt-3">
         <div class="dashboard-title">
-            <h2><i class="fas fa-balance-scale text-primary"></i> DSM Analytics</h2>
-            <p>Deviation analysis, ML prediction & future DSM forecast</p>
+            {% if last_loaded %}
+<div class="  text-center fw-semibold  text-info" 
+     style="border-radius: 14px;">
+    📌 Showing last saved DSM calculation 
+    <strong>{{ last_date|date:"d M Y, h:i A" }}</strong>
+</div>
+{% endif %}
+            <!-- <h2><i class="fas fa-balance-scale text-primary"></i> DSM Analytics</h2> -->
+            <!-- <p>Deviation analysis, ML prediction & future DSM forecast</p> -->
         </div>
 
-        <div class="header-actions">
+<div class="header-actions d-flex align-items-center gap-2">
 
-            <button class="btn btn-outline-primary"
-                    data-bs-toggle="modal"
-                    data-bs-target="#historyModal">
-                <i class="fas fa-history"></i> History
-            </button>
+    <button class="btn btn-outline-primary"
+            data-bs-toggle="modal"
+            data-bs-target="#historyModal">
+        <i class="fas fa-history"></i> History
+    </button>
 
-            {% if forecast or model_metrics %}
-            <form method="post" class="ms-2">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="save">
+    {% if forecast or model_metrics %}
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save">
 
-                <input type="hidden" name="total_dsm" value="{{ total_dsm }}">
-                <input type="hidden" name="next_month_dsm" value="{{ next_month_dsm }}">
-                <input type="hidden" name="mae" value="{{ model_metrics.mae }}">
-                <input type="hidden" name="rmse" value="{{ model_metrics.rmse }}">
-                <input type="hidden" name="r2" value="{{ model_metrics.r2 }}">
-                <input type="hidden" name="forecast_total" value="{{ forecast.total_forecast }}">
-                <input type="hidden" name="forecast_avg" value="{{ forecast.avg_forecast }}">
-                <input type="hidden" name="forecast_max" value="{{ forecast.max_forecast }}">
+        <input type="hidden" name="total_dsm" value="{{ total_dsm }}">
+        <input type="hidden" name="next_month_dsm" value="{{ next_month_dsm }}">
+        <input type="hidden" name="mae" value="{{ model_metrics.mae }}">
+        <input type="hidden" name="rmse" value="{{ model_metrics.rmse }}">
+        <input type="hidden" name="r2" value="{{ model_metrics.r2 }}">
+        <input type="hidden" name="forecast_total" value="{{ forecast.total_forecast }}">
+        <input type="hidden" name="forecast_avg" value="{{ forecast.avg_forecast }}">
+        <input type="hidden" name="forecast_max" value="{{ forecast.max_forecast }}">
 
-                <button class="btn btn-success">
-                    <i class="fas fa-save"></i> Save Result
-                </button>
-            </form>
-            {% endif %}
-        </div>
+        <button class="btn btn-success">
+            <i class="fas fa-save"></i> Save Result
+        </button>
+    </form>
+    {% endif %}
+
+</div>
+
     </div>
 
 
