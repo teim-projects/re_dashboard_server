@@ -8,6 +8,7 @@ urlpatterns = [
     # Dashboard routing
     path('dashboard/', dashboard, name='dashboard'),          # 👈 add this
     path('wind-dashboard/', dashboard, name='wind_dashboard'),
+    path('biogas-dashboard/', dashboard, name='biogas_dashboard'),
 
     # Upload and Modify
     path('upload-files/', upload_files, name='upload_files'),

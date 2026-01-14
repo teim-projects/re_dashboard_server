@@ -171,11 +171,26 @@
   Dashboard Home
 </a>
 
+
+
+<!-- Installation Summary 1 -->
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_summary1' %}active{% endif %}"
+   href="{% url 'solar_summary1' %}">
+  <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-pie"></i></span>
+  Install Summary
+</a>
+
+<!-- Installation Summary 2 -->
+<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_installation_summary2' %}active{% endif %}"
+   href="{% url 'solar_installation_summary2' %}">
+  <span class="sidebar-icon solaricon"><i class="fa-solid fa-layer-group"></i></span>
+  Capacity View
+</a>
 <!-- Summary Dashboard -->
 <a class="nav-link navcontent {% if current == 'solar_summary_dashboard' %}active{% endif %}"
    href="{% url 'solar_summary_dashboard' %}">
   <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-pie"></i></span>
-  Summary Dashboard
+  Overall Dashboard
 </a>
 
 <!-- Generation Report -->

@@ -1366,7 +1366,6 @@ import pandas as pd
 from django.contrib.auth.models import User
 from accounts.models import EnergyType
 
-
 @login_required
 def upload_installation_data(request):
     customers = User.objects.filter(is_superuser=False)
@@ -1393,6 +1392,9 @@ def upload_installation_data(request):
         file_path = fs.path(filename)
 
         try:
+            # ==========================
+            #  READ FILE
+            # ==========================
             if filename.endswith('.csv'):
                 df = pd.read_csv(file_path)
             else:
@@ -1402,34 +1404,54 @@ def upload_installation_data(request):
             df['uploaded_by'] = request.user.username
             df['customer'] = user.username
             df['energy_type'] = energy_type.name
+
+            # Clean column names
             df.columns = [col.strip().replace(' ', '_').lower() for col in df.columns]
 
+            # ==========================
+            #  FIX EMPTY CELLS COMPLETELY
+            # ==========================
+            df = df.replace({np.nan: None, pd.NaT: None})
+            df = df.where(pd.notnull(df), None)
+            df = df.astype(object)
+
+            # Table name
             table_name = f"installation_summary_{slugify(energy_type.name)}"
 
-            # Fetch table columns from database
+            # Get DB columns
             with connection.cursor() as cursor:
                 cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
                 db_columns = [row[0] for row in cursor.fetchall()]
 
-            # Validate that uploaded columns match existing table
+            # Validate columns
             missing_cols = set(db_columns) - set(df.columns)
             if missing_cols:
                 messages.error(request, f"Uploaded file is missing columns: {', '.join(missing_cols)}")
                 return redirect('upload_installation_data')
 
-            # Reorder columns to match DB order
+            # Match DB column order
             df = df[db_columns]
 
+            # ==========================
+            #  INSERT INTO MYSQL
+            # ==========================
             with connection.cursor() as cursor:
                 for _, row in df.iterrows():
-                    columns = ", ".join(f"`{col}`" for col in df.columns)
-                    placeholders = ", ".join(["%s"] * len(row))
-                    values = list(row.values)
-                    cursor.execute(f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})", values)
+                    data = [None if (x is np.nan or x == '' or x is pd.NaT) else x for x in row.values]
+
+                    columns = ", ".join(f"`{c}`" for c in db_columns)
+                    placeholders = ", ".join(["%s"] * len(data))
+
+                    cursor.execute(
+                        f"INSERT INTO `{table_name}` ({columns}) VALUES ({placeholders})",
+                        data
+                    )
 
             messages.success(request, f"✅ Data uploaded successfully into `{table_name}`.")
+
         except Exception as e:
             messages.error(request, f"❌ Upload failed: {str(e)}")
+
         finally:
             fs.delete(filename)
 

@@ -2742,6 +2742,20 @@ from django.shortcuts import render
 import json
 import re
 
+
+def to_float(value):
+    """
+    Safely convert database values to float.
+    Handles '', None, '-', 'NA', etc.
+    """
+    try:
+        if value in (None, "", "-", "NA", "null", "NULL"):
+            return 0
+        return float(value)
+    except:
+        return 0
+
+
 def _pick(col_map, *candidates):
     """Return the actual column name if it matches any of the candidates"""
     for c in candidates:
@@ -4368,43 +4382,35 @@ def my_preventive_maintenance(request):
 
 
 
-
-
-
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.db import connection
-from datetime import date
-
-PM_WTG_TABLE = "preventive_maintenance_with_wtg"
-
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.db import connection
-from datetime import date
-
-PM_WTG_TABLE = "preventive_maintenance_with_wtg"
-
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.db import connection
-from datetime import date
-
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django.db import connection
 from django.utils import timezone
 
-PM_WTG_TABLE = "preventive_maintenance_with_wtg"
-
-from django.utils import timezone
-from datetime import timedelta
+from datetime import datetime, date, time, timedelta
 from dateutil.relativedelta import relativedelta
 
+PM_WTG_TABLE = "preventive_maintenance_with_wtg"
+
+
+# ============================================================
+# SAFE DATE → DATETIME CONVERSION
+# ============================================================
+def fix_datetime(dt):
+    """Convert DATE → DATETIME and make timezone aware."""
+    if isinstance(dt, date) and not isinstance(dt, datetime):
+        dt = datetime.combine(dt, time.min)
+
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+
+    return dt
+
+
+# ============================================================
+# REFRESH MAINTENANCE STATUS
+# ============================================================
 def refresh_pm_status(username):
     now = timezone.now()
 
@@ -4417,19 +4423,15 @@ def refresh_pm_status(username):
         rows = cursor.fetchall()
 
     for pm_id, completed_on, period, duration in rows:
+
         if not completed_on or not duration:
             continue
 
-        # 🔥 MAKE completed_on TIMEZONE-AWARE
-        if timezone.is_naive(completed_on):
-            completed_on = timezone.make_aware(
-                completed_on,
-                timezone.get_current_timezone()
-            )
-
+        # FIX CRITICAL ERROR
+        completed_on = fix_datetime(completed_on)
         duration = float(duration)
 
-        # ---- calculate next due ----
+        # ---- NEXT DUE CALCULATION ----
         if period == "Hourly":
             next_due = completed_on + timedelta(hours=duration)
 
@@ -4453,7 +4455,7 @@ def refresh_pm_status(username):
         else:
             continue
 
-        # ---- compare safely ----
+        # ---- UPDATE STATUS ----
         if now >= next_due:
             with connection.cursor() as cursor:
                 cursor.execute(f"""
@@ -4462,82 +4464,14 @@ def refresh_pm_status(username):
                     WHERE id=%s
                 """, [pm_id])
 
- 
-PM_WTG_TABLE = "preventive_maintenance_with_wtg"
 
-
-from datetime import timedelta
-from django.utils import timezone
-from dateutil.relativedelta import relativedelta
-
-def refresh_pm_status(username):
-    now = timezone.now()
-
-    with connection.cursor() as cursor:
-        cursor.execute(f"""
-            SELECT id, completed_on, checkpoints_period, duration
-            FROM preventive_maintenance_with_wtg
-            WHERE username=%s AND status='Completed'
-        """, [username])
-        rows = cursor.fetchall()
-
-    for pm_id, completed_on, period, duration in rows:
-        if not completed_on or not duration:
-            continue
-
-        # 🔧 FIX: make completed_on timezone-aware
-        if timezone.is_naive(completed_on):
-            completed_on = timezone.make_aware(
-                completed_on,
-                timezone.get_current_timezone()
-            )
-
-        duration = float(duration)
-
-        # -------- calculate next due --------
-        if period == "Hourly":
-            next_due = completed_on + timedelta(hours=duration)
-
-        elif period == "Daily":
-            days = int(duration)
-            hours = (duration - days) * 24
-            next_due = completed_on + timedelta(days=days, hours=hours)
-
-        elif period == "Weekly":
-            next_due = completed_on + timedelta(weeks=duration)
-
-        elif period == "Monthly":
-            next_due = completed_on + relativedelta(months=duration)
-
-        elif period == "Quarterly":
-            next_due = completed_on + relativedelta(months=3 * duration)
-
-        elif period == "Yearly":
-            next_due = completed_on + relativedelta(years=duration)
-
-        else:
-            continue
-
-        # -------- overdue → Pending --------
-        if now >= next_due:
-            with connection.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE preventive_maintenance_with_wtg
-                    SET status='Pending'
-                    WHERE id=%s
-                """, [pm_id])
-
-
-from django.utils import timezone
-from datetime import timedelta
-
-from django.utils import timezone
-
+# ============================================================
+# HUMAN READABLE TIME
+# ============================================================
 def humanize_due_time(next_due):
     now = timezone.now()
     delta = next_due - now
     seconds = int(delta.total_seconds())
-
     overdue = seconds < 0
     seconds = abs(seconds)
 
@@ -4554,40 +4488,33 @@ def humanize_due_time(next_due):
 
     return f"Overdue by {text}" if overdue else text
 
-from django.utils import timezone
-from datetime import timedelta
-from dateutil.relativedelta import relativedelta
 
+# ============================================================
+# UPCOMING MAINTENANCE LIST
+# ============================================================
 def get_upcoming_maintenance(username, limit=10):
     now = timezone.now()
     upcoming = []
 
     with connection.cursor() as cursor:
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT id, wtg_no, site, category, sub_category,
                    checkpoints_period, duration, completed_on
-            FROM preventive_maintenance_with_wtg
+            FROM `{PM_WTG_TABLE}`
             WHERE username=%s
         """, [username])
         rows = cursor.fetchall()
 
     for row in rows:
-        (pm_id, wtg, site, cat, sub_cat,
-         period, duration, completed_on) = row
+        pm_id, wtg, site, cat, sub_cat, period, duration, completed_on = row
 
         if not completed_on or not duration:
             continue
 
-        # ✅ timezone safety
-        if timezone.is_naive(completed_on):
-            completed_on = timezone.make_aware(
-                completed_on,
-                timezone.get_current_timezone()
-            )
-
+        completed_on = fix_datetime(completed_on)
         duration = float(duration)
 
-        # ---------- NEXT DUE CALCULATION ----------
+        # ---- NEXT DUE ----
         if period == "Hourly":
             next_due = completed_on + timedelta(hours=duration)
 
@@ -4618,27 +4545,26 @@ def get_upcoming_maintenance(username, limit=10):
             "category": cat,
             "sub_category": sub_cat,
             "next_due": next_due,
-            "due_in": humanize_due_time(next_due),   # ✅ NEW
+            "due_in": humanize_due_time(next_due),
             "status": "Overdue" if next_due < now else "Upcoming"
         })
 
-    # sort by nearest due
     upcoming.sort(key=lambda x: x["next_due"])
-
     return upcoming[:limit]
 
-# --------------------------------------------------
+
+# ============================================================
 # MAIN VIEW
-# --------------------------------------------------
+# ============================================================
 @login_required
 def user_completed_maintenance(request):
     user = request.user
     username = user.username
 
-    # 🔥 AUTO-CHECK DUE STATUS (THIS WAS MISSING)
+    # AUTO-UPDATE STATUS
     refresh_pm_status(username)
 
-    # ---------------- Filters ----------------
+    # FILTERS
     selected_energy = request.GET.get("energy_type")
     selected_mw = request.GET.get("mw")
     selected_period = request.GET.get("period")
@@ -4646,8 +4572,11 @@ def user_completed_maintenance(request):
     selected_wtg = request.GET.get("wtg_no")
 
     energy_types, mw_list, periods, sites, wtgs = [], [], [], [], []
+
     upcoming_pm = get_upcoming_maintenance(username, limit=10)
+
     with connection.cursor() as cursor:
+
         cursor.execute(
             f"SELECT DISTINCT energy_type FROM `{PM_WTG_TABLE}` WHERE username=%s",
             [username]
@@ -4684,12 +4613,11 @@ def user_completed_maintenance(request):
                 f"""SELECT DISTINCT wtg_no FROM `{PM_WTG_TABLE}`
                     WHERE username=%s AND energy_type=%s AND mw=%s
                       AND checkpoints_period=%s AND site=%s""",
-                [username, selected_energy, selected_mw,
-                 selected_period, selected_site]
+                [username, selected_energy, selected_mw, selected_period, selected_site]
             )
             wtgs = [r[0] for r in cursor.fetchall() if r[0]]
 
-    # ---------------- Fetch Records ----------------
+    # FETCH RECORDS
     records = []
     if all([selected_energy, selected_mw, selected_period, selected_site, selected_wtg]):
         with connection.cursor() as cursor:
@@ -4705,10 +4633,19 @@ def user_completed_maintenance(request):
                 username, selected_energy, selected_mw,
                 selected_period, selected_site, selected_wtg
             ])
-            cols = [c[0] for c in cursor.description]
-            records = [dict(zip(cols, r)) for r in cursor.fetchall()]
 
-    # ---------------- Completion ----------------
+            cols = [c[0] for c in cursor.description]
+            rows = cursor.fetchall()
+
+            for r in rows:
+                data = dict(zip(cols, r))
+
+                if data["completed_on"]:
+                    data["completed_on"] = fix_datetime(data["completed_on"])
+
+                records.append(data)
+
+    # MARK COMPLETE
     if request.method == "POST" and request.POST.get("complete_id"):
         complete_id = request.POST.get("complete_id")
         remarks = request.POST.get("remarks", "").strip()
@@ -4721,13 +4658,10 @@ def user_completed_maintenance(request):
                     completed_on=%s
                 WHERE id=%s AND username=%s
             """, [
-                remarks,
-                timezone.now(),
-                complete_id,
-                username
+                remarks, timezone.now(), complete_id, username
             ])
 
-        messages.success(request, "✅ Maintenance marked as completed.")
+        messages.success(request, "Maintenance marked as completed.")
         return redirect("user_completed_maintenance")
 
     return render(request, "user_completed_maintenance.html", {
@@ -4744,8 +4678,6 @@ def user_completed_maintenance(request):
         "selected_wtg": selected_wtg,
         "upcoming_pm": upcoming_pm,
     })
-
-
 
 
 from django.contrib.auth.decorators import login_required
@@ -5398,10 +5330,6 @@ def dsm_dashboard(request):
                     "avg_forecast": last.forecast_avg,
                     "max_forecast": last.forecast_max,
                 },
-                "last_loaded": True,
-                "last_date": last.created_at,
-
-                
                 "img_url": settings.MEDIA_URL + "dsm_trend.png",
                 "next_img_url": settings.MEDIA_URL + "next_month_deviation.png",
                 "weekly_img_url": settings.MEDIA_URL + "weekly_dsm.png",

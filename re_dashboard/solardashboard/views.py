@@ -18,14 +18,14 @@ from django.db.utils import ProgrammingError
 
 @login_required
 def solar_summary1(request):
-    table_name = "installation_summary_wind"
+    table_name = "installation_summary_solar"
     data = {
         "capacity_by_state": [],
         "land_type_by_state": [],
-        "wtg_generation": [],
+        "solar_generation": [],   # renamed for clarity
         "power_sale": [],
     }
-    table_exists = True  # flag for SweetAlert
+    table_exists = True
 
     try:
         with connection.cursor() as cursor:
@@ -45,12 +45,12 @@ def solar_summary1(request):
             """)
             data["land_type_by_state"] = cursor.fetchall()
 
-            # Estimated generation WTG wise
+            # Estimated generation Solar location-wise 
             cursor.execute(f"""
-                SELECT wtg_location_no, avg_estimate_gen_kwh
+                SELECT solar_location_no, avg_estimate_gen_kwh
                 FROM `{table_name}`
             """)
-            data["wtg_generation"] = cursor.fetchall()
+            data["solar_generation"] = cursor.fetchall()
 
             # Power sale by state
             cursor.execute(f"""
@@ -60,7 +60,6 @@ def solar_summary1(request):
             data["power_sale"] = cursor.fetchall()
 
     except ProgrammingError:
-        # Table not found
         table_exists = False
 
     return render(request, "solar_summary1.html", {
@@ -74,14 +73,20 @@ def solar_summary1(request):
 import json
 from django.shortcuts import render
 from django.db import connection
+
+
+import json
+from django.shortcuts import render
+from django.db import connection
+from django.contrib.auth.decorators import login_required
+
 @login_required
 def solar_installation_summary2(request):
-    table_name = "installation_summary_wind"   # 👈 Change if needed
-
-    data = {}
+    table_name = "installation_summary_solar"
 
     with connection.cursor() as cursor:
-        # Power Sale summary
+
+        # 1️⃣ Power Sale Count
         cursor.execute(f"""
             SELECT power_sale_details, COUNT(*) AS cnt
             FROM `{table_name}`
@@ -89,7 +94,7 @@ def solar_installation_summary2(request):
         """)
         power_sale_data = cursor.fetchall()
 
-        # Land summary
+        # 2️⃣ Land Count
         cursor.execute(f"""
             SELECT land, COUNT(*) AS cnt
             FROM `{table_name}`
@@ -97,25 +102,39 @@ def solar_installation_summary2(request):
         """)
         land_data = cursor.fetchall()
 
-    # Prepare for Chart.js
-    power_sale_labels = [row[0] for row in power_sale_data]
-    power_sale_values = [row[1] for row in power_sale_data]
+        # 3️⃣ Solar Locations Table
+        cursor.execute(f"""
+            SELECT Solar_location_no, avg_estimate_gen_kwh
+            FROM `{table_name}`
+        """)
+        solar_locations = cursor.fetchall()
 
-    land_labels = [row[0] for row in land_data]
-    land_values = [row[1] for row in land_data]
+        # 4️⃣ OEM Breakup
+        cursor.execute(f"""
+            SELECT capacity_mw, firm, make, COUNT(Solar_location_no) AS loc_count
+            FROM `{table_name}`
+            GROUP BY capacity_mw, firm, make
+        """)
+        oem_breakup = cursor.fetchall()
+
+    # Convert chart values to JSON
+    data = {
+        "power_sale_labels": [row[0] for row in power_sale_data],
+        "power_sale_counts": [row[1] for row in power_sale_data],
+
+        "land_labels": [row[0] for row in land_data],
+        "land_counts": [row[1] for row in land_data],
+    }
 
     context = {
-        "power_sale_labels": json.dumps(power_sale_labels),
-        "power_sale_values": json.dumps(power_sale_values),
-        "land_labels": json.dumps(land_labels),
-        "land_values": json.dumps(land_values),
+        "data": json.dumps(data),
+        "solar_locations": solar_locations,
+        "oem_breakup": oem_breakup,
+        "no_data": len(solar_locations) == 0,
+        "no_data_msg": "No solar installation records available."
     }
+
     return render(request, "solar_installation_summary2.html", context)
-
-
-
-
-
 
 
 
