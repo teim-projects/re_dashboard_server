@@ -15,9 +15,131 @@
   <title>{% block title %}Renewable Energy Dashboard{% endblock %}</title>
 
   <style>
-    body {
-      background-color: #f6f9fc;
-    }
+    /* ===== Sidebar Base ===== */
+.fixed-panel{
+  background: linear-gradient(180deg,#1c1423,#24152f);
+  padding:20px 14px;
+  height:100vh;
+  overflow-y:auto;
+  color:#fff;
+  scrollbar-width:none;
+}
+.fixed-panel::-webkit-scrollbar{ display:none; }
+
+/* Remove link underline globally */
+.fixed-panel a{
+  text-decoration:none !important;
+}
+
+/* ===== Section Card ===== */
+.modern-menu-toggle{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 16px;
+  margin:10px 6px;
+  border-radius:14px;
+  cursor:pointer;
+  background:rgba(255,255,255,0.03);
+  backdrop-filter:blur(6px);
+  transition:.35s ease;
+  border:1px solid rgba(255,255,255,0.04);
+}
+
+.modern-menu-toggle:hover{
+  background:rgba(0,168,255,0.12);
+  transform:translateX(4px);
+}
+
+/* Active Section Highlight */
+.modern-menu-toggle[aria-expanded="true"]{
+  background:linear-gradient(90deg,#00a8ff22,#00a8ff11);
+  border:1px solid #00a8ff55;
+}
+
+/* Left Side */
+.modern-menu-left{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-weight:600;
+  color:#e6f4ff;
+}
+
+/* Main Icon */
+.modern-menu-left i{
+  width:34px;
+  height:34px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:8px;
+  background:linear-gradient(135deg,#00a8ff,#5f27cd);
+  color:white;
+  font-size:14px;
+}
+
+/* Arrow Animation */
+.modern-menu-arrow{
+  color:#7dd3fc;
+  transition:.35s;
+}
+.modern-menu-toggle[aria-expanded="true"] .modern-menu-arrow{
+  transform:rotate(90deg) scale(1.1);
+}
+
+/* ===== Submenu ===== */
+.modern-submenu{
+  padding-left:48px;
+  margin-top:4px;
+}
+
+.modern-submenu a{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:9px 10px;
+  margin:5px 0;
+  border-radius:8px;
+  color:#b9d6e8;
+  font-size:14px;
+  transition:.25s;
+}
+
+/* Submenu Icons */
+.modern-submenu a i{
+  font-size:12px;
+  color:#38bdf8;
+}
+
+/* Hover */
+.modern-submenu a:hover{
+  background:#00a8ff1a;
+  color:#7dd3fc;
+  transform:translateX(3px);
+}
+
+/* Active Page */
+.modern-submenu a.active{
+  background:linear-gradient(90deg,#00a8ff,#007bff);
+  color:#fff;
+  box-shadow:0 4px 14px rgba(0,168,255,.4);
+}
+
+/* Dashboard Button */
+.fixed-panel .nav-link{
+  background:#ffffff;
+  border-radius:14px;
+  padding:12px;
+  font-weight:600;
+  margin:10px;
+  box-shadow:0 6px 18px rgba(0,0,0,.25);
+  text-align:center;
+}
+.fixed-panel .nav-link.active{
+  background:linear-gradient(90deg,#00a8ff,#007bff);
+  color:#fff!important;
+}
 
     .sidebar-toggle {
       display: none;
@@ -60,62 +182,6 @@
         z-index: 1040;
       }
     }
-
-
-
-.fixed-panel {
-  background-color: rgb(31, 22, 37);
-  color: white;
-  padding: 20px 10px;
-  overflow-y: auto;
-  height: 100vh;
-
-  /* Firefox */
-  scrollbar-width: none;   /* hides scrollbar */
-  -ms-overflow-style: none; /* IE/Edge */
-}
-
-/* Chrome, Edge, Safari */
-.fixed-panel::-webkit-scrollbar {
-  display: none; /* hides scrollbar */
-}
-
-.fixed-panel .nav-link {
-  color: #000000;
-  background-color: #ffffff;
-  margin: 10px auto;          /* ✅ center horizontally */
-  border-radius: 10px;
-  font-weight: bold;
-  padding: 10px;
-  box-shadow: 0 5px 6px rgb(0 0 0 / 30%);
-  transition: box-shadow 0.2s ease;
-  font-size: 13px;
-  max-width: 200px;
- }
-
-
-    .fixed-panel .nav-link:hover {
-      box-shadow: 0 6px 10px rgba(255, 254, 254, 0.5);
-    }
-
-
-    .fixed-panel .nav-link.active {
-      background-color: #2196f3;
-      color: white !important;
-      box-shadow: 0 6px 10px rgba(255, 254, 254, 0.5);
-
-    }
-
-    .content-wrapper {
-      
-        height: 100vh;
-      overflow: auto;
-     }
-
- 
-    
-
-
   </style>
 
   {% block style_css %}{% endblock %}
@@ -134,13 +200,12 @@
 
       <!-- Sidebar -->
       <div class="col-md-3 col-12   col-lg-2 col-xl-2 col-xxl-3 p-0 box1">
-        <div class="fixed-panel" id="dashboardPanel">
-          {% block fixedcontent %}
-<h4 class="text-white mb-4 text-center mt-4 shadow mb-3" style="padding-top: 40px !important;">
+   <div class="fixed-panel" id="dashboardPanel">
+{% block fixedcontent %}
+
+<h4 class="text-white text-center mt-4 mb-4" style="padding-top:50px;">
     <i class="fa-solid fa-desktop"></i> Dashboard
 </h4>
-  
- 
 
 <style>
 .solaricon {
@@ -148,112 +213,286 @@
     background: linear-gradient(45deg, #00a8ff, #fbc531);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    padding-right: 20px;
+    padding-right: 12px;
+}
+
+.sidebar-dropdown {
+    color: #fff;
+    font-weight: 600;
+    padding: 10px 15px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin: 5px 10px;
+    transition: 0.3s;
+}
+
+.sidebar-dropdown:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.submenu a {
+    padding-left: 35px !important;
+    font-size: 14px;
 }
 </style>
 
- <!-- Dashboard Home -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_dashboard' %}active{% endif %}"
-   href="{% url 'wind_dashboard' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-house"></i></span>
-  Dashboard Home
+<!-- ================= Dashboard Home ================= -->
+ 
+
+
+ 
+<a class="modern-menu-toggle "
+   data-bs-toggle="collapse"
+   href="#installationMenu"
+   aria-expanded="{% if request.resolver_match.url_name == 'wind_summary1' or request.resolver_match.url_name == 'wind_installation_summary2' %}true{% else %}false{% endif %}">
+
+   <span class="modern-menu-left">
+      <i class="fa-solid fa-layer-group"></i>
+      Installation
+   </span>
+
+   <i class="fa-solid fa-angle-right modern-menu-arrow"></i>
 </a>
 
-<!-- Installation Summary 1 -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_summary1' %}active{% endif %}"
-   href="{% url 'wind_summary1' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-pie"></i></span>
-  Install Summary
+<div id="installationMenu"
+     class="collapse {% if request.resolver_match.url_name == 'wind_summary1' or request.resolver_match.url_name == 'wind_installation_summary2' %}show{% endif %}">
+
+   <div class="modern-submenu">
+
+       <a href="{% url 'wind_summary1' %}">
+          <i class="fa-solid fa-diagram-project"></i>
+          Project Details
+       </a>
+
+       <a href="{% url 'wind_installation_summary2' %}">
+          <i class="fa-solid fa-chart-column"></i>
+          Capacity View
+       </a>
+
+   </div>
+</div>
+
+
+
+<!-- ================= Project Performance ================= -->
+
+<a class="modern-menu-toggle"
+data-bs-toggle="collapse"
+href="#performanceMenu"
+role="button"
+aria-expanded="{% if request.resolver_match.url_name == 'wind_generation_kwh' or request.resolver_match.url_name == 'wind_generation_hours' or request.resolver_match.url_name == 'wind_avg_genration' or request.resolver_match.url_name == 'wind_wtg_plf' or request.resolver_match.url_name == 'wind_drill_down' %}true{% else %}false{% endif %}">
+
+   <span class="modern-menu-left">
+      <i class="fa-solid fa-bolt"></i>
+        Performance
+   </span>
+
+<i class="fa-solid fa-angle-right modern-menu-arrow"></i> </a>
+
+<div id="performanceMenu"
+     class="collapse {% if request.resolver_match.url_name == 'wind_generation_kwh' or request.resolver_match.url_name == 'wind_generation_hours' or request.resolver_match.url_name == 'wind_avg_genration' or request.resolver_match.url_name == 'wind_wtg_plf' or request.resolver_match.url_name == 'wind_drill_down' %}show{% endif %}">
+
+   <div class="modern-submenu">
+
+ 
+   <a class="{% if request.resolver_match.url_name == 'wind_generation_kwh' %}active{% endif %}"
+      href="{% url 'wind_generation_kwh' %}">
+      <i class="fa-solid fa-bolt-lightning"></i>
+      Energy (kWh)
+   </a>
+
+   <a class="{% if request.resolver_match.url_name == 'wind_generation_hours' %}active{% endif %}"
+      href="{% url 'wind_generation_hours' %}">
+      <i class="fa-solid fa-clock"></i>
+      Generation Hours
+   </a>
+
+   <a class="{% if request.resolver_match.url_name == 'wind_avg_genration' %}active{% endif %}"
+      href="{% url 'wind_avg_genration' %}">
+      <i class="fa-solid fa-gauge-high"></i>
+      Avg Performance
+   </a>
+
+   <a class="{% if request.resolver_match.url_name == 'wind_wtg_plf' %}active{% endif %}"
+      href="{% url 'wind_wtg_plf' %}">
+      <i class="fa-solid fa-percent"></i>
+      PLF
+   </a>
+
+   <a class="{% if request.resolver_match.url_name == 'wind_drill_down' %}active{% endif %}"
+      href="{% url 'wind_drill_down' %}">
+      <i class="fa-solid fa-magnifying-glass-chart"></i>
+      Drill Down
+   </a>
+ 
+
+   </div>
+</div>
+
+ 
+<a class="modern-menu-toggle"
+   data-bs-toggle="collapse"
+   href="#gridMenu">
+
+   <span class="modern-menu-left">
+      <i class="fa-solid fa-plug-circle-check"></i>
+      Grid & Machine
+   </span>
+
+   <i class="fa-solid fa-angle-right modern-menu-arrow"></i>
 </a>
 
-<!-- Installation Summary 2 -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_installation_summary2' %}active{% endif %}"
-   href="{% url 'wind_installation_summary2' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-layer-group"></i></span>
-  Capacity View
-</a>
+<div id="gridMenu"
+     class="collapse {% if request.resolver_match.url_name == 'wind_Grid_Availability_and_Machine' or request.resolver_match.url_name == 'wind_Avg_Machine_Availability' or request.resolver_match.url_name == 'wind_Grid_Availability' %}show{% endif %}">
 
-<!-- Generation kWh -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_generation_kwh' %}active{% endif %}"
-   href="{% url 'wind_generation_kwh' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-bolt"></i></span>
-  Energy (kWh)
-</a>
+   <div class="modern-submenu">
 
-<!-- Generation Hours -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_generation_hours' %}active{% endif %}"
-   href="{% url 'wind_generation_hours' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-clock"></i></span>
-  Gen Hours
-</a>
+       <a href="{% url 'wind_Grid_Availability_and_Machine' %}">
+          <i class="fa-solid fa-chart-line"></i>
+          Combined View
+       </a>
 
-<!-- Average Performance -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_avg_genration' %}active{% endif %}"
-   href="{% url 'wind_avg_genration' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-gauge-high"></i></span>
-  Avg Performance
-</a>
+       <a href="{% url 'wind_Avg_Machine_Availability' %}">
+          <i class="fa-solid fa-gear"></i>
+          Machine Avg
+       </a>
 
-<!-- Grid Failure & Availability -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_Grid_Availability_and_Machine' %}active{% endif %}"
-   href="{% url 'wind_Grid_Availability_and_Machine' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-plug-circle-xmark"></i></span>
-  Grid & Machine
-</a>
+       <a href="{% url 'wind_Grid_Availability' %}">
+          <i class="fa-solid fa-tower-broadcast"></i>
+          Grid Avg
+       </a>
 
-<!-- Drill Down -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_drill_down' %}active{% endif %}"
-   href="{% url 'wind_drill_down' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-magnifying-glass-chart"></i></span>
-  Drill Down
-</a>
+   </div>
+</div>
 
-<!-- Total Breakdown Hours -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_breakdown_hours' %}active{% endif %}"
-   href="{% url 'wind_breakdown_hours' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-screwdriver-wrench"></i></span>
-  Breakdown Hrs
-</a>
 
-<!-- Breakdown Analysis -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_breakdown_log' %}active{% endif %}"
-   href="{% url 'wind_breakdown_log' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-calendar-check"></i></span>
-  Breakdown Log
-</a>
 
-<!-- Overall Breakdown -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'dashboard_breakdown' %}active{% endif %}"
-   href="{% url 'dashboard_breakdown' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-chart-area"></i></span>
-  Overall Breakdown
-</a>
 
-<!-- Avg Machine Availability -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_Avg_Machine_Availability' %}active{% endif %}"
-   href="{% url 'wind_Avg_Machine_Availability' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-gear"></i></span>
-  Machine Avg
-</a>
+<!-- ================= Breakdown ================= -->
 
-<!-- Avg Grid Availability -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_Grid_Availability' %}active{% endif %}"
-   href="{% url 'wind_Grid_Availability' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-tower-broadcast"></i></span>
-  Grid Avg
-</a>
+<a class="modern-menu-toggle"
+data-bs-toggle="collapse"
+href="#breakdownMenu"
+role="button"
+aria-expanded="{% if request.resolver_match.url_name == 'wind_breakdown_hours' or request.resolver_match.url_name == 'wind_breakdown_log' or request.resolver_match.url_name == 'dashboard_breakdown' %}true{% else %}false{% endif %}">
 
-<!-- PLF -->
-<a class="nav-link navcontent {% if request.resolver_match.url_name == 'wind_wtg_plf' %}active{% endif %}"
-   href="{% url 'wind_wtg_plf' %}">
-  <span class="sidebar-icon solaricon"><i class="fa-solid fa-percent"></i></span>
-  PLF
-</a>
+   <span class="modern-menu-left">
+      <i class="fa-solid fa-screwdriver-wrench"></i>
+      Breakdown
+   </span>
 
-          </nav>
+<i class="fa-solid fa-angle-right modern-menu-arrow"></i> </a>
 
-          {% endblock %}
-        </div>
+<div id="breakdownMenu"
+     class="collapse {% if request.resolver_match.url_name == 'wind_breakdown_hours' or request.resolver_match.url_name == 'wind_breakdown_log' or request.resolver_match.url_name == 'dashboard_breakdown' %}show{% endif %}">
+
+   <div class="modern-submenu">
+
+ 
+   <a class="{% if request.resolver_match.url_name == 'wind_breakdown_hours' %}active{% endif %}"
+      href="{% url 'wind_breakdown_hours' %}">
+      <i class="fa-solid fa-hourglass-half"></i>
+      Breakdown Hours
+   </a>
+
+   <a class="{% if request.resolver_match.url_name == 'wind_breakdown_log' %}active{% endif %}"
+      href="{% url 'wind_breakdown_log' %}">
+      <i class="fa-solid fa-clipboard-list"></i>
+      Breakdown Log
+   </a>
+
+   <a class="{% if request.resolver_match.url_name == 'dashboard_breakdown' %}active{% endif %}"
+      href="{% url 'dashboard_breakdown' %}">
+      <i class="fa-solid fa-chart-area"></i>
+      Overall Breakdown
+   </a>
+
+      <a class="{% if request.resolver_match.url_name == 'breakdown_analysis' %}active{% endif %}"
+      href="{% url 'breakdown_analysis' %}">
+      <i class="fa-solid fa-chart-area"></i>
+       Breakdown Analysis
+   </a>
+ 
+
+   </div>
+</div>
+<!-- ================= DSM Charges & Trend ================= -->
+
+<a class="modern-menu-toggle"
+data-bs-toggle="collapse"
+href="#dsmMenu"
+role="button"
+aria-expanded="{% if request.resolver_match.url_name == 'wind_dsm_charges' or request.resolver_match.url_name == 'wind_dsm_trend' %}true{% else %}false{% endif %}">
+
+   <span class="modern-menu-left">
+      <i class="fa-solid fa-indian-rupee-sign"></i>
+      DSM Charges
+   </span>
+
+<i class="fa-solid fa-angle-right modern-menu-arrow"></i> </a>
+
+<div id="dsmMenu"
+     class="collapse {% if request.resolver_match.url_name == 'dsm_dashboard' or request.resolver_match.url_name == 'wind_dsm_trend' %}show{% endif %}">
+
+   <div class="modern-submenu">
+
+ 
+   <a class="{% if request.resolver_match.url_name == 'dsm_dashboard' %}active{% endif %}"
+      href="{% url 'dsm_dashboard' %}">
+      <i class="fa-solid fa-file-invoice-dollar"></i>
+      DSM Charges
+   </a>
+
+    
+
+   </div>
+</div>
+
+
+
+
+
+<!-- ================= Reports & Tools ================= -->
+
+<a class="modern-menu-toggle"
+data-bs-toggle="collapse"
+href="#reportsToolsMenu"
+role="button"
+aria-expanded="{% if request.resolver_match.url_name == 'user_pm_report_dashboard' or request.resolver_match.url_name == 'calculation_history' %}true{% else %}false{% endif %}">
+
+   <span class="modern-menu-left">
+      <i class="fa-solid fa-chart-pie"></i>
+      Reports & Tools
+   </span>
+
+<i class="fa-solid fa-angle-right modern-menu-arrow"></i> </a>
+
+<div id="reportsToolsMenu"
+     class="collapse {% if request.resolver_match.url_name == 'user_pm_report_dashboard' or request.resolver_match.url_name == 'calculation_history' %}show{% endif %}">
+
+   <div class="modern-submenu">
+
+ 
+   <a class="{% if request.resolver_match.url_name == 'user_pm_report_dashboard' %}active{% endif %}"
+      href="{% url 'user_pm_report_dashboard' %}">
+<i class="fa-solid fa-clipboard-check"></i>
+      PM Report  
+   </a>
+
+   <a class="{% if request.resolver_match.url_name == 'calculation_history' %}active{% endif %}"
+      href="{% url 'calculation_history' %}">
+      <i class="fa-solid fa-clock-rotate-left"></i>
+      OA Calculation  
+   </a>
+ 
+
+   </div>
+</div>
+
+
+{% endblock %}
+</div>
+
       </div>
 
       <!-- Main content -->
